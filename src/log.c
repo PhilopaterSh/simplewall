@@ -32,7 +32,7 @@ static BOOLEAN _app_log_getsecurityattributes (
 		return FALSE;
 	}
 
-	token_user = _r_mem_alloc (return_length);
+	token_user = _r_mem_allocate (return_length);
 
 	if (!GetTokenInformation (htoken, TokenUser, token_user, return_length, &return_length))
 	{
@@ -61,7 +61,7 @@ static BOOLEAN _app_log_getsecurityattributes (
 
 		if (SetEntriesInAclW (RTL_NUMBER_OF (explicit_access), explicit_access, NULL, &dacl) == ERROR_SUCCESS)
 		{
-			*psd = _r_mem_alloc (sizeof (SECURITY_DESCRIPTOR));
+			*psd = _r_mem_allocate (sizeof (SECURITY_DESCRIPTOR));
 
 			if (InitializeSecurityDescriptor (*psd, SECURITY_DESCRIPTOR_REVISION) && SetSecurityDescriptorDacl (*psd, TRUE, dacl, FALSE))
 			{

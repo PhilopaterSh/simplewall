@@ -13,6 +13,6 @@
 - [x] T011 Validate `WM_NOTIFICATION` by re-acquiring the object via the apps-table lookup; ignore and log unknown pointers (FR-08)
 - [x] T012 Create the connection log with an explicit user+admins SECURITY_ATTRIBUTES and add a one-time `SetSecurityInfo` migration for pre-existing log files at startup (FR-09, SEC-06)
 - [x] T013 Mark the profile "encrypted" mode as obfuscation-only in a code comment; no format change (DEC-06, RSK-01)
-- [ ] T014 Write the automated smoke-test procedures (planted internal file, posted KILL/special-rules messages, bogus WM_NOTIFICATION pointer, idle-token privilege audit) as a runnable helper + doc (FR-03, FR-07, FR-08, FR-05)
-- [ ] T015 Write the manual verification procedures (degraded-state observation, tri-state transaction contract review, medium-IL viewer check, happy-path regression pass) into docs/specs/hardening-round-1/verification.md (RSK-00, FR-01, FR-02, FR-04, NFR-01, NFR-03)
-- [ ] T016 Compile all touched files with `/W4` + `/analyze` and fix every warning; keep the MSVC build green (NFR-02)
+- [x] T014 Write the automated smoke-test procedures (planted internal file, posted KILL/special-rules messages, bogus WM_NOTIFICATION pointer, idle-token privilege audit) as a runnable helper + doc (FR-03, FR-07, FR-08, FR-05) *(delivered as tools/hardening-smoke-tests.ps1: FR-08 automated, FR-07 semi-automated, FR-03 semi-automated; FR-05 audit is manual per verification.md)*
+- [x] T015 Write the manual verification procedures (degraded-state observation, tri-state transaction contract review, medium-IL viewer check, happy-path regression pass) into docs/specs/hardening-round-1/verification.md (RSK-00, FR-01, FR-02, FR-04, NFR-01, NFR-03)
+- [ ] T016 Compile all touched files with `/W4` + `/analyze` and fix every warning; keep the MSVC build green (NFR-02) *(blocked on environment: MSVC + ..\routine submodule absent in authoring environment — exact steps in verification.md § NFR-02)*
