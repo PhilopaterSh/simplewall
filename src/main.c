@@ -2142,11 +2142,46 @@ INT_PTR CALLBACK DlgProc (
 
 		case WM_NOTIFICATION:
 		{
+			PITEM_APP ptr_app;
+			PITEM_LOG ptr_log;
 			HWND hnotify;
+			ULONG_PTR enum_key;
+			BOOLEAN is_known;
+
+			ptr_log = (PITEM_LOG)lparam;
+
+			// hardening round 1 (FR-08): WM_NOTIFICATION carries a pointer
+			// through a window message any same-desktop process can post;
+			// re-acquire it through the apps table instead of trusting
+			// lparam, and ignore+log unknown pointers
+			is_known = FALSE;
+
+			if (ptr_log)
+			{
+				_r_queuedlock_acquireshared (&lock_apps);
+
+				while (_r_obj_enumhashtablepointer (apps_table, (PVOID_PTR)&ptr_app, NULL, &enum_key))
+				{
+					if (ptr_app->notification == ptr_log)
+					{
+						is_known = TRUE;
+						break;
+					}
+				}
+
+				_r_queuedlock_releaseshared (&lock_apps);
+			}
+
+			if (!is_known)
+			{
+				_r_log (LOG_LEVEL_WARNING, NULL, L"WM_NOTIFICATION", L"unrecognized log pointer ignored", 0);
+
+				return 0;
+			}
 
 			if (_r_queuedlock_tryacquireexclusive (&lock_notify))
 			{
-				hnotify = _app_notify_getwindow ((PITEM_LOG)_r_obj_reference ((PITEM_LOG)lparam));
+				hnotify = _app_notify_getwindow ((PITEM_LOG)_r_obj_reference (ptr_log));
 
 				_r_queuedlock_releaseexclusive (&lock_notify);
 

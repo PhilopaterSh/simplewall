@@ -1190,19 +1190,25 @@ INT_PTR CALLBACK NotificationProc (
 		{
 			INT ctrl_id = LOWORD (wparam);
 
-			if (ctrl_id >= IDX_RULES_SPECIAL && ctrl_id <= IDX_RULES_SPECIAL + (INT)(INT_PTR)_r_obj_getlistsize (rules_list) + 1)
-			{
-				PITEM_RULE ptr_rule;
-				PITEM_APP ptr_app;
-				PITEM_LOG ptr_log;
-				PR_STRING rule;
-				PR_LIST rules;
-				HWND hmain;
-				ULONG_PTR rule_idx;
-				ULONG app_hash;
-				BOOLEAN is_remove;
+				if (ctrl_id >= IDX_RULES_SPECIAL && ctrl_id <= IDX_RULES_SPECIAL + (INT)(INT_PTR)_r_obj_getlistsize (rules_list) + 1)
+				{
+					PITEM_RULE ptr_rule;
+					PITEM_APP ptr_app;
+					PITEM_LOG ptr_log;
+					PR_STRING rule;
+					PR_LIST rules;
+					HWND hmain;
+					ULONG_PTR rule_idx;
+					ULONG app_hash;
+					BOOLEAN is_remove;
 
-				app_hash = _app_notify_getapp_id (hwnd);
+					// hardening round 1 (FR-07/SEC-05): rule-minting from the
+					// notification window is gated like ALLOW/BLOCK — no
+					// action before the safety timer arms the window
+					if (!_r_ctrl_isenabled (hwnd, IDC_ALLOW_BTN))
+						return FALSE;
+
+					app_hash = _app_notify_getapp_id (hwnd);
 				ptr_app = _app_getappitem (app_hash);
 
 				if (!ptr_app)
@@ -1369,7 +1375,9 @@ INT_PTR CALLBACK NotificationProc (
 
 				case IDC_KILLPROCESS_BTN:
 				{
-					if (_app_notify_killprocess (hwnd))
+					// hardening round 1 (FR-07/SEC-05): gated like ALLOW/BLOCK —
+					// no kill before the safety timer arms the window
+					if (_r_ctrl_isenabled (hwnd, ctrl_id) && _app_notify_killprocess (hwnd))
 						_r_ctrl_enable (hwnd, ctrl_id, FALSE);
 
 					break;

@@ -60,6 +60,11 @@ static const BYTE profile2_fourcc[] = {
 #define PROFILE2_ID_COMPRESSED ((BYTE)(0x31))
 #define PROFILE2_ID_ENCRYPTED ((BYTE)(0x32))
 
+// hardening round 1 (DEC-06/RSK-01): this key is obfuscation, not
+// protection — it is compiled into the binary, so any tool can decrypt a
+// profile encrypted with it. No credential-like data is stored in
+// profiles; DPAPI migration is deferred (RSK-01). The profile format is
+// unchanged this round.
 #define PROFILE2_KEY_DEPRECATED "Gc(j1EptodnKP?{ZT!SlMVip[fJIs&Ci3fOqjATfp@h,q0(]QVaGs5Iht3)/b:Ll"
 
 #define PROFILE2_FOURCC sizeof (profile2_fourcc)

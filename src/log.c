@@ -3,10 +3,97 @@
 
 #include "global.h"
 
+// hardening round 1 (FR-09/SEC-06): the connection log carries per-
+// connection metadata (remote addresses/ports and process names); it is
+// readable only by the current user and administrators.
+
+static BOOLEAN _app_log_getsecurityattributes (
+	_Out_ SECURITY_ATTRIBUTES *sa,
+	_Out_ PSECURITY_DESCRIPTOR *psd,
+	_Out_ PACL *ppacl
+)
+{
+	BYTE admins_sid[SECURITY_MAX_SID_SIZE];
+	EXPLICIT_ACCESSW explicit_access[2];
+	PTOKEN_USER token_user;
+	ULONG cb_sid, return_length;
+	PACL dacl;
+	HANDLE htoken;
+	BOOLEAN is_success = FALSE;
+
+	if (!OpenProcessToken (NtCurrentProcess (), TOKEN_QUERY, &htoken))
+		return FALSE;
+
+	return_length = 0;
+
+	if (!GetTokenInformation (htoken, TokenUser, NULL, 0, &return_length) && return_length == 0)
+	{
+		NtClose (htoken);
+		return FALSE;
+	}
+
+	token_user = _r_mem_alloc (return_length);
+
+	if (!GetTokenInformation (htoken, TokenUser, token_user, return_length, &return_length))
+	{
+		_r_mem_free (token_user);
+		NtClose (htoken);
+		return FALSE;
+	}
+
+	cb_sid = sizeof (admins_sid);
+
+	// grant access to the current user and to the built-in administrators
+	// (well-known SID, locale-independent)
+	if (CreateWellKnownSid (WinBuiltinAdministratorsSid, NULL, admins_sid, &cb_sid))
+	{
+		ZeroMemory (&explicit_access, sizeof (explicit_access));
+
+		explicit_access[0].grfAccessPermissions = GENERIC_ALL;
+		explicit_access[0].grfAccessMode = GRANT_ACCESS;
+		explicit_access[0].grfInheritance = SUB_CONTAINERS_AND_OBJECTS_INHERIT;
+		BuildTrusteeWithSidW (&explicit_access[0].Trustee, token_user->User.Sid);
+
+		explicit_access[1].grfAccessPermissions = GENERIC_ALL;
+		explicit_access[1].grfAccessMode = GRANT_ACCESS;
+		explicit_access[1].grfInheritance = SUB_CONTAINERS_AND_OBJECTS_INHERIT;
+		BuildTrusteeWithSidW (&explicit_access[1].Trustee, admins_sid);
+
+		if (SetEntriesInAclW (RTL_NUMBER_OF (explicit_access), explicit_access, NULL, &dacl) == ERROR_SUCCESS)
+		{
+			*psd = _r_mem_alloc (sizeof (SECURITY_DESCRIPTOR));
+
+			if (InitializeSecurityDescriptor (*psd, SECURITY_DESCRIPTOR_REVISION) && SetSecurityDescriptorDacl (*psd, TRUE, dacl, FALSE))
+			{
+				sa->nLength = sizeof (SECURITY_ATTRIBUTES);
+				sa->bInheritHandle = FALSE;
+				sa->lpSecurityDescriptor = *psd;
+
+				*ppacl = dacl; // caller frees via LocalFree
+				is_success = TRUE;
+			}
+			else
+			{
+				LocalFree (dacl);
+				_r_mem_free (*psd);
+			}
+		}
+	}
+
+	_r_mem_free (token_user);
+	NtClose (htoken);
+
+	return is_success;
+}
+
 VOID _app_loginit (
 	_In_ BOOLEAN is_install
 )
 {
+	SECURITY_ATTRIBUTES sa;
+	PSECURITY_ATTRIBUTES psa;
+	PSECURITY_DESCRIPTOR psd;
+	PACL dacl;
 	HANDLE current_handle, new_handle;
 	PR_STRING log_path;
 	NTSTATUS status;
@@ -25,16 +112,33 @@ VOID _app_loginit (
 	if (!log_path)
 		return;
 
-	status = _r_fs_createfile (&new_handle, &log_path->sr, FILE_OPEN_IF, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, FILE_ATTRIBUTE_NORMAL, 0, FALSE, NULL);
+	// hardening round 1 (FR-09): restrict the log to user+admins; fall back
+	// to the default descriptor rather than disabling logging entirely
+	psa = _app_log_getsecurityattributes (&sa, &psd, &dacl) ? &sa : NULL;
+
+	status = _r_fs_createfile (&new_handle, &log_path->sr, FILE_OPEN_IF, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, FILE_ATTRIBUTE_NORMAL, 0, FALSE, psa);
 
 	if (NT_SUCCESS (status))
 	{
+		if (psa)
+		{
+			// hardening round 1 (FR-09): one-time ACL migration for log
+			// files created by older builds with a default descriptor
+			SetNamedSecurityInfoW (log_path->buffer, SE_FILE_OBJECT, DACL_SECURITY_INFORMATION, NULL, NULL, dacl, NULL);
+		}
+
 		_app_loginitfile (new_handle);
 
 		current_handle = _InterlockedCompareExchangePointer ((volatile PVOID_PTR)&config.hlogfile, new_handle, NULL);
 
 		if (current_handle)
 			NtClose (new_handle);
+	}
+
+	if (psa)
+	{
+		LocalFree (dacl);
+		_r_mem_free (psd);
 	}
 
 	_r_obj_dereference (log_path);
