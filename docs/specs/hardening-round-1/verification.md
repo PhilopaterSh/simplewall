@@ -105,3 +105,33 @@ environment, so T016 stays open until run on the owner's machine:
 Toggle a rule 20 times and compare perceived apply latency against an
 upstream build; the privilege helper runs only on the kill path, not on
 apply.
+
+## Static analysis and code review (no-build layer, 2026-11-06)
+
+Executed because MSVC + the fork-matching `routine` library were
+unavailable; documented for the audit trail:
+
+- **Cppcheck** (warning+performance, win64 platform): 8/8 modified sources,
+  zero findings after `-DNT_SUCCESS`/`-D_WIN64`. Limitations: Windows SDK
+  types unresolved; routine API shapes unchecked (see calibration below).
+- **Fresh-context code review of the full diff**: 1 blocking issue found
+  and fixed — use-after-free of `image_path` in `_app_wufixhelper` (the
+  FR-06 backup path read the string after its pre-existing dereference);
+  non-blocking items fixed: FR-06 now warns and leaves a foreign
+  ImagePath untouched (matches "else warn + leave"), WM_NOTIFICATION
+  unknown-pointer logging is rate-limited (10 s) against log flooding,
+  log-ACL migration failures are logged, smoke script window discovery
+  rewritten via EnumWindows (the old WM_NOTIFICATION probe is refused by
+  the hardened handler itself).
+- **Calibration discovery**: public `henrypp/routine@master` is OLDER than
+  the API this fork builds against (`_r_sys_setprocessprivilege` 4 vs 5
+  args; `_r_fs_createfile` argument order differs). Public sources
+  therefore cannot verify the `_r_fs_createfile` 9th-argument type
+  (assumed `SECURITY_ATTRIBUTES*`); T016's real build remains the
+  authority. All other touched routine APIs match how commit a404282e
+  called them.
+- **Deliberate superset**: the degraded-enforcement flag also marks
+  TXN_FAILED on per-rule/app applies (fail-visible direction), beyond
+  FR-01's minimum scope (vital global-filter failures).
+- **Build config note**: the project compiles at /W3 + TreatWarningAsError
+  (not /W4); run `/analyze` additionally per NFR-02.

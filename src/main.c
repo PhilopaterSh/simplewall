@@ -2174,7 +2174,17 @@ INT_PTR CALLBACK DlgProc (
 
 			if (!is_known)
 			{
-				_r_log (LOG_LEVEL_WARNING, NULL, L"WM_NOTIFICATION", L"unrecognized log pointer ignored", 0);
+				// hardening round 1 (FR-08): rate-limited so a same-desktop
+				// process cannot flood the log by posting garbage pointers
+				static ULONGLONG last_log_tick;
+				ULONGLONG now = GetTickCount64 ();
+
+				if (now - last_log_tick > 10000)
+				{
+					last_log_tick = now;
+
+					_r_log (LOG_LEVEL_WARNING, NULL, L"WM_NOTIFICATION", L"unrecognized log pointer ignored", 0);
+				}
 
 				return 0;
 			}

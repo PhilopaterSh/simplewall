@@ -122,9 +122,13 @@ VOID _app_loginit (
 	{
 		if (psa)
 		{
-			// hardening round 1 (FR-09): one-time ACL migration for log
-			// files created by older builds with a default descriptor
-			SetNamedSecurityInfoW (log_path->buffer, SE_FILE_OBJECT, DACL_SECURITY_INFORMATION, NULL, NULL, dacl, NULL);
+			// hardening round 1 (FR-09): re-applied at every logging start
+			// (idempotent) so pre-existing files from older builds and any
+			// manual ACL damage get corrected; failures are logged
+			DWORD sa_error = SetNamedSecurityInfoW (log_path->buffer, SE_FILE_OBJECT, DACL_SECURITY_INFORMATION, NULL, NULL, dacl, NULL);
+
+			if (sa_error != ERROR_SUCCESS)
+				_r_log (LOG_LEVEL_WARNING, NULL, L"SetNamedSecurityInfoW", L"log ACL migration failed", sa_error);
 		}
 
 		_app_loginitfile (new_handle);

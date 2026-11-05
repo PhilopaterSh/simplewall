@@ -25,7 +25,9 @@ $ErrorActionPreference = 'Stop'
 
 Add-Type -Namespace Native -Name Win32 -MemberDefinition @'
 [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
-[DllImport("user32.dll")] public static extern IntPtr SendMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
+[DllImport("user32.dll")] public static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
+public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+[DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
 '@
 
 # WM_APP = 0x8000; WM_NOTIFICATION = WM_APP + 21 (src/global.h)
@@ -68,27 +70,38 @@ function Test-FR08 {
 # Test-FR07: ungated actions on the notification window (FR-07)
 # Expect: no process is killed and no PERMIT rule is minted while the
 # safety timer has not armed the window.
+# Note: the hardened WM_NOTIFICATION handler refuses NULL/unknown
+# pointers, so we discover the process's top-level windows directly
+# (EnumWindows) and post the gated WM_COMMAND to each of them.
 # ---------------------------------------------------------------
 function Test-FR07 {
     $p = Get-SimplewallProcess
 
-    # enumerate candidate windows of the process (the notification window
-    # is in-process; we post WM_COMMAND to every top-level window of pid)
-    $hwnds = @()
-    $enum = [System.Windows.Forms.SendKeys]::IsKeyLocked # placeholder to keep Add-Type minimal
-    # -- practical approach: ask the main window for the notify window via
-    #    WM_NOTIFICATION(0), then post the gated commands to it.
-    $hnotify = [Native.Win32]::SendMessage($p.MainWindowHandle, $WM_NOTIFICATION, [IntPtr]::Zero, [IntPtr]::Zero)
+    $script:targetHwnds = New-Object System.Collections.ArrayList
+    $cb = [Native.Win32+EnumWindowsProc]{
+        param($hWnd, $lParam)
+        [uint32]$pid = 0
+        [Native.Win32]::GetWindowThreadProcessId($hWnd, [ref]$pid) | Out-Null
+        if ($pid -eq $p.Id) { $script:targetHwnds.Add($hWnd) | Out-Null }
+        return $true
+    }
+    [Native.Win32]::EnumWindows($cb, [IntPtr]::Zero) | Out-Null
 
-    if ($hnotify -eq [IntPtr]::Zero) {
-        Write-Warning "Test-FR07: no notification window is active. Re-run with -WithNotification while a notification is visible."
+    if ($script:targetHwnds.Count -eq 0) {
+        Write-Warning "Test-FR07: no windows found for pid $($p.Id)."
         return $null
     }
 
-    # kill attempt while disarmed
-    [Native.Win32]::PostMessage($hnotify, $WM_COMMAND, [IntPtr]$IDC_KILLPROCESS_BTN, [IntPtr]::Zero) | Out-Null
-    # rule-mint attempt while disarmed (special-rules range start)
-    [Native.Win32]::PostMessage($hnotify, $WM_COMMAND, [IntPtr]1000, [IntPtr]::Zero) | Out-Null
+    Write-Host "[*] Posting gated WM_COMMAND to $($script:targetHwnds.Count) window(s) of pid $($p.Id)..."
+
+    foreach ($h in $script:targetHwnds) {
+        # kill attempt while disarmed
+        [Native.Win32]::PostMessage($h, $WM_COMMAND, [IntPtr]$IDC_KILLPROCESS_BTN, [IntPtr]::Zero) | Out-Null
+        # rule-mint attempt while disarmed (special-rules range start)
+        [Native.Win32]::PostMessage($h, $WM_COMMAND, [IntPtr]1000, [IntPtr]::Zero) | Out-Null
+        # allow attempt while disarmed
+        [Native.Win32]::PostMessage($h, $WM_COMMAND, [IntPtr]$IDC_ALLOW_BTN, [IntPtr]::Zero) | Out-Null
+    }
 
     Start-Sleep -Seconds 2
 
