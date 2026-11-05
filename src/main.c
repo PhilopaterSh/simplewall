@@ -1959,7 +1959,6 @@ INT_PTR CALLBACK DlgProc (
 	{
 		case WM_INITDIALOG:
 		{
-			WCHAR internal_profile_version[0x40];
 			ENUM_INSTALL_TYPE install_type;
 			LONG dpi_value;
 
@@ -2021,13 +2020,11 @@ INT_PTR CALLBACK DlgProc (
 			_r_settings_addpage (IDD_SETTINGS_LOGGING, IDS_TITLE_LOGGING);
 			_r_settings_addpage (IDD_SETTINGS_EXCLUDE, IDS_TITLE_EXCLUDE);
 
-			// add blocklist to update
-			if (!_r_config_getboolean (L"IsInternalRulesDisabled", FALSE, NULL))
-			{
-				_r_str_fromlong64 (internal_profile_version, RTL_NUMBER_OF (internal_profile_version), profile_info.profile_internal_timestamp);
-
-				_r_update_addcomponent (L"Internal rules", L"rules_internal", internal_profile_version, &profile_info.profile_path_internal->sr, FALSE);
-			}
+			// hardening round 1 (FR-03/DEC-03/RSK-02): the runtime updater no
+			// longer distributes internal rules — an updated file would land
+			// as an attacker-writable artifact the app must not trust. Refresh
+			// rules via build_simplewall_rules.bat or fork releases instead;
+			// signed rule packages are the planned Round 2 replacement.
 
 			_app_network_initialize (hwnd);
 

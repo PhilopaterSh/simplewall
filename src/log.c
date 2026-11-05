@@ -110,6 +110,88 @@ PR_STRING _app_getlogviewer ()
 	return path;
 }
 
+// hardening round 1 (FR-04/SEC-03/DEC-04): the log viewer is configured
+// through user-writable config, so it must never be started with this
+// (elevated) process token — that would hand local elevation to any
+// same-user process able to write the config value. Delegate the launch
+// to the user's shell (Explorer) instead: an attacker-chosen binary then
+// runs at the attacker's own privilege level and gains nothing. On
+// delegation failure the launch is refused and logged (never silent).
+NTSTATUS _app_openunelevated (
+	_In_ HWND hwnd,
+	_In_ PR_STRING viewer_path,
+	_In_ PR_STRING document_path
+)
+{
+	IShellDispatch2 *p_shell_dispatch = NULL;
+	PR_STRING quoted_document;
+	VARIANT var_file, var_params, var_dir, var_operation, var_show;
+	HRESULT status;
+
+	quoted_document = _r_obj_concatstrings (3, L"\"", document_path->buffer, L"\"");
+
+	status = CoCreateInstance (&CLSID_Shell, NULL, CLSCTX_LOCAL_SERVER, &IID_IShellDispatch2, (PVOID_PTR)&p_shell_dispatch);
+
+	if (FAILED (status))
+	{
+		_r_log (LOG_LEVEL_ERROR, NULL, L"CoCreateInstance", L"shell delegation failed; unelevated viewer launch refused", (ULONG)status);
+
+		_r_obj_dereference (quoted_document);
+
+		return STATUS_UNSUCCESSFUL;
+	}
+
+	VariantInit (&var_file);
+	VariantInit (&var_params);
+	VariantInit (&var_dir);
+	VariantInit (&var_operation);
+	VariantInit (&var_show);
+
+	var_file.vt = VT_BSTR;
+	var_file.bstrVal = SysAllocString (viewer_path->buffer);
+
+	var_params.vt = VT_BSTR;
+	var_params.bstrVal = SysAllocString (quoted_document->buffer);
+
+	var_operation.vt = VT_BSTR;
+	var_operation.bstrVal = SysAllocString (L"open");
+
+	var_show.vt = VT_I4;
+	var_show.lVal = SW_SHOWNORMAL;
+
+	if (!var_file.bstrVal || !var_params.bstrVal || !var_operation.bstrVal)
+	{
+		VariantClear (&var_operation);
+		VariantClear (&var_params);
+		VariantClear (&var_file);
+
+		p_shell_dispatch->lpVtbl->Release (p_shell_dispatch);
+
+		_r_obj_dereference (quoted_document);
+
+		return STATUS_NO_MEMORY;
+	}
+
+	status = IShellDispatch2_ShellExecute (p_shell_dispatch, var_file, var_params, var_dir, var_operation, var_show);
+
+	VariantClear (&var_operation);
+	VariantClear (&var_params);
+	VariantClear (&var_file);
+
+	p_shell_dispatch->lpVtbl->Release (p_shell_dispatch);
+
+	_r_obj_dereference (quoted_document);
+
+	if (FAILED (status))
+	{
+		_r_log (LOG_LEVEL_ERROR, NULL, L"IShellDispatch2::ShellExecute", L"unelevated viewer launch failed", (ULONG)status);
+
+		return STATUS_UNSUCCESSFUL;
+	}
+
+	return STATUS_SUCCESS;
+}
+
 BOOLEAN _app_islogfound (
 	_In_ ULONG log_hash
 )

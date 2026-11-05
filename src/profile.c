@@ -1535,30 +1535,22 @@ VOID _app_profile_load_internal (
 	_Out_ PLONG64 out_timestamp
 )
 {
-	DB_INFORMATION *db_info, db_info_buffer, db_info_file = {0};
+	DB_INFORMATION *db_info, db_info_buffer = {0};
 	LONG64 timestamp = 0;
-	BOOLEAN is_loadfromresource;
-	NTSTATUS status, status_file, status_res;
+	NTSTATUS status, status_res;
 
-	status_file = _app_db_initialize (&db_info_file, TRUE);
-
+	// hardening round 1 (FR-03/SEC-02/DEC-03): the on-disk internal profile
+	// lives in user-writable config and its integrity header is a forgeable
+	// self-hash — the compiled-in resource is the only trusted internal
+	// ruleset; any foreign on-disk file is ignored and logged
 	if (_r_fs_isexists (&path->sr))
-	{
-		status_file = SUCCEEDED (status_file) ? _app_db_openfromfile (&db_info_file, path, XML_TYPE_PROFILE_INTERNAL) : STATUS_INVALID_PARAMETER;
-	}
-	else
-	{
-		status_file = STATUS_OBJECT_PATH_NOT_FOUND;
-	}
+		_r_log_v (LOG_LEVEL_WARNING, NULL, L"profile_internal", 0, L"on-disk internal profile ignored (untrusted source): %s", path->buffer);
 
 	status_res = _app_profile_load_fromresource (&db_info_buffer, resource_name);
 
-	// NOTE: prefer new profile version for 3.4+
-	is_loadfromresource = (!NT_SUCCESS (status_file)) ? TRUE : (db_info_file.version < db_info_buffer.version) || (db_info_file.timestamp < db_info_buffer.timestamp);
+	db_info = &db_info_buffer;
 
-	db_info = is_loadfromresource ? &db_info_buffer : &db_info_file;
-
-	status = is_loadfromresource ? status_res : status_file;
+	status = status_res;
 
 	if (NT_SUCCESS (status))
 	{
@@ -1583,7 +1575,6 @@ VOID _app_profile_load_internal (
 	*out_timestamp = timestamp;
 
 	_app_db_destroy (&db_info_buffer);
-	_app_db_destroy (&db_info_file);
 }
 
 static VOID _app_profile_refresh (
