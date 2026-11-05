@@ -1819,13 +1819,14 @@ VOID _app_initialize (
 	_In_opt_ HWND hwnd
 )
 {
+	// hardening round 1 (FR-05/SEC-04/DEC-05): only privileges with an
+	// in-tree consumer are held process-wide; SE_INC_BASE_PRIORITY backs
+	// the priority class set below. SE_DEBUG moved to enable-on-demand
+	// around the notification kill path (_app_notify_terminateprocess).
+	// SE_SECURITY/SE_TAKE_OWNERSHIP/SE_BACKUP/SE_RESTORE have no consumer
+	// in src/ and are no longer enabled at all.
 	ULONG privileges[] = {
-		SE_SECURITY_PRIVILEGE,
-		SE_TAKE_OWNERSHIP_PRIVILEGE,
 		SE_INC_BASE_PRIORITY_PRIVILEGE,
-		SE_BACKUP_PRIVILEGE,
-		SE_RESTORE_PRIVILEGE,
-		SE_DEBUG_PRIVILEGE,
 	};
 
 	R_STRINGREF svchost_sr = PR_STRINGREF_INIT (PATH_SVCHOST);

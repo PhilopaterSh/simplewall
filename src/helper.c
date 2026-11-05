@@ -1972,10 +1972,11 @@ VOID _app_wufixhelper (
 {
 	SERVICE_STATUS svc_status;
 	WCHAR reg_key[0x80], reg_value[0x80];
-	PR_STRING image_path;
+	PR_STRING image_path, original_path;
 	SC_HANDLE hsvc;
 	HANDLE hkey;
 	BOOLEAN is_enabled = FALSE;
+	BOOLEAN is_restore = FALSE;
 	NTSTATUS status;
 
 	_r_str_printf (reg_key, RTL_NUMBER_OF (reg_key), L"SYSTEM\\CurrentControlSet\\Services\\%s", service_name);
@@ -2002,7 +2003,40 @@ VOID _app_wufixhelper (
 	// set new image path
 	_r_str_printf (reg_value, RTL_NUMBER_OF (reg_value), L"%%systemroot%%\\system32%s -k %s -p", is_enable ? PATH_WUSVC : PATH_SVCHOST, k_value);
 
-	_r_reg_setvalue (hkey, L"ImagePath", REG_EXPAND_SZ, reg_value, (ULONG)(_r_str_getlength (reg_value) * sizeof (WCHAR) + sizeof (UNICODE_NULL)));
+	// hardening round 1 (FR-06/DATA-01): the original ImagePath is preserved
+	// before the first modification; on disable it is restored only when the
+	// current value is still the one we wrote, so a servicing-changed
+	// ImagePath is never overwritten. RSK-03: no other wufix behavior change.
+	if (is_enable)
+	{
+		if (NT_SUCCESS (status) && image_path && !_r_str_isstartswith2 (&image_path->sr, L"%systemroot%\\system32\\wusvc.exe", TRUE))
+		{
+			_r_reg_setvalue (hkey, L"ImagePathOriginal", REG_EXPAND_SZ, image_path->buffer, (ULONG)(_r_str_getlength (image_path->buffer) * sizeof (WCHAR) + sizeof (UNICODE_NULL)));
+		}
+	}
+	else
+	{
+		if (NT_SUCCESS (status) && image_path && _r_str_isstartswith2 (&image_path->sr, L"%systemroot%\\system32\\wusvc.exe", TRUE))
+		{
+			status = _r_reg_querystring (hkey, L"ImagePathOriginal", &original_path, NULL);
+
+			if (NT_SUCCESS (status))
+			{
+				_r_reg_setvalue (hkey, L"ImagePath", REG_EXPAND_SZ, original_path->buffer, (ULONG)(_r_str_getlength (original_path->buffer) * sizeof (WCHAR) + sizeof (UNICODE_NULL)));
+
+				// the backup has served its purpose; remove it (same handle the
+				// _r_reg_* wrappers operate on)
+				RegDeleteValueW ((HKEY)hkey, L"ImagePathOriginal");
+
+				_r_obj_dereference (original_path);
+
+				is_restore = TRUE;
+			}
+		}
+	}
+
+	if (!is_restore)
+		_r_reg_setvalue (hkey, L"ImagePath", REG_EXPAND_SZ, reg_value, (ULONG)(_r_str_getlength (reg_value) * sizeof (WCHAR) + sizeof (UNICODE_NULL)));
 
 	// restart service
 	if (is_enable != is_enabled)
