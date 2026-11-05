@@ -658,7 +658,13 @@ VOID _app_setinterfacestate (
 	//_r_status_seticon (hwnd, IDC_STATUSBAR, 0, hicon_small);
 
 	if (!_wfp_isfiltersapplying ())
-		_r_status_settext (hwnd, IDC_STATUSBAR, 0, _app_getstatelocale (install_type));
+	{
+		// hardening round 1: visible degraded-enforcement state (SEC-01)
+		if (_wfp_isenforcementdegraded ())
+			_r_status_settext (hwnd, IDC_STATUSBAR, 0, L"Enforcement degraded: one or more global filters failed to install (see log)");
+		else
+			_r_status_settext (hwnd, IDC_STATUSBAR, 0, _app_getstatelocale (install_type));
+	}
 
 	_r_toolbar_setbutton (config.hrebar, IDC_TOOLBAR, IDM_TRAY_START, _app_getstateaction (install_type), BTNS_BUTTON | BTNS_AUTOSIZE | BTNS_SHOWTEXT, 0, (install_type != INSTALL_DISABLED) ? 1 : 0);
 
@@ -670,6 +676,7 @@ VOID _app_settrayicon (
 	_In_ ENUM_INSTALL_TYPE install_type
 )
 {
+	WCHAR tooltip[0x80];
 	HICON hicon;
 	LONG icon_size;
 
@@ -677,7 +684,13 @@ VOID _app_settrayicon (
 
 	hicon = _r_sys_loadsharedicon (_r_sys_getimagebase (), MAKEINTRESOURCE (_app_getstateicon (install_type)), icon_size);
 
-	_r_tray_setinfo (hwnd, &GUID_TrayIcon, hicon, _r_app_getname ());
+	// hardening round 1: degraded-enforcement state surfaces in the tooltip too (SEC-01)
+	if (_wfp_isenforcementdegraded ())
+		_r_str_printf (tooltip, RTL_NUMBER_OF (tooltip), L"%s (enforcement degraded)", _r_app_getname ());
+	else
+		_r_str_copy (tooltip, RTL_NUMBER_OF (tooltip), _r_app_getname ());
+
+	_r_tray_setinfo (hwnd, &GUID_TrayIcon, hicon, tooltip);
 }
 
 VOID _app_imagelist_init (

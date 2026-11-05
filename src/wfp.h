@@ -28,9 +28,22 @@ DEFINE_GUID (GUID_WfpSublayer, 0x9FEE6F59, 0xB951, 0x4F9A, 0xB5, 0x2F, 0x13, 0x3
 #define FWW_APP 0x09
 #define FWW_LOWEST 0x08
 
+// transaction state (hardening round 1: a failed FwpmTransactionBegin0
+// must never be confused with a benign re-entry into someone's transaction)
+typedef enum _ENUM_TRANSACT_STATE
+{
+	TXN_STARTED = 0,
+	TXN_IN_PROGRESS,
+	TXN_FAILED,
+} ENUM_TRANSACT_STATE;
+
 HANDLE _wfp_getenginehandle ();
 
 BOOLEAN _wfp_isfiltersapplying ();
+
+BOOLEAN _wfp_isenforcementdegraded ();
+
+ULONG _wfp_getdegradedfailures ();
 
 ENUM_INSTALL_TYPE _wfp_isproviderinstalled (
 	_In_ HANDLE engine_handle
@@ -63,7 +76,7 @@ VOID _wfp_installfilters (
 	_In_ HANDLE engine_handle
 );
 
-BOOLEAN _wfp_transact_start (
+ENUM_TRANSACT_STATE _wfp_transact_start (
 	_In_ HANDLE engine_handle,
 	_In_ LPCWSTR file_name,
 	_In_ ULONG line

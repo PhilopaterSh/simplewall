@@ -1,8 +1,8 @@
 # Tasks: Hardening Round 1 (Trust-Boundary Fixes)
 
-- [ ] T001 Convert `_wfp_transact_start` to tri-state (TXN_STARTED / TXN_IN_PROGRESS / TXN_FAILED); on TXN_FAILED release `lock_transaction`, call `FwpmTransactionAbort0` only if a transaction opened, never commit, abort apply with error (FR-02, NFR-03)
-- [ ] T002 Aggregate `_wfp_createglobalfilters` add failures into a degraded-enforcement flag cleared by successful re-apply (FR-01, SEC-01, DEC-02)
-- [ ] T003 Surface the degraded state on tray icon and status text and write one aggregated error-log entry per apply (FR-01, OPS-01, NFR-01)
+- [x] T001 Convert `_wfp_transact_start` to tri-state (TXN_STARTED / TXN_IN_PROGRESS / TXN_FAILED); on TXN_FAILED release `lock_transaction`, call `FwpmTransactionAbort0` only if a transaction opened, never commit, abort apply with error (FR-02, NFR-03)
+- [x] T002 Aggregate `_wfp_createglobalfilters` add failures into a degraded-enforcement flag cleared by successful re-apply (FR-01, SEC-01, DEC-02)
+- [x] T003 Surface the degraded state on tray icon and status text and write one aggregated error-log entry per apply (FR-01, OPS-01, NFR-01)
 - [ ] T004 Remove the on-disk internal-rules override preference in `_app_profile_load_internal`; log a foreign `profile_internal.xml` as ignored (FR-03, SEC-02, DEC-03)
 - [ ] T005 Unregister the "Internal rules" update component (`_r_update_addcomponent` at main.c:2029) (FR-03, DEC-03, RSK-02)
 - [ ] T006 Move LogViewer launch to shell-token delegation (IShellDispatch2::ShellExecute or Explorer token + CreateProcessWithTokenW); refuse and log when no unelevated shell is available (FR-04, SEC-03, DEC-04)
