@@ -1,0 +1,22 @@
+<Configuration>
+  <!-- hardening-round-1 isolated runtime test (companion to verification.md) -->
+  <!-- Prereq on host: build the fork first (Release | x64 -> bin\64\simplewall.exe) -->
+  <!-- Prereq on host: Windows Sandbox feature enabled (optionalfeatures.exe -> "Windows Sandbox") -->
+  <!-- Usage: double-click this file; everything dies with the sandbox on close -->
+  <VGpus>Disable</VGpus>
+  <AudioInput>Disable</AudioInput>
+  <VideoInput>Disable</VideoInput>
+  <PrinterRedirection>Disable</PrinterRedirection>
+  <ClipboardRedirection>Enable</ClipboardRedirection>
+  <Networking>Default</Networking>
+  <MemoryInMB>4096</MemoryInMB>
+  <MappedFolders>
+    <MappedFolder>
+      <HostFolder>D:\CV\Github\simplewall</HostFolder>
+      <ReadOnly>true</ReadOnly>
+    </MappedFolder>
+  </MappedFolders>
+  <LogonCommand>
+    <Command>C:\Users\WDAGUtilityAccount\Desktop\simplewall\tools\sandbox-bootstrap.cmd</Command>
+  </LogonCommand>
+</Configuration>

@@ -135,3 +135,21 @@ unavailable; documented for the audit trail:
   FR-01's minimum scope (vital global-filter failures).
 - **Build config note**: the project compiles at /W3 + TreatWarningAsError
   (not /W4); run `/analyze` additionally per NFR-02.
+
+## Isolated runtime testing (Windows Sandbox, ready-to-use)
+
+`tools/hardening-sandbox.wsb` + `tools/sandbox-bootstrap.cmd` turn the
+sandbox into a disposable test bench for this round (nothing survives
+close, so a blocking misconfig cannot outlive the test):
+
+1. On the host: build Release | x64 (needs `..\routine` sibling + VS) and
+   enable the Windows Sandbox optional feature.
+2. Double-click `tools\hardening-sandbox.wsb` — the repo is mapped
+   read-only at the sandbox desktop; the bootstrap launches
+   `bin\64\simplewall.exe`, waits, and runs the automated smoke tests.
+3. Complete the manual checks printed by the bootstrap (FR-05 token
+   audit, FR-04 medium-IL viewer, FR-09 icacls, FR-03 with
+   `-TestInternalOverride`).
+
+Note: the mapped repo is read-only by design — the app's profile, logs,
+and the FR-03 planted file all live inside the sandbox and die with it.
