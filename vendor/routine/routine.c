@@ -186,8 +186,7 @@ PR_STRING _r_format_filetime (
 
 _Ret_maybenull_
 PR_STRING _r_format_interval (
-	_In_ LONG64 seconds,
-	_In_ BOOLEAN is_precise
+	_In_ LONG64 seconds
 )
 {
 	PR_STRING string;
@@ -196,6 +195,8 @@ PR_STRING _r_format_interval (
 	ULONG seconds32;
 	HRESULT status;
 
+	// fork-ABI shim (DEC-04): the 1-arg form maps to the old precise variant
+	// (is_precise = TRUE, i.e. up to 3 time parts); see routine.h comment
 	seconds = _r_calc_seconds2milliseconds64 (seconds);
 
 	status = LongLongToULong (seconds, &seconds32);
@@ -205,7 +206,7 @@ PR_STRING _r_format_interval (
 
 	string = _r_obj_createstring_ex (NULL, buffer_length * sizeof (WCHAR));
 
-	return_length = StrFromTimeIntervalW (string->buffer, buffer_length, seconds32, is_precise ? 3 : 1);
+	return_length = StrFromTimeIntervalW (string->buffer, buffer_length, seconds32, 3);
 
 	if (return_length)
 	{
@@ -2778,10 +2779,13 @@ PR_LIST _r_obj_createlist (
 
 VOID _r_obj_addlistitem (
 	_Inout_ PR_LIST list_node,
-	_In_opt_ PVOID list_item
+	_In_opt_ PVOID list_item,
+	_Out_opt_ PULONG_PTR new_index_ptr
 )
 {
-	_r_obj_addlistitem_ex (list_node, list_item, NULL);
+	// fork-ABI shim (DEC-04): forward the consumer's out-index pointer; NULL
+	// reproduces the old 2-arg behavior (no index written back)
+	_r_obj_addlistitem_ex (list_node, list_item, new_index_ptr);
 }
 
 VOID _r_obj_addlistitem_ex (
@@ -3689,6 +3693,67 @@ NTSTATUS _r_fs_createfile (
 	}
 
 	RtlFreeUnicodeString (&nt_path);
+
+	return status;
+}
+
+
+// fork-ABI shim (DEC-04): newer-routine API — creates a hard link at
+// new_link_path that refers to existing_file_path (DOS paths in stringrefs,
+// converted to NT form exactly like _r_fs_openfile does). Requires DELETE
+// access on the existing file (FileLinkInformation contract).
+_Success_ (NT_SUCCESS (return))
+NTSTATUS _r_fs_createhardlink (
+	_In_ PR_STRINGREF new_link_path,
+	_In_ PR_STRINGREF existing_file_path
+)
+{
+	typedef struct _R_FILE_LINK_INFORMATION
+	{
+		BOOLEAN ReplaceIfExists;
+		HANDLE RootDirectory;
+		ULONG FileNameLength;
+		WCHAR FileName[1];
+	} R_FILE_LINK_INFORMATION, *PR_FILE_LINK_INFORMATION;
+
+	PR_FILE_LINK_INFORMATION link_info;
+	UNICODE_STRING nt_path;
+	IO_STATUS_BLOCK isb;
+	HANDLE hfile = NULL;
+	ULONG path_length;
+	NTSTATUS status;
+
+	status = _r_fs_dospathnametontpathname (new_link_path, &nt_path);
+
+	if (!NT_SUCCESS (status))
+		return status;
+
+	path_length = (ULONG)nt_path.Length;
+
+	link_info = _r_mem_allocate (sizeof (R_FILE_LINK_INFORMATION) + path_length);
+
+	link_info->ReplaceIfExists = FALSE;
+	link_info->RootDirectory = NULL;
+	link_info->FileNameLength = path_length;
+
+	RtlCopyMemory (link_info->FileName, nt_path.Buffer, path_length);
+
+	RtlFreeUnicodeString (&nt_path);
+
+	status = _r_fs_openfile (existing_file_path, DELETE, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, 0, FALSE, &hfile);
+
+	if (!NT_SUCCESS (status))
+	{
+		_r_mem_free (link_info);
+
+		return status;
+	}
+
+	status = NtSetInformationFile (hfile, &isb, link_info, sizeof (R_FILE_LINK_INFORMATION) + path_length, FileLinkInformation);
+
+	NtClose (hfile);
+
+	_r_mem_free (link_info);
 
 	return status;
 }
@@ -9052,7 +9117,7 @@ PR_TOKEN_ATTRIBUTES _r_sys_getcurrenttoken ()
 
 		attributes.elevation_type = NT_SUCCESS (status) ? elevation_type : TokenElevationTypeDefault;
 
-		status = _r_sys_querytokeninformation (token_handle, TokenUser, &token_user);
+		status = _r_sys_querytokeninformation (&token_user, token_handle, TokenUser);
 
 		if (NT_SUCCESS (status))
 		{
@@ -11040,15 +11105,17 @@ NTSTATUS _r_sys_openthread (
 
 _Success_ (NT_SUCCESS (return))
 NTSTATUS _r_sys_queryprocessstring (
+	_Out_ PR_STRING_PTR out_buffer,
 	_In_ HANDLE process_handle,
-	_In_ PROCESSINFOCLASS info_class,
-	_Out_ PR_STRING_PTR out_buffer
+	_In_ PROCESSINFOCLASS info_class
 )
 {
 	PVOID buffer;
 	ULONG return_length;
 	NTSTATUS status;
 
+	// fork-ABI shim (DEC-04): out buffer moved to the first parameter
+	// (newer-routine shape used by src/network.c)
 	status = NtQueryInformationProcess (process_handle, info_class, NULL, 0, &return_length);
 
 	if (status != STATUS_BUFFER_OVERFLOW && status != STATUS_BUFFER_TOO_SMALL && status != STATUS_INFO_LENGTH_MISMATCH)
@@ -11296,9 +11363,9 @@ PR_STRING _r_sys_querytaginformation (
 
 _Success_ (NT_SUCCESS (return))
 NTSTATUS _r_sys_querytokeninformation (
+	_Out_ PVOID_PTR token_info,
 	_In_ HANDLE token_handle,
-	_In_ TOKEN_INFORMATION_CLASS token_class,
-	_Out_ PVOID_PTR token_info
+	_In_ TOKEN_INFORMATION_CLASS token_class
 )
 {
 	PVOID buffer;
@@ -11306,6 +11373,8 @@ NTSTATUS _r_sys_querytokeninformation (
 	ULONG return_length;
 	NTSTATUS status;
 
+	// fork-ABI shim (DEC-04): out buffer moved to the first parameter
+	// (newer-routine shape used by src/network.c)
 	buffer = _r_mem_allocate (buffer_length);
 
 	status = NtQueryInformationToken (token_handle, token_class, buffer, buffer_length, &return_length);
@@ -12799,7 +12868,7 @@ PR_LAYOUT_ITEM _r_layout_additem (
 
 	layout_item->parent_item->number_of_children += 1;
 
-	_r_obj_addlistitem (layout_manager->list, layout_item);
+	_r_obj_addlistitem (layout_manager->list, layout_item, NULL);
 
 	return layout_item;
 }
@@ -14034,7 +14103,7 @@ PVOID _r_wnd_getcontext (
 	return object_pointer->object_body;
 }
 
-VOID _r_wnd_removecontext (
+BOOLEAN _r_wnd_removecontext (
 	_In_ HWND hwnd,
 	_In_ ULONG property_id
 )
@@ -14042,15 +14111,19 @@ VOID _r_wnd_removecontext (
 	PR_HASHTABLE hashtable;
 	ULONG hash_code;
 
+	// fork-ABI shim (DEC-04): now returns BOOLEAN (consumer's
+	// _app_listview_unlock returns it directly)
 	hashtable = _r_wnd_getcontext_table ();
 	hash_code = _r_wnd_getcontext_hash (hwnd, property_id);
 
 	_r_queuedlock_acquireexclusive (&_r_context_lock);
 	_r_obj_removehashtableitem (hashtable, hash_code);
 	_r_queuedlock_releaseexclusive (&_r_context_lock);
+
+	return TRUE;
 }
 
-VOID _r_wnd_setcontext (
+BOOLEAN _r_wnd_setcontext (
 	_In_ HWND hwnd,
 	_In_ ULONG property_id,
 	_In_ PVOID context
@@ -14060,6 +14133,9 @@ VOID _r_wnd_setcontext (
 	PR_HASHTABLE hashtable;
 	ULONG hash_code;
 
+	// fork-ABI shim (DEC-04): now returns BOOLEAN (consumer's
+	// _app_listview_lock/unlock return it directly); the old VOID form always
+	// succeeded, so TRUE is returned unconditionally
 	hashtable = _r_wnd_getcontext_table ();
 	hash_code = _r_wnd_getcontext_hash (hwnd, property_id);
 
@@ -14068,6 +14144,8 @@ VOID _r_wnd_setcontext (
 	_r_queuedlock_acquireexclusive (&_r_context_lock);
 	_r_obj_addhashtableitem (hashtable, hash_code, &object_pointer);
 	_r_queuedlock_releaseexclusive (&_r_context_lock);
+
+	return TRUE;
 }
 
 //
@@ -15880,14 +15958,15 @@ NTSTATUS _r_res_loadresource (
 }
 
 _Success_ (NT_SUCCESS (return))
+// hardening round 2 (DEC-04): fork ABI contract - out-buffer comes first
 NTSTATUS _r_res_loadimage (
+	_Out_ HBITMAP_PTR out_buffer,
 	_In_ PVOID hinst,
 	_In_ LPCWSTR type,
 	_In_ LPCWSTR name,
 	_In_ LPCGUID format,
 	_In_ LONG width,
-	_In_ LONG height,
-	_Out_ HBITMAP_PTR out_buffer
+	_In_ LONG height
 )
 {
 	IWICFormatConverter* wicFormatConverter = NULL;
@@ -16346,13 +16425,14 @@ CleanupExit:
 //
 
 _Success_ (SUCCEEDED (return))
+// hardening round 2 (DEC-04): fork ABI contract - out-buffer comes first
 HRESULT _r_imagelist_create (
+	_Out_ HIMAGELIST_PTR out_buffer,
 	_In_ LONG width,
 	_In_ LONG height,
 	_In_ ULONG flags,
 	_In_ LONG initial_count,
-	_In_ LONG grow_count,
-	_Out_ HIMAGELIST_PTR out_buffer
+	_In_ LONG grow_count
 )
 {
 	IImageList2* imagelist = NULL;
@@ -16519,10 +16599,13 @@ HRESULT _r_imagelist_getsystem (
 _Success_ (SUCCEEDED (return))
 HRESULT _r_imagelist_setsize (
 	_In_ HIMAGELIST himg,
-	_In_ LONG size
+	_In_ LONG width,
+	_In_ LONG height
 )
 {
-	return IImageList2_SetIconSize ((IImageList2*)himg, size, size);
+	// fork-ABI shim (DEC-04): separate width/height; old square behavior is
+	// preserved when the consumer passes equal values (all current sites do)
+	return IImageList2_SetIconSize ((IImageList2*)himg, width, height);
 }
 
 //
@@ -16585,7 +16668,7 @@ BOOLEAN _r_parseini (
 		if (return_length)
 		{
 			if (section_list)
-				_r_obj_addlistitem (section_list, _r_obj_createstring2 (&sections_iterator));
+				_r_obj_addlistitem (section_list, _r_obj_createstring2 (&sections_iterator), NULL);
 
 			// initialize values iterator
 			_r_str_setlength_ex (&values_string->sr, return_length * sizeof (WCHAR), allocated_length * sizeof (WCHAR));
@@ -18335,7 +18418,7 @@ INT _r_tab_setitem (
 	return (INT)_r_wnd_sendmessage (hwnd, ctrl_id, TCM_SETITEM, (WPARAM)item_id, (LPARAM)&tci);
 }
 
-VOID _r_tab_selectitem (
+BOOLEAN _r_tab_selectitem (
 	_In_ HWND hwnd,
 	_In_ INT ctrl_id,
 	_In_ INT item_id
@@ -18358,6 +18441,8 @@ VOID _r_tab_selectitem (
 
 	_r_wnd_sendmessage (hwnd, 0, WM_NOTIFY, (WPARAM)ctrl_id, (LPARAM)&hdr);
 #pragma warning(pop)
+
+	return TRUE;
 }
 
 //

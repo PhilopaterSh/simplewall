@@ -623,6 +623,10 @@ typedef struct _R_STRINGREF
 	LPWSTR buffer;
 } R_STRINGREF, *PR_STRINGREF;
 
+// hardening round 2 (DEC-04): consumer contract - the fork's headers use
+// the const-stringref typedef from the newer (unpublished) routine API
+typedef const R_STRINGREF *PCR_STRINGREF;
+
 typedef struct _R_STRING
 {
 	union

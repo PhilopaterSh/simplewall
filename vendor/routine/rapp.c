@@ -524,7 +524,7 @@ PR_STRING _r_app_getproxyconfiguration ()
 	WINHTTP_CURRENT_USER_IE_PROXY_CONFIG proxy = {0};
 	PR_STRING proxy_string;
 
-	proxy_string = _r_config_getstring (L"Proxy", NULL);
+	proxy_string = _r_config_getstring (L"Proxy", NULL, NULL);
 
 	if (_r_obj_isstringempty (proxy_string))
 	{
@@ -549,7 +549,7 @@ PR_STRING _r_app_getuseragent ()
 
 	if (_r_initonce_begin (&init_once))
 	{
-		cached_agent = _r_config_getstring (L"UserAgent", NULL);
+		cached_agent = _r_config_getstring (L"UserAgent", NULL, NULL);
 
 		if (_r_obj_isstringempty (cached_agent))
 		{
@@ -620,7 +620,7 @@ LRESULT CALLBACK _r_app_maindlgproc (
 #if defined(APP_HAVE_TRAY)
 			if (wparam == SIZE_MINIMIZED)
 			{
-				if (_r_config_getboolean (L"IsMinimizeToTray", TRUE))
+				if (_r_config_getboolean (L"IsMinimizeToTray", TRUE, NULL))
 					ShowWindow (hwnd, SW_HIDE);
 			}
 #endif // APP_HAVE_TRAY
@@ -642,7 +642,7 @@ LRESULT CALLBACK _r_app_maindlgproc (
 		{
 			if (wparam == SC_CLOSE)
 			{
-				if (_r_config_getboolean (L"IsCloseToTray", TRUE))
+				if (_r_config_getboolean (L"IsCloseToTray", TRUE, NULL))
 				{
 					ShowWindow (hwnd, SW_HIDE);
 
@@ -701,7 +701,7 @@ ULONG _r_app_getshowcode (
 #if defined(APP_HAVE_TRAY)
 	if (!is_windowhidden)
 	{
-		if (_r_config_getboolean (L"IsStartMinimized", FALSE) || _r_sys_getopt (_r_sys_getcommandline (), L"minimized", NULL))
+		if (_r_config_getboolean (L"IsStartMinimized", FALSE, NULL) || _r_sys_getopt (_r_sys_getcommandline (), L"minimized", NULL))
 			is_windowhidden = TRUE;
 	}
 #endif // APP_HAVE_TRAY
@@ -771,13 +771,13 @@ HWND _r_app_createwindow (
 	SetPropW (hwnd, _r_app_getname (), IntToPtr (0x2A));
 
 	// set window on top
-	_r_wnd_top (hwnd, _r_config_getboolean (L"AlwaysOnTop", FALSE));
+	_r_wnd_top (hwnd, _r_config_getboolean (L"AlwaysOnTop", FALSE, NULL));
 
 	// center window position
 	_r_wnd_center (hwnd, NULL);
 
 	// enable dark theme support
-	_r_theme_initialize (hwnd, _r_theme_isenabled ());
+	_r_theme_initialize_ex (hwnd, _r_theme_isenabled ());
 
 	// enable messages bypass uipi (win7+)
 	_r_wnd_changemessagefilter (hwnd, messages, RTL_NUMBER_OF (messages), MSGFLT_ALLOW);
@@ -902,14 +902,21 @@ VOID _r_config_initialize ()
 	_r_queuedlock_releaseexclusive (&app_global.config.lock);
 }
 
+// fork-ABI shim (DEC-04): the consumer (simplewall) calls every base config
+// getter/setter below with a trailing _In_opt_ section_name argument. Each
+// base function forwards the section verbatim to its _ex implementation:
+// passing NULL reproduces the original 2-arg (root-section) behavior; a
+// non-NULL section behaves exactly like the equivalent _ex call.
+
 BOOLEAN _r_config_getboolean (
 	_In_ LPCWSTR key_name,
-	_In_ BOOLEAN def_value
+	_In_ BOOLEAN def_value,
+	_In_opt_ LPCWSTR section_name
 )
 {
 	BOOLEAN value;
 
-	value = _r_config_getboolean_ex (key_name, def_value, NULL);
+	value = _r_config_getboolean_ex (key_name, def_value, section_name);
 
 	return value;
 }
@@ -937,12 +944,13 @@ BOOLEAN _r_config_getboolean_ex (
 
 LONG _r_config_getlong (
 	_In_ LPCWSTR key_name,
-	_In_ LONG def_value
+	_In_ LONG def_value,
+	_In_opt_ LPCWSTR section_name
 )
 {
 	LONG value;
 
-	value = _r_config_getlong_ex (key_name, def_value, NULL);
+	value = _r_config_getlong_ex (key_name, def_value, section_name);
 
 	return value;
 }
@@ -973,12 +981,13 @@ LONG _r_config_getlong_ex (
 
 LONG64 _r_config_getlong64 (
 	_In_ LPCWSTR key_name,
-	_In_ LONG64 def_value
+	_In_ LONG64 def_value,
+	_In_opt_ LPCWSTR section_name
 )
 {
 	LONG64 value;
 
-	value = _r_config_getlong64_ex (key_name, def_value, NULL);
+	value = _r_config_getlong64_ex (key_name, def_value, section_name);
 
 	return value;
 }
@@ -1009,12 +1018,13 @@ LONG64 _r_config_getlong64_ex (
 
 ULONG _r_config_getulong (
 	_In_ LPCWSTR key_name,
-	_In_opt_ ULONG def_value
+	_In_opt_ ULONG def_value,
+	_In_opt_ LPCWSTR section_name
 )
 {
 	ULONG value;
 
-	value = _r_config_getulong_ex (key_name, def_value, NULL);
+	value = _r_config_getulong_ex (key_name, def_value, section_name);
 
 	return value;
 }
@@ -1045,12 +1055,13 @@ ULONG _r_config_getulong_ex (
 
 ULONG64 _r_config_getulong64 (
 	_In_ LPCWSTR key_name,
-	_In_opt_ ULONG64 def_value
+	_In_opt_ ULONG64 def_value,
+	_In_opt_ LPCWSTR section_name
 )
 {
 	ULONG64 value;
 
-	value = _r_config_getulong64_ex (key_name, def_value, NULL);
+	value = _r_config_getulong64_ex (key_name, def_value, section_name);
 
 	return value;
 }
@@ -1082,10 +1093,11 @@ ULONG64 _r_config_getulong64_ex (
 VOID _r_config_getfont (
 	_In_ LPCWSTR key_name,
 	_Inout_ PLOGFONT logfont,
-	_In_ LONG dpi_value
+	_In_ LONG dpi_value,
+	_In_opt_ LPCWSTR section_name
 )
 {
-	_r_config_getfont_ex (key_name, logfont, dpi_value, NULL);
+	_r_config_getfont_ex (key_name, logfont, dpi_value, section_name);
 }
 
 VOID _r_config_getfont_ex (
@@ -1179,12 +1191,13 @@ VOID _r_config_getsize (
 _Ret_maybenull_
 PR_STRING _r_config_getstringexpand (
 	_In_ LPCWSTR key_name,
-	_In_opt_ LPCWSTR def_value
+	_In_opt_ LPCWSTR def_value,
+	_In_opt_ LPCWSTR section_name
 )
 {
 	PR_STRING value;
 
-	value = _r_config_getstringexpand_ex (key_name, def_value, NULL);
+	value = _r_config_getstringexpand_ex (key_name, def_value, section_name);
 
 	return value;
 }
@@ -1218,12 +1231,13 @@ PR_STRING _r_config_getstringexpand_ex (
 _Ret_maybenull_
 PR_STRING _r_config_getstring (
 	_In_ LPCWSTR key_name,
-	_In_opt_ LPCWSTR def_value
+	_In_opt_ LPCWSTR def_value,
+	_In_opt_ LPCWSTR section_name
 )
 {
 	PR_STRING value;
 
-	value = _r_config_getstring_ex (key_name, def_value, NULL);
+	value = _r_config_getstring_ex (key_name, def_value, section_name);
 
 	return value;
 };
@@ -1328,10 +1342,11 @@ PR_STRING _r_config_getstring_ex (
 
 VOID _r_config_setboolean (
 	_In_ LPCWSTR key_name,
-	_In_ BOOLEAN value
+	_In_ BOOLEAN value,
+	_In_opt_ LPCWSTR section_name
 )
 {
-	_r_config_setstring_ex (key_name, value ? L"true" : L"false", NULL);
+	_r_config_setstring_ex (key_name, value ? L"true" : L"false", section_name);
 }
 
 VOID _r_config_setboolean_ex (
@@ -1345,10 +1360,11 @@ VOID _r_config_setboolean_ex (
 
 VOID _r_config_setlong (
 	_In_ LPCWSTR key_name,
-	_In_ LONG value
+	_In_ LONG value,
+	_In_opt_ LPCWSTR section_name
 )
 {
-	_r_config_setlong_ex (key_name, value, NULL);
+	_r_config_setlong_ex (key_name, value, section_name);
 }
 
 VOID _r_config_setlong_ex (
@@ -1366,10 +1382,11 @@ VOID _r_config_setlong_ex (
 
 VOID _r_config_setlong64 (
 	_In_ LPCWSTR key_name,
-	_In_ LONG64 value
+	_In_ LONG64 value,
+	_In_opt_ LPCWSTR section_name
 )
 {
-	_r_config_setlong64_ex (key_name, value, NULL);
+	_r_config_setlong64_ex (key_name, value, section_name);
 }
 
 VOID _r_config_setlong64_ex (
@@ -1387,10 +1404,11 @@ VOID _r_config_setlong64_ex (
 
 VOID _r_config_setulong (
 	_In_ LPCWSTR key_name,
-	_In_ ULONG value
+	_In_ ULONG value,
+	_In_opt_ LPCWSTR section_name
 )
 {
-	_r_config_setulong_ex (key_name, value, NULL);
+	_r_config_setulong_ex (key_name, value, section_name);
 }
 
 VOID _r_config_setulong_ex (
@@ -1408,10 +1426,11 @@ VOID _r_config_setulong_ex (
 
 VOID _r_config_setulong64 (
 	_In_ LPCWSTR key_name,
-	_In_ ULONG64 value
+	_In_ ULONG64 value,
+	_In_opt_ LPCWSTR section_name
 )
 {
-	_r_config_setulong64_ex (key_name, value, NULL);
+	_r_config_setulong64_ex (key_name, value, section_name);
 }
 
 VOID _r_config_setulong64_ex (
@@ -1430,10 +1449,11 @@ VOID _r_config_setulong64_ex (
 VOID _r_config_setfont (
 	_In_ LPCWSTR key_name,
 	_In_ PLOGFONT logfont,
-	_In_ LONG dpi_value
+	_In_ LONG dpi_value,
+	_In_opt_ LPCWSTR section_name
 )
 {
-	_r_config_setfont_ex (key_name, logfont, dpi_value, NULL);
+	_r_config_setfont_ex (key_name, logfont, dpi_value, section_name);
 }
 
 VOID _r_config_setfont_ex (
@@ -1478,10 +1498,11 @@ VOID _r_config_setsize (
 
 VOID _r_config_setstringexpand (
 	_In_ LPCWSTR key_name,
-	_In_opt_ LPWSTR value
+	_In_opt_ LPWSTR value,
+	_In_opt_ LPCWSTR section_name
 )
 {
-	_r_config_setstringexpand_ex (key_name, value, NULL);
+	_r_config_setstringexpand_ex (key_name, value, section_name);
 }
 
 VOID _r_config_setstringexpand_ex (
@@ -1508,10 +1529,11 @@ VOID _r_config_setstringexpand_ex (
 
 VOID _r_config_setstring (
 	_In_ LPCWSTR key_name,
-	_In_opt_ LPCWSTR value
+	_In_opt_ LPCWSTR value,
+	_In_opt_ LPCWSTR section_name
 )
 {
-	_r_config_setstring_ex (key_name, value, NULL);
+	_r_config_setstring_ex (key_name, value, section_name);
 }
 
 VOID _r_config_setstring_ex (
@@ -1622,7 +1644,7 @@ VOID _r_locale_initialize ()
 	PR_STRING language_name;
 	PR_LIST locale_names;
 
-	language_name = _r_config_getstring (L"Language", NULL);
+	language_name = _r_config_getstring (L"Language", NULL, NULL);
 
 	if (language_name)
 	{
@@ -1695,7 +1717,7 @@ VOID _r_locale_apply (
 		_r_obj_swapreference (&app_global.locale.current_name, locale_name);
 	}
 
-	_r_config_setstring (L"Language", _r_obj_getstring (app_global.locale.current_name));
+	_r_config_setstring (L"Language", _r_obj_getstring (app_global.locale.current_name), NULL);
 
 	// refresh main window
 	hwindow = _r_app_gethwnd ();
@@ -1710,7 +1732,7 @@ VOID _r_locale_apply (
 	{
 		_r_wnd_sendmessage (hwindow, 0, RM_LOCALIZE, 0, 0);
 
-		_r_theme_initialize (hwindow, _r_theme_isenabled ()); // HACK!
+		_r_theme_initialize_ex (hwindow, _r_theme_isenabled ()); // HACK!
 	}
 }
 
@@ -2578,7 +2600,7 @@ NTSTATUS NTAPI _r_update_checkthread (
 			}
 			else if (update_component->flags & PR_UPDATE_FLAG_FILE)
 			{
-				if (_r_config_getboolean (L"IsAutoinstallUpdates", FALSE))
+				if (_r_config_getboolean (L"IsAutoinstallUpdates", FALSE, NULL))
 				{
 					status = _r_update_downloadupdate (update_info, update_component);
 
@@ -2657,7 +2679,7 @@ NTSTATUS NTAPI _r_update_checkthread (
 		}
 	}
 
-	_r_config_setlong64 (L"CheckUpdatesLast", _r_unixtime_now ());
+	_r_config_setlong64 (L"CheckUpdatesLast", _r_unixtime_now (), NULL);
 
 CleanupExit:
 
@@ -2674,7 +2696,7 @@ VOID _r_update_enable (
 	_In_ BOOLEAN is_enable
 )
 {
-	_r_config_setlong (L"CheckUpdatesPeriod", is_enable ? APP_UPDATE_PERIOD : 0);
+	_r_config_setlong (L"CheckUpdatesPeriod", is_enable ? APP_UPDATE_PERIOD : 0, NULL);
 }
 
 _Success_ (return)
@@ -2686,7 +2708,7 @@ BOOLEAN _r_update_isenabled (
 	LONG64 current_timestamp;
 	LONG update_period;
 
-	update_period = _r_config_getlong (L"CheckUpdatesPeriod", APP_UPDATE_PERIOD);
+	update_period = _r_config_getlong (L"CheckUpdatesPeriod", APP_UPDATE_PERIOD, NULL);
 
 	if (update_period <= 0)
 		return FALSE;
@@ -2695,7 +2717,7 @@ BOOLEAN _r_update_isenabled (
 	{
 		current_timestamp = _r_unixtime_now ();
 
-		update_last_timestamp = _r_config_getlong64 (L"CheckUpdatesLast", 0);
+		update_last_timestamp = _r_config_getlong64 (L"CheckUpdatesLast", 0, NULL);
 
 		if ((current_timestamp - update_last_timestamp) <= _r_calc_hours2seconds (update_period))
 			return FALSE;
@@ -2823,7 +2845,7 @@ HRESULT CALLBACK _r_update_pagecallback (
 				{
 					if (update_info->is_clicked)
 					{
-						_r_config_setboolean (L"IsAutoinstallUpdates", TRUE);
+						_r_config_setboolean (L"IsAutoinstallUpdates", TRUE, NULL);
 
 						update_info->is_clicked = FALSE;
 					}
@@ -2896,7 +2918,7 @@ HRESULT CALLBACK _r_update_pagecallback (
 			//if (_r_theme_isenabled ())
 			//	_r_theme_initializetaskdialogtheme (hwnd, 0);
 
-			if (_r_sys_isosversiongreaterorequal (WINDOWS_11) && !_r_config_getboolean (L"IsWindowCornerRound", FALSE))
+			if (_r_sys_isosversiongreaterorequal (WINDOWS_11) && !_r_config_getboolean (L"IsWindowCornerRound", FALSE, NULL))
 				DwmSetWindowAttribute (hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, &(DWM_WINDOW_CORNER_PREFERENCE){ DWMWCP_DONOTROUND }, sizeof (DWM_WINDOW_CORNER_PREFERENCE));
 
 			if (update_info->hthread)
@@ -3114,7 +3136,7 @@ BOOLEAN _r_log_isenabled (
 {
 	R_LOG_LEVEL log_level;
 
-	log_level = _r_config_getlong (L"ErrorLevel", LOG_LEVEL_DEBUG);
+	log_level = _r_config_getlong (L"ErrorLevel", LOG_LEVEL_DEBUG, NULL);
 
 	if (log_level == LOG_LEVEL_DISABLED)
 		return FALSE;
@@ -3218,11 +3240,11 @@ VOID _r_log (
 #if defined(APP_HAVE_TRAY)
 	if (tray_guid)
 	{
-		if (_r_config_getboolean (L"IsErrorNotificationsEnabled", TRUE))
+		if (_r_config_getboolean (L"IsErrorNotificationsEnabled", TRUE, NULL))
 		{
 			number = _r_log_leveltrayicon (log_level);
 
-			if (!_r_config_getboolean (L"IsNotificationsSound", TRUE))
+			if (!_r_config_getboolean (L"IsNotificationsSound", TRUE, NULL))
 				number |= NIIF_NOSOUND;
 
 			// check for timeout (sec.)
@@ -3423,7 +3445,7 @@ BOOLEAN _r_show_confirmmessage (
 	BOOL is_flagchecked = FALSE;
 	HRESULT status;
 
-	if (config_key && !_r_config_getboolean (config_key, TRUE))
+	if (config_key && !_r_config_getboolean (config_key, TRUE, NULL))
 		return TRUE;
 
 	tdc.cbSize = sizeof (tdc);
@@ -3458,7 +3480,7 @@ BOOLEAN _r_show_confirmmessage (
 		if (command_id == IDYES)
 		{
 			if (config_key && is_flagchecked)
-				_r_config_setboolean (config_key, FALSE);
+				_r_config_setboolean (config_key, FALSE, NULL);
 
 			return TRUE;
 		}
@@ -3884,7 +3906,7 @@ VOID _r_settings_createwindow (
 	buffer_ptr = buffer;
 
 	if (dlg_id)
-		_r_config_setlong (L"SettingsLastPage", dlg_id);
+		_r_config_setlong (L"SettingsLastPage", dlg_id, NULL);
 
 	if (dlg_proc)
 		app_global.settings.wnd_proc = dlg_proc;
@@ -4070,7 +4092,7 @@ INT_PTR CALLBACK _r_settings_wndproc (
 			_r_wnd_center (hwnd, GetParent (hwnd));
 
 			// configure navigation control
-			dlg_id = _r_config_getlong (L"SettingsLastPage", 0);
+			dlg_id = _r_config_getlong (L"SettingsLastPage", 0, NULL);
 
 			for (ULONG_PTR i = 0; i < _r_obj_getarraysize (app_global.settings.page_list); i++)
 			{
@@ -4114,7 +4136,7 @@ INT_PTR CALLBACK _r_settings_wndproc (
 
 			_r_wnd_sendmessage (hwnd, 0, RM_LOCALIZE, 0, 0);
 
-			_r_theme_initialize (hwnd, _r_theme_isenabled ());
+			_r_theme_initialize_ex (hwnd, _r_theme_isenabled ());
 
 			break;
 		}
@@ -4247,7 +4269,7 @@ INT_PTR CALLBACK _r_settings_wndproc (
 
 			app_global.settings.hwnd = NULL;
 
-			_r_wnd_top (_r_app_gethwnd (), _r_config_getboolean (L"AlwaysOnTop", FALSE));
+			_r_wnd_top (_r_app_gethwnd (), _r_config_getboolean (L"AlwaysOnTop", FALSE, NULL));
 
 			break;
 		}
@@ -4288,7 +4310,7 @@ INT_PTR CALLBACK _r_settings_wndproc (
 					if (!ptr_page || !ptr_page->hwnd || _r_wnd_isvisible (ptr_page->hwnd, FALSE))
 						break;
 
-					_r_config_setlong (L"SettingsLastPage", ptr_page->dlg_id);
+					_r_config_setlong (L"SettingsLastPage", ptr_page->dlg_id, NULL);
 
 					_r_tab_adjustchild (hwnd, ctrl_id, ptr_page->hwnd);
 
@@ -4316,7 +4338,7 @@ INT_PTR CALLBACK _r_settings_wndproc (
 					if (!ptr_page_new || !ptr_page_new->hwnd || _r_wnd_isvisible (ptr_page_new->hwnd, FALSE))
 						break;
 
-					_r_config_setlong (L"SettingsLastPage", ptr_page_new->dlg_id);
+					_r_config_setlong (L"SettingsLastPage", ptr_page_new->dlg_id, NULL);
 
 					_r_settings_adjustchild (hwnd, IDC_NAV, ptr_page_new->hwnd);
 
@@ -4949,9 +4971,9 @@ VOID _r_theme_enable (
 	_In_ BOOLEAN is_enable
 )
 {
-	_r_config_setboolean (L"IsDarkThemeEnabled", is_enable);
+	_r_config_setboolean (L"IsDarkThemeEnabled", is_enable, NULL);
 
-	_r_theme_initialize (hwnd, is_enable);
+	_r_theme_initialize_ex (hwnd, is_enable);
 }
 
 BOOL CALLBACK _r_theme_enumchildwindows (
@@ -4977,7 +4999,7 @@ BOOL CALLBACK _r_theme_enumchildwindows (
 
 	if (_r_str_isequal2 (&class_name->sr, L"#32770", TRUE))
 	{
-		_r_theme_initialize (hwnd, is_enable);
+		_r_theme_initialize_ex (hwnd, is_enable);
 	}
 	else if (_r_str_isequal2 (&class_name->sr, L"DirectUIHWND", TRUE))
 	{
@@ -5148,7 +5170,10 @@ BOOL CALLBACK _r_theme_enumchildwindows (
 	return TRUE;
 }
 
-VOID _r_theme_initialize (
+// fork-ABI shim (DEC-04): the 2-arg form was renamed _r_theme_initialize_ex;
+// the consumer-facing 1-arg _r_theme_initialize wrapper (see rapp.h) evaluates
+// _r_theme_isenabled () exactly as every internal caller did
+VOID _r_theme_initialize_ex (
 	_In_ HWND hwnd,
 	_In_ BOOLEAN is_enable
 )
@@ -5235,7 +5260,7 @@ VOID _r_theme_initializecontext (
 
 BOOLEAN _r_theme_isenabled ()
 {
-	return _r_config_getboolean (L"IsDarkThemeEnabled", _r_wnd_isdarkmodeenabled ());
+	return _r_config_getboolean (L"IsDarkThemeEnabled", _r_wnd_isdarkmodeenabled (), NULL);
 }
 
 VOID _r_theme_setwindowframe (
@@ -5251,12 +5276,12 @@ VOID _r_theme_setwindowframe (
 
 	if (_r_sys_isosversiongreaterorequal (WINDOWS_11))
 	{
-		if (_r_config_getboolean (L"IsWindowBorderEnabled", TRUE))
+		if (_r_config_getboolean (L"IsWindowBorderEnabled", TRUE, NULL))
 			DwmSetWindowAttribute (hwnd, DWMWA_BORDER_COLOR, &(COLORREF){ is_enable ? WND_BORDER_CLR : DWMWA_COLOR_DEFAULT}, sizeof (COLORREF));
 
 		DwmSetWindowAttribute (hwnd, DWMWA_CAPTION_COLOR, &(COLORREF){ is_enable ? WND_BACKGROUND_CLR : DWMWA_COLOR_DEFAULT}, sizeof (COLORREF));
 
-		if (_r_sys_isosversiongreaterorequal (WINDOWS_11) && !_r_config_getboolean (L"IsWindowCornerRound", FALSE))
+		if (_r_sys_isosversiongreaterorequal (WINDOWS_11) && !_r_config_getboolean (L"IsWindowCornerRound", FALSE, NULL))
 			DwmSetWindowAttribute (hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, &(DWM_WINDOW_CORNER_PREFERENCE){ DWMWCP_DONOTROUND }, sizeof (DWM_WINDOW_CORNER_PREFERENCE));
 	}
 

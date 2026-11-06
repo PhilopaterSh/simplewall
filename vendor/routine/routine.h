@@ -5,6 +5,22 @@
 
 #pragma once
 
+// fork-ABI shim (DEC-04): raise the NTDDI/WIN32_WINNT floor before any windows.h
+// include so the Win8+ SDK declarations the consumer's src relies on
+// (CryptCATAdmin*2 family in mscat.h, fwpmu helpers, etc.) are always visible,
+// regardless of which translation unit includes routine.h first.
+#if !defined(_WIN32_WINNT)
+#define _WIN32_WINNT 0x0A00 // _WIN32_WINNT_WIN10
+#endif // !_WIN32_WINNT
+
+#if !defined(WINVER)
+#define WINVER 0x0A00 // _WIN32_WINNT_WIN10
+#endif // !WINVER
+
+#if !defined(NTDDI_VERSION)
+#define NTDDI_VERSION 0x0A00000B // NTDDI_WIN10_CO
+#endif // !NTDDI_VERSION
+
 // fix windot11.h errors
 #if !defined(__WINDOT11_H__)
 #define __WINDOT11_H__
@@ -66,6 +82,7 @@
 #include <shellapi.h>
 #include <shellscalingapi.h>
 #include <shlobj.h>
+#include <shldisp.h> // fork-ABI shim (DEC-04): pull in early so the IShellDispatch2_ShellExecute macro redefinition at the end of this header survives the consumer later including <shlguid.h> (which otherwise re-includes shldisp.h and restores the SDK macro)
 #include <shlwapi.h>
 #include <subauth.h>
 #include <taskschd.h>
@@ -1348,9 +1365,14 @@ PR_LIST _r_obj_createlist (
 	_In_opt_ PR_OBJECT_CLEANUP_CALLBACK cleanup_callback
 );
 
+// fork-ABI shim (DEC-04): the consumer (simplewall) calls _r_obj_addlistitem with a
+// trailing _Out_opt_ PULONG_PTR new_index_ptr (all-but-two call sites pass NULL,
+// reproducing the old 2-arg behavior; the rest read back the appended index, which
+// is exactly _r_obj_addlistitem_ex semantics). The base function forwards to _ex.
 VOID _r_obj_addlistitem (
 	_Inout_ PR_LIST list_node,
-	_In_opt_ PVOID list_item
+	_In_opt_ PVOID list_item,
+	_Out_opt_ PULONG_PTR new_index_ptr
 );
 
 VOID _r_obj_addlistitem_ex (
@@ -1572,10 +1594,13 @@ PR_STRING _r_format_filetime (
 	_In_ ULONG flags
 );
 
+// fork-ABI shim (DEC-04): newer-routine shape — single-argument form. The
+// consumer's call sites (src/controls.c, src/messages.c) replaced the old
+// _r_format_interval (seconds, TRUE) calls verbatim (verified against
+// simplewall v3.8.7 vs v3.9.1), so the precise variant is used.
 _Ret_maybenull_
 PR_STRING _r_format_interval (
-	_In_ LONG64 seconds,
-	_In_ BOOLEAN is_precise
+	_In_ LONG64 seconds
 );
 
 VOID _r_format_number (
@@ -3056,10 +3081,13 @@ NTSTATUS _r_sys_openthread (
 );
 
 _Success_ (NT_SUCCESS (return))
+// fork-ABI shim (DEC-04): newer-routine shape — the out buffer moved to the
+// first parameter (consumer: src/network.c passes &string, handle, info_class).
+_Success_ (NT_SUCCESS (return))
 NTSTATUS _r_sys_queryprocessstring (
+	_Out_ PR_STRING_PTR out_buffer,
 	_In_ HANDLE process_handle,
-	_In_ PROCESSINFOCLASS info_class,
-	_Out_ PR_STRING_PTR out_buffer
+	_In_ PROCESSINFOCLASS info_class
 );
 
 _Success_ (SUCCEEDED (return))
@@ -3102,10 +3130,13 @@ PR_STRING _r_sys_querytaginformation (
 );
 
 _Success_ (NT_SUCCESS (return))
+// fork-ABI shim (DEC-04): newer-routine shape — the out buffer moved to the
+// first parameter (consumer: src/network.c passes &ptr, handle, token_class).
+_Success_ (NT_SUCCESS (return))
 NTSTATUS _r_sys_querytokeninformation (
+	_Out_ PVOID_PTR token_info,
 	_In_ HANDLE token_handle,
-	_In_ TOKEN_INFORMATION_CLASS token_class,
-	_Out_ PVOID_PTR token_info
+	_In_ TOKEN_INFORMATION_CLASS token_class
 );
 
 _Success_ (NT_SUCCESS (return))
@@ -3771,12 +3802,19 @@ PVOID _r_wnd_getcontext (
 	_In_ ULONG property_id
 );
 
-VOID _r_wnd_removecontext (
+// fork-ABI shim (DEC-04): newer-routine shape â the consumer's
+// _app_listview_unlock returns this directly, so it must return BOOLEAN
+// (TRUE when the context was removed). The old VOID form ignored errors;
+// the fork's call sites do not distinguish them.
+BOOLEAN _r_wnd_removecontext (
 	_In_ HWND hwnd,
 	_In_ ULONG property_id
 );
 
-VOID _r_wnd_setcontext (
+// fork-ABI shim (DEC-04): newer-routine shape — the consumer's
+// _app_listview_lock/unlock return _r_wnd_setcontext directly, so it must
+// return BOOLEAN. The old VOID always succeeded; TRUE is returned.
+BOOLEAN _r_wnd_setcontext (
 	_In_ HWND hwnd,
 	_In_ ULONG property_id,
 	_In_ PVOID context
@@ -4222,14 +4260,15 @@ NTSTATUS _r_res_loadresource (
 );
 
 _Success_ (NT_SUCCESS (return))
+// hardening round 2 (DEC-04): fork ABI contract - out-buffer comes first
 NTSTATUS _r_res_loadimage (
+	_Out_ HBITMAP_PTR out_buffer,
 	_In_ PVOID hinst,
 	_In_ LPCWSTR type,
 	_In_ LPCWSTR name,
 	_In_ LPCGUID format,
 	_In_ LONG width,
-	_In_ LONG height,
-	_Out_ HBITMAP_PTR out_buffer
+	_In_ LONG height
 );
 
 _Success_ (NT_SUCCESS (return))
@@ -4286,13 +4325,14 @@ PR_STRING _r_res_queryversionstring (
 //
 
 _Success_ (SUCCEEDED (return))
+// hardening round 2 (DEC-04): fork ABI contract - out-buffer comes first
 HRESULT _r_imagelist_create (
+	_Out_ HIMAGELIST_PTR out_buffer,
 	_In_ LONG width,
 	_In_ LONG height,
 	_In_ ULONG flags,
 	_In_ LONG initial_count,
-	_In_ LONG grow_count,
-	_Out_ HIMAGELIST_PTR out_buffer
+	_In_ LONG grow_count
 );
 
 VOID _r_imagelist_destroy (
@@ -4342,10 +4382,14 @@ HRESULT _r_imagelist_getsystem (
 	_Out_ HIMAGELIST_PTR out_buffer
 );
 
+// fork-ABI shim (DEC-04): newer-routine shape — the consumer passes separate
+// width/height (all its call sites pass equal values, reproducing the old
+// square-size behavior).
 _Success_ (SUCCEEDED (return))
 HRESULT _r_imagelist_setsize (
 	_In_ HIMAGELIST himg,
-	_In_ LONG size
+	_In_ LONG width,
+	_In_ LONG height
 );
 
 //
@@ -5135,13 +5179,16 @@ FORCEINLINE BOOLEAN _r_edit_setcuebanner (
 	return (_r_wnd_sendmessage (hwnd, ctrl_id, EM_SETCUEBANNER, FALSE, (LPARAM)string) == TRUE);
 }
 
+// fork-ABI shim (DEC-04): newer-routine shape — separate selection start/end
+// (consumer: src passes (hwnd, ctrl_id, 0, -1) to select all text).
 FORCEINLINE VOID _r_edit_setselection (
 	_In_ HWND hwnd,
 	_In_opt_ INT ctrl_id,
-	_In_ INT selection
+	_In_ INT selection_start,
+	_In_ INT selection_end
 )
 {
-	_r_wnd_sendmessage (hwnd, ctrl_id, EM_SETSEL, 0, (LPARAM)selection);
+	_r_wnd_sendmessage (hwnd, ctrl_id, EM_SETSEL, (WPARAM)selection_start, (LPARAM)selection_end);
 }
 
 FORCEINLINE VOID _r_edit_settextlimit (
@@ -5349,7 +5396,11 @@ INT _r_tab_setitem (
 	_In_ LPARAM lparam
 );
 
-VOID _r_tab_selectitem (
+// fork-ABI shim (DEC-04): newer-routine shape â returns BOOLEAN; the
+// consumer (src/controls.c) tests the result against INT_ERROR. The old VOID
+// form always delivered the selection-change notifications, so TRUE is
+// returned.
+BOOLEAN _r_tab_selectitem (
 	_In_ HWND hwnd,
 	_In_ INT ctrl_id,
 	_In_ INT item_id
@@ -6381,3 +6432,477 @@ static const NTSTATUS (*_r_contract_fs_createfile) (PHANDLE, PR_STRINGREF, ULONG
 static const NTSTATUS (*_r_contract_sys_setprocessprivilege) (HWND, HANDLE, PULONG, ULONG, BOOLEAN) = _r_sys_setprocessprivilege;
 static const NTSTATUS (*_r_contract_reg_queryvalue) (HANDLE, LPWSTR, PVOID, ULONG, PULONG, PULONG) = _r_reg_queryvalue;
 static const NTSTATUS (*_r_contract_fs_renamefilebyhandle) (HANDLE, PR_STRINGREF) = _r_fs_renamefilebyhandle;
+
+//
+// fork-ABI shim section (DEC-04)
+//
+// Everything below this line exists to align this vendored (older) routine
+// snapshot with the API shapes the simplewall consumer was written against
+// (its newer routine snapshot). Nothing here alters hardening round 2 code.
+// All wrappers whose consumer call sites pass a "reserved"-style trailing
+// argument reproduce the pre-shim behavior when NULL/0 is passed.
+//
+
+//
+// Constants (newer-routine names)
+//
+
+// fork-ABI shim: general-purpose sentinel id (newer-routine constant). Used by
+// the consumer as a timer id (src/notifications.c) and as the hidden listview
+// group id (LV_HIDDEN_GROUP_ID); it must not collide with the app's small
+// group ids (0..2) nor with INT_ERROR (-1 == I_GROUPIDNONE).
+#ifndef GENERAL_ID
+#define GENERAL_ID ((INT)0xFFFF)
+#endif // !GENERAL_ID
+
+// fork-ABI shim: newer-routine limit used by the consumer's db.c as the
+// maximum accepted database buffer size (length >= this -> STATUS_BUFFER_OVERFLOW).
+// Value chosen to match the PR_SIZE_* family scale (PR_SIZE_BUFFER_OVERFLOW is
+// 256 MB); a settings db is far below this in practice.
+#ifndef PR_SIZE_BUFFER_MINIMUM
+#define PR_SIZE_BUFFER_MINIMUM (64 * 1024 * 1024) // 64 MB
+#endif // !PR_SIZE_BUFFER_MINIMUM
+
+//
+// Typedefs (newer-routine names)
+//
+
+// fork-ABI shim: "pointer to const SID" — the consumer's src/security.c casts
+// its PSID to PCSID when passing owner sids to Fwpm*SetSecurityInfoByKey0.
+#ifndef PCSID_DEFINED
+#define PCSID_DEFINED
+typedef const SID *PCSID;
+#endif // !PCSID_DEFINED
+
+// fork-ABI shim: wintrust catalog function-pointer typedefs the consumer's
+// src/helper.c uses for locally resolved CryptCATAdmin*2 entry points.
+typedef BOOL (WINAPI *CCAAC2) (
+	_Out_ HCATADMIN *phCatAdmin,
+	_In_opt_ const GUID *pgSubsystem,
+	_In_opt_ PCWSTR pwszHashAlgorithm,
+	_In_opt_ PCCERT_STRONG_SIGN_PARA pStrongHashPolicy,
+	_Reserved_ DWORD dwFlags
+);
+
+typedef BOOL (WINAPI *CCAHFFH2) (
+	_In_ HCATADMIN hCatAdmin,
+	_In_ HANDLE hFile,
+	_Inout_ DWORD *pcbHash,
+	_Out_writes_bytes_to_opt_ (*pcbHash, *pcbHash) BYTE *pbHash,
+	_Reserved_ DWORD dwFlags
+);
+
+//
+// Com interop (newer-routine shape)
+//
+
+FORCEINLINE BSTR _r_com_varianttobstr (
+	_In_ VARIANT var
+)
+{
+	return (var.vt == VT_BSTR) ? var.bstrVal : NULL;
+}
+
+// fork-ABI shim: the consumer's hardening-round-1 log viewer delegation
+// (src/log.c) calls IShellDispatch2_ShellExecute with VARIANT arguments; the
+// SDK CINTERFACE macro feeds them straight into the vtable whose File
+// parameter is BSTR. Extract the bstr here; the remaining parameters are
+// VARIANT in the vtable signature and pass through unchanged.
+#undef IShellDispatch2_ShellExecute
+#define IShellDispatch2_ShellExecute(This,File,vArgs,vDir,vOperation,vShow) \
+	( (This)->lpVtbl -> ShellExecute ((This), _r_com_varianttobstr (File), (vArgs), (vDir), (vOperation), (vShow)) )
+
+//
+// Control: button (newer-routine names; vendored equivalents aliased)
+//
+
+FORCEINLINE BOOLEAN _r_button_checkradio (
+	_In_ HWND hwnd,
+	_In_ INT id_first,
+	_In_ INT id_last,
+	_In_ INT id_check
+)
+{
+	return !!CheckRadioButton (hwnd, id_first, id_last, id_check);
+}
+
+FORCEINLINE BOOLEAN _r_button_ischecked (
+	_In_ HWND hwnd,
+	_In_ INT ctrl_id
+)
+{
+	return (IsDlgButtonChecked (hwnd, ctrl_id) == BST_CHECKED);
+}
+
+FORCEINLINE INT _r_button_isradiochecked (
+	_In_ HWND hwnd,
+	_In_ INT id_first,
+	_In_ INT id_last
+)
+{
+	for (INT id = id_first; id <= id_last; id++)
+	{
+		if (IsDlgButtonChecked (hwnd, id) == BST_CHECKED)
+			return id;
+	}
+
+	return id_first; // none checked: fall back to the first id in range
+}
+
+FORCEINLINE VOID _r_button_setcheck (
+	_In_ HWND hwnd,
+	_In_opt_ INT ctrl_id,
+	_In_ BOOLEAN is_check
+)
+{
+	_r_ctrl_checkbutton (hwnd, ctrl_id, is_check);
+}
+
+FORCEINLINE VOID _r_button_seticon (
+	_In_ HWND hwnd,
+	_In_opt_ INT ctrl_id,
+	_In_opt_ HICON hicon
+)
+{
+	_r_wnd_sendmessage (hwnd, ctrl_id, BM_SETIMAGE, IMAGE_ICON, (LPARAM)hicon);
+}
+
+FORCEINLINE VOID _r_button_setmargins (
+	_In_ HWND hwnd,
+	_In_opt_ INT ctrl_id,
+	_In_ LONG dpi_value
+)
+{
+	RECT margin = {0};
+
+	// dpi-scaled button text margins (cosmetic; no pre-shim counterpart)
+	margin.left = margin.right = _r_dc_getdpi (8, dpi_value);
+	margin.top = margin.bottom = _r_dc_getdpi (2, dpi_value);
+
+	_r_wnd_sendmessage (hwnd, ctrl_id, BCM_SETTEXTMARGIN, 0, (LPARAM)&margin);
+}
+
+//
+// Control: edit (newer-routine names)
+//
+
+FORCEINLINE VOID _r_edit_setmargin (
+	_In_ HWND hwnd,
+	_In_opt_ INT ctrl_id,
+	_In_ LONG left,
+	_In_ LONG right
+)
+{
+	_r_wnd_sendmessage (hwnd, ctrl_id, EM_SETMARGINS, EC_LEFTMARGIN | EC_RIGHTMARGIN, MAKELPARAM (left, right));
+}
+
+FORCEINLINE BOOLEAN _r_edit_setreadonly (
+	_In_ HWND hwnd,
+	_In_opt_ INT ctrl_id,
+	_In_ BOOLEAN is_readonly
+)
+{
+	return !!_r_wnd_sendmessage (hwnd, ctrl_id, EM_SETREADONLY, (WPARAM)(is_readonly ? TRUE : FALSE), 0);
+}
+
+FORCEINLINE VOID _r_edit_showballoontip (
+	_In_ HWND hwnd,
+	_In_opt_ INT ctrl_id,
+	_In_ INT icon_id,
+	_In_opt_ LPCWSTR title,
+	_In_opt_ LPCWSTR string
+)
+{
+	_r_ctrl_showballoontip (hwnd, ctrl_id, icon_id, title, string);
+}
+
+//
+// Control: toolbar / rebar / updown / tooltip (newer-routine names)
+//
+
+FORCEINLINE BOOLEAN _r_toolbar_getidealsize (
+	_In_ HWND hwnd,
+	_In_opt_ INT ctrl_id,
+	_In_ BOOLEAN is_width,
+	_Out_ PSIZE out_buffer
+)
+{
+	RtlZeroMemory (out_buffer, sizeof (SIZE));
+
+	return !!_r_wnd_sendmessage (hwnd, ctrl_id, TB_GETIDEALSIZE, (WPARAM)(is_width ? TRUE : FALSE), (LPARAM)out_buffer);
+}
+
+FORCEINLINE VOID _r_toolbar_setbitmapsize (
+	_In_ HWND hwnd,
+	_In_opt_ INT ctrl_id,
+	_In_ LONG width,
+	_In_ LONG height
+)
+{
+	_r_wnd_sendmessage (hwnd, ctrl_id, TB_SETBITMAPSIZE, 0, MAKELPARAM (width, height));
+}
+
+FORCEINLINE VOID _r_toolbar_setbuttonsize (
+	_In_ HWND hwnd,
+	_In_opt_ INT ctrl_id,
+	_In_ LONG width,
+	_In_ LONG height
+)
+{
+	_r_wnd_sendmessage (hwnd, ctrl_id, TB_SETBUTTONSIZE, 0, MAKELPARAM (width, height));
+}
+
+FORCEINLINE VOID _r_toolbar_setpadding (
+	_In_ HWND hwnd,
+	_In_opt_ INT ctrl_id,
+	_In_ LONG width,
+	_In_ LONG height
+)
+{
+	_r_wnd_sendmessage (hwnd, ctrl_id, TB_SETPADDING, 0, MAKELPARAM (width, height));
+}
+
+FORCEINLINE BOOLEAN _r_rebar_getinfo (
+	_In_ HWND hwnd,
+	_In_opt_ INT ctrl_id,
+	_In_ ULONG band_index,
+	_Inout_ LPREBARBANDINFOW out_buffer
+)
+{
+	return !!_r_wnd_sendmessage (hwnd, ctrl_id, RB_GETBANDINFO, (WPARAM)band_index, (LPARAM)out_buffer);
+}
+
+FORCEINLINE BOOLEAN _r_rebar_setinfo (
+	_In_ HWND hwnd,
+	_In_opt_ INT ctrl_id,
+	_In_ ULONG band_index,
+	_In_ LPREBARBANDINFOW band_info
+)
+{
+	return !!_r_wnd_sendmessage (hwnd, ctrl_id, RB_SETBANDINFO, (WPARAM)band_index, (LPARAM)band_info);
+}
+
+FORCEINLINE VOID _r_updown_setacceleration (
+	_In_ HWND hwnd,
+	_In_opt_ INT ctrl_id,
+	_In_ LONG acceleration
+)
+{
+	UDACCEL udaccel = {0};
+
+	udaccel.nSec = 0;
+	udaccel.nInc = acceleration;
+
+	_r_wnd_sendmessage (hwnd, ctrl_id, UDM_SETACCEL, 1, (LPARAM)&udaccel);
+}
+
+FORCEINLINE HWND _r_tooltip_create (
+	_In_opt_ HWND hparent
+)
+{
+	return _r_ctrl_createtip (hparent);
+}
+
+FORCEINLINE VOID _r_tooltip_settext (
+	_In_ HWND htip,
+	_In_ HWND hwnd,
+	_In_opt_ INT ctrl_id,
+	_In_ LPWSTR string
+)
+{
+	_r_ctrl_settiptext (htip, hwnd, ctrl_id, string);
+}
+
+//
+// Config (newer-routine convenience)
+//
+
+FORCEINLINE BOOLEAN _r_config_invertboolean (
+	_In_ LPCWSTR key_name,
+	_In_ BOOLEAN def_value,
+	_In_opt_ LPCWSTR section_name
+)
+{
+	BOOLEAN value;
+
+	value = _r_config_getboolean (key_name, def_value, section_name);
+	value = !value;
+
+	_r_config_setboolean (key_name, value, section_name);
+
+	return value;
+}
+
+//
+// Filesystem (newer-routine names)
+//
+
+FORCEINLINE BOOLEAN _r_fs_isexists (
+	_In_ PR_STRINGREF path
+)
+{
+	return _r_fs_exists (path);
+}
+
+_Success_ (NT_SUCCESS (return))
+NTSTATUS _r_fs_createhardlink (
+	_In_ PR_STRINGREF new_link_path,
+	_In_ PR_STRINGREF existing_file_path
+);
+
+//
+// Imagelist / listview / menu (newer-routine names)
+//
+
+FORCEINLINE BOOLEAN _r_imagelist_replace (
+	_In_ HIMAGELIST himg,
+	_In_opt_ HBITMAP hbitmap,
+	_In_opt_ HICON hicon,
+	_In_ INT index
+)
+{
+	if (hicon)
+		return (ImageList_ReplaceIcon (himg, index, hicon) != INT_ERROR);
+
+	return !!ImageList_Replace (himg, index, hbitmap, NULL);
+}
+
+FORCEINLINE VOID _r_listview_scroll (
+	_In_ HWND hwnd,
+	_In_opt_ INT ctrl_id,
+	_In_ LONG scroll_pos
+)
+{
+	// vertical scroll by pixels (LVM_SCROLL dx=0, dy=scroll_pos); the
+	// consumer's current call sites only pass non-positive values (no-op)
+	_r_wnd_sendmessage (hwnd, ctrl_id, LVM_SCROLL, 0, (LPARAM)scroll_pos);
+}
+
+FORCEINLINE BOOLEAN _r_menu_addseparator (
+	_In_ HMENU hmenu
+)
+{
+	return !!AppendMenuW (hmenu, MF_SEPARATOR, 0, NULL);
+}
+
+//
+// Objects / strings (newer-routine names)
+//
+
+FORCEINLINE BOOLEAN _r_obj_isbyteempty (
+	_In_opt_ PR_BYTE bytes
+)
+{
+	return (!bytes || _r_obj_isbyteempty2 (bytes));
+}
+
+FORCEINLINE LPCWSTR _r_path_getbasename2 (
+	_In_ LPCWSTR path
+)
+{
+	LPCWSTR base_name = path;
+
+	for (LPCWSTR p = path; p && *p; p++)
+	{
+		if (*p == L'\\' || *p == L'/')
+			base_name = p + 1;
+	}
+
+	return base_name;
+}
+
+FORCEINLINE INT _r_path_getdrivenumber (
+	_In_ PR_STRINGREF path
+)
+{
+	WCHAR drive_letter;
+
+	if (path->length >= 2 * sizeof (WCHAR) && path->buffer[1] == L':')
+	{
+		drive_letter = path->buffer[0];
+
+		if (drive_letter >= L'a' && drive_letter <= L'z')
+			return (INT)(drive_letter - L'a');
+
+		if (drive_letter >= L'A' && drive_letter <= L'Z')
+			return (INT)(drive_letter - L'A');
+	}
+
+	return INT_ERROR;
+}
+
+FORCEINLINE BOOLEAN _r_path_isnetwork (
+	_In_ PR_STRINGREF path
+)
+{
+	WCHAR drive_root[] = L"A:\\";
+
+	if (path->length >= 2 * sizeof (WCHAR))
+	{
+		if (path->buffer[0] == L'\\' && path->buffer[1] == L'\\')
+			return TRUE; // UNC path
+
+		if (path->buffer[1] == L':')
+		{
+			drive_root[0] = path->buffer[0];
+
+			return (GetDriveTypeW (drive_root) == DRIVE_REMOTE);
+		}
+	}
+
+	return FALSE;
+}
+
+//
+// System (newer-routine names)
+//
+
+FORCEINLINE PLARGE_INTEGER _r_sys_gettimestamp (
+	_Out_ PLARGE_INTEGER out_time
+)
+{
+	// returns current system time (100ns units, same format as
+	// MIB_UDPROW_OWNER_MODULE's liCreateTimestamp the consumer compares with)
+	NtQuerySystemTime (out_time);
+
+	return out_time;
+}
+
+FORCEINLINE ULONG_PTR _r_sys_settimer (
+	_In_opt_ HWND hwnd,
+	_In_ UINT_PTR id,
+	_In_ UINT timeout,
+	_In_opt_ TIMERPROC proc
+)
+{
+	return SetTimer (hwnd, id, timeout, proc);
+}
+
+FORCEINLINE VOID _r_sys_terminatethread (
+	_In_opt_ HANDLE hthread,
+	_In_ NTSTATUS status
+)
+{
+	TerminateThread (hthread, (DWORD)status);
+}
+
+//
+// Window (newer-routine names)
+//
+
+FORCEINLINE VOID _r_wnd_sendcommand (
+	_In_opt_ HWND hwnd,
+	_In_ ULONG command_id,
+	_In_opt_ LPARAM lparam
+)
+{
+	_r_wnd_sendmessage (hwnd, 0, WM_COMMAND, MAKELPARAM (command_id, 0), lparam);
+}
+
+FORCEINLINE VOID _r_wnd_topzoder (
+	_In_ HWND hwnd,
+	_In_ BOOLEAN is_topmost
+)
+{
+	SetWindowPos (hwnd, is_topmost ? HWND_TOPMOST : HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+}

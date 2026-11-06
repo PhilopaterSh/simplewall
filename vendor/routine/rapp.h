@@ -49,9 +49,14 @@ EXTERN_C_START
 
 VOID _r_config_initialize ();
 
+// fork-ABI shim (DEC-04): consumer (simplewall) calls the base config getters/setters
+// with a trailing _In_opt_ section_name argument (see src call sites: NULL reproduces
+// the old 2-arg behavior; non-NULL routes to the named section exactly like the _ex
+// variants). The base functions now forward the section verbatim.
 BOOLEAN _r_config_getboolean (
 	_In_ LPCWSTR key_name,
-	_In_ BOOLEAN def_value
+	_In_ BOOLEAN def_value,
+	_In_opt_ LPCWSTR section_name
 );
 
 BOOLEAN _r_config_getboolean_ex (
@@ -62,7 +67,8 @@ BOOLEAN _r_config_getboolean_ex (
 
 LONG _r_config_getlong (
 	_In_ LPCWSTR key_name,
-	_In_ LONG def_value
+	_In_ LONG def_value,
+	_In_opt_ LPCWSTR section_name
 );
 
 LONG _r_config_getlong_ex (
@@ -73,7 +79,8 @@ LONG _r_config_getlong_ex (
 
 LONG64 _r_config_getlong64 (
 	_In_ LPCWSTR key_name,
-	_In_ LONG64 def_value
+	_In_ LONG64 def_value,
+	_In_opt_ LPCWSTR section_name
 );
 
 LONG64 _r_config_getlong64_ex (
@@ -84,7 +91,8 @@ LONG64 _r_config_getlong64_ex (
 
 ULONG _r_config_getulong (
 	_In_ LPCWSTR key_name,
-	_In_opt_ ULONG def_value
+	_In_opt_ ULONG def_value,
+	_In_opt_ LPCWSTR section_name
 );
 
 ULONG _r_config_getulong_ex (
@@ -95,7 +103,8 @@ ULONG _r_config_getulong_ex (
 
 ULONG64 _r_config_getulong64 (
 	_In_ LPCWSTR key_name,
-	_In_opt_ ULONG64 def_value
+	_In_opt_ ULONG64 def_value,
+	_In_opt_ LPCWSTR section_name
 );
 
 ULONG64 _r_config_getulong64_ex (
@@ -107,7 +116,8 @@ ULONG64 _r_config_getulong64_ex (
 VOID _r_config_getfont (
 	_In_ LPCWSTR key_name,
 	_Inout_ PLOGFONT logfont,
-	_In_ LONG dpi_value
+	_In_ LONG dpi_value,
+	_In_opt_ LPCWSTR section_name
 );
 
 VOID _r_config_getfont_ex (
@@ -127,7 +137,8 @@ VOID _r_config_getsize (
 _Ret_maybenull_
 PR_STRING _r_config_getstringexpand (
 	_In_ LPCWSTR key_name,
-	_In_opt_ LPCWSTR def_value
+	_In_opt_ LPCWSTR def_value,
+	_In_opt_ LPCWSTR section_name
 );
 
 _Ret_maybenull_
@@ -140,7 +151,8 @@ PR_STRING _r_config_getstringexpand_ex (
 _Ret_maybenull_
 PR_STRING _r_config_getstring (
 	_In_ LPCWSTR key_name,
-	_In_opt_ LPCWSTR def_value
+	_In_opt_ LPCWSTR def_value,
+	_In_opt_ LPCWSTR section_name
 );
 
 _Ret_maybenull_
@@ -152,7 +164,8 @@ PR_STRING _r_config_getstring_ex (
 
 VOID _r_config_setboolean (
 	_In_ LPCWSTR key_name,
-	_In_ BOOLEAN value
+	_In_ BOOLEAN value,
+	_In_opt_ LPCWSTR section_name
 );
 
 VOID _r_config_setboolean_ex (
@@ -163,7 +176,8 @@ VOID _r_config_setboolean_ex (
 
 VOID _r_config_setlong (
 	_In_ LPCWSTR key_name,
-	_In_ LONG value
+	_In_ LONG value,
+	_In_opt_ LPCWSTR section_name
 );
 
 VOID _r_config_setlong_ex (
@@ -174,7 +188,8 @@ VOID _r_config_setlong_ex (
 
 VOID _r_config_setlong64 (
 	_In_ LPCWSTR key_name,
-	_In_ LONG64 value
+	_In_ LONG64 value,
+	_In_opt_ LPCWSTR section_name
 );
 
 VOID _r_config_setlong64_ex (
@@ -185,7 +200,8 @@ VOID _r_config_setlong64_ex (
 
 VOID _r_config_setulong (
 	_In_ LPCWSTR key_name,
-	_In_ ULONG value
+	_In_ ULONG value,
+	_In_opt_ LPCWSTR section_name
 );
 
 VOID _r_config_setulong_ex (
@@ -196,7 +212,8 @@ VOID _r_config_setulong_ex (
 
 VOID _r_config_setulong64 (
 	_In_ LPCWSTR key_name,
-	_In_ ULONG64 value
+	_In_ ULONG64 value,
+	_In_opt_ LPCWSTR section_name
 );
 
 VOID _r_config_setulong64_ex (
@@ -208,7 +225,8 @@ VOID _r_config_setulong64_ex (
 VOID _r_config_setfont (
 	_In_ LPCWSTR key_name,
 	_In_ PLOGFONT logfont,
-	_In_ LONG dpi_value
+	_In_ LONG dpi_value,
+	_In_opt_ LPCWSTR section_name
 );
 
 VOID _r_config_setfont_ex (
@@ -226,7 +244,8 @@ VOID _r_config_setsize (
 
 VOID _r_config_setstringexpand (
 	_In_ LPCWSTR key_name,
-	_In_opt_ LPWSTR value
+	_In_opt_ LPWSTR value,
+	_In_opt_ LPCWSTR section_name
 );
 
 VOID _r_config_setstringexpand_ex (
@@ -237,7 +256,8 @@ VOID _r_config_setstringexpand_ex (
 
 VOID _r_config_setstring (
 	_In_ LPCWSTR key_name,
-	_In_opt_ LPCWSTR value
+	_In_opt_ LPCWSTR value,
+	_In_opt_ LPCWSTR section_name
 );
 
 VOID _r_config_setstring_ex (
@@ -358,7 +378,16 @@ BOOL CALLBACK _r_theme_enumchildwindows (
 	_In_ LPARAM context
 );
 
+// fork-ABI shim (DEC-04): newer-routine shape — the consumer calls
+// _r_theme_initialize with a single hwnd argument. The old 2-arg entry point
+// stays available as _r_theme_initialize_ex (used internally by the vendored
+// library); the 1-arg wrapper evaluates the enable flag exactly like every
+// old internal caller did (_r_theme_isenabled ()).
 VOID _r_theme_initialize (
+	_In_ HWND hwnd
+);
+
+VOID _r_theme_initialize_ex (
 	_In_ HWND hwnd,
 	_In_ BOOLEAN is_enable
 );
@@ -371,6 +400,7 @@ VOID _r_theme_initializecontext (
 );
 
 BOOLEAN _r_theme_isenabled ();
+
 
 VOID _r_theme_setwindowframe (
 	_In_ HWND hwnd,
