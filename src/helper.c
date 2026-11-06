@@ -787,7 +787,7 @@ PR_STRING _app_verifygetstring (
 	PCRYPT_PROVIDER_SGNR prov_signer;
 	PCRYPT_PROVIDER_DATA prov_data;
 	PCRYPT_PROVIDER_CERT prov_cert;
-	PR_STRING string;
+	PR_STRING string = NULL;
 	ULONG idx = 0, length;
 
 	prov_data = WTHelperProvDataFromStateData (state_data);
@@ -1110,7 +1110,7 @@ PR_STRING _app_getfilehashinfo (
 )
 {
 	PITEM_APP ptr_app;
-	PR_STRING string;
+	PR_STRING string = NULL;
 
 	ptr_app = _app_getappitem (app_hash);
 

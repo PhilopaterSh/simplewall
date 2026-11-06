@@ -3740,7 +3740,7 @@ NTSTATUS _r_fs_createhardlink (
 
 	RtlFreeUnicodeString (&nt_path);
 
-	_r_fs_openfile (&hfile, existing_file_path, DELETE, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, 0, FALSE);
+	status = _r_fs_openfile (&hfile, existing_file_path, DELETE, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, 0, FALSE);
 
 	if (!NT_SUCCESS (status))
 	{
@@ -3781,7 +3781,7 @@ NTSTATUS _r_fs_copyfile (
 	if (!NT_SUCCESS (status))
 		return status;
 
-	_r_fs_openfile (&hfile_src, path_from, FILE_GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, 0, FALSE);
+	status = _r_fs_openfile (&hfile_src, path_from, FILE_GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, 0, FALSE);
 
 	if (!NT_SUCCESS (status))
 		return status;
@@ -3930,7 +3930,7 @@ NTSTATUS _r_fs_deletefile (
 
 	if (path && !hfile)
 	{
-		_r_fs_openfile (&hfile_new, path, DELETE, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, 0, FALSE);
+		status = _r_fs_openfile (&hfile_new, path, DELETE, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, 0, FALSE);
 
 		if (!NT_SUCCESS (status))
 		{
@@ -4081,7 +4081,7 @@ NTSTATUS _r_fs_dospathnametontpathname (
 		// win10rs1+
 		if (_r_sys_isosversiongreaterorequal (WINDOWS_10_RS1) && NtCurrentPeb ()->IsLongPathAwareProcess) // RtlAreLongPathsEnabled ()
 		{
-			_r_sys_loadlibrary2 (&hntdll, L"ntdll.dll", 0);
+			status = _r_sys_loadlibrary2 (&hntdll, L"ntdll.dll", 0);
 
 			if (NT_SUCCESS (status))
 			{
@@ -4383,7 +4383,7 @@ NTSTATUS _r_fs_getdiskinformation (
 
 	if (!hfile && path)
 	{
-		_r_fs_openfile (&hfile_new, path, FILE_GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, 0, TRUE);
+		status = _r_fs_openfile (&hfile_new, path, FILE_GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, 0, TRUE);
 
 		if (!NT_SUCCESS (status))
 			return status;
@@ -4490,7 +4490,7 @@ NTSTATUS _r_fs_getdiskspace (
 
 	if (!hfile && path)
 	{
-		_r_fs_openfile (&hfile_new, path, FILE_GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, 0, TRUE);
+		status = _r_fs_openfile (&hfile_new, path, FILE_GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, 0, TRUE);
 
 		if (!NT_SUCCESS (status))
 			return status;
@@ -4624,7 +4624,7 @@ NTSTATUS _r_fs_getsecurityinfo (
 
 	if (!hfile && path)
 	{
-		_r_fs_openfile (&hfile_new, path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_DELETE, 0, FALSE);
+		status = _r_fs_openfile (&hfile_new, path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_DELETE, 0, FALSE);
 
 		if (!NT_SUCCESS (status))
 			return status;
@@ -4689,7 +4689,7 @@ NTSTATUS _r_fs_getsize (
 
 	if (!hfile && path)
 	{
-		_r_fs_openfile (&hfile_new, path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, 0, FALSE);
+		status = _r_fs_openfile (&hfile_new, path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, 0, FALSE);
 
 		if (!NT_SUCCESS (status))
 			return status;
@@ -5288,7 +5288,7 @@ PR_STRING _r_path_find (
 
 	if (path->buffer[0] == L'%')
 	{
-		_r_str_environmentexpandstring (&string, NULL, path);
+		status = _r_str_environmentexpandstring (&string, NULL, path);
 
 		if (!NT_SUCCESS (status))
 			return NULL;
@@ -6182,7 +6182,7 @@ PR_STRING _r_path_resolvenetworkprefix (
 	ULONG_PTR prefix_length;
 	NTSTATUS status;
 
-	_r_reg_openkey (&hkey, HKEY_LOCAL_MACHINE, L"System\\CurrentControlSet\\Control\\NetworkProvider\\Order", 0, KEY_READ);
+	status = _r_reg_openkey (&hkey, HKEY_LOCAL_MACHINE, L"System\\CurrentControlSet\\Control\\NetworkProvider\\Order", 0, KEY_READ);
 
 	if (!NT_SUCCESS (status))
 		return NULL;
@@ -6206,7 +6206,7 @@ PR_STRING _r_path_resolvenetworkprefix (
 					&provider_part_sr
 				);
 
-				_r_reg_openkey (&hsvckey, HKEY_LOCAL_MACHINE, service_key->buffer, 0, KEY_READ);
+				status = _r_reg_openkey (&hsvckey, HKEY_LOCAL_MACHINE, service_key->buffer, 0, KEY_READ);
 
 				if (NT_SUCCESS (status))
 				{
@@ -6489,7 +6489,7 @@ NTSTATUS _r_path_search (
 	else
 	{
 		// works as RtlGetSearchPath (win8+)
-		_r_str_environmentexpandstring (&string, NULL, &env);
+		status = _r_str_environmentexpandstring (&string, NULL, &env);
 
 		if (!NT_SUCCESS (status))
 		{
@@ -8882,7 +8882,7 @@ BOOLEAN _r_sys_iswine ()
 	PVOID hntdll;
 	NTSTATUS status;
 
-	_r_sys_loadlibrary2 (&hntdll, L"ntdll.dll", 0);
+	status = _r_sys_loadlibrary2 (&hntdll, L"ntdll.dll", 0);
 
 	if (!NT_SUCCESS (status))
 		return FALSE;
@@ -8976,7 +8976,7 @@ NTSTATUS _r_sys_getbinarytype (
 	HANDLE hfile;
 	NTSTATUS status;
 
-	_r_fs_openfile (&hfile, path, FILE_READ_DATA | FILE_EXECUTE, FILE_SHARE_READ | FILE_SHARE_DELETE, 0, FALSE);
+	status = _r_fs_openfile (&hfile, path, FILE_READ_DATA | FILE_EXECUTE, FILE_SHARE_READ | FILE_SHARE_DELETE, 0, FALSE);
 
 	if (!NT_SUCCESS (status))
 		return status;
@@ -9065,7 +9065,7 @@ NTSTATUS _r_sys_getcomputername (
 	HANDLE hkey;
 	NTSTATUS status;
 
-	_r_reg_openkey (&hkey, HKEY_LOCAL_MACHINE, L"System\\CurrentControlSet\\Control\\ComputerName\\ActiveComputerName", 0, KEY_READ);
+	status = _r_reg_openkey (&hkey, HKEY_LOCAL_MACHINE, L"System\\CurrentControlSet\\Control\\ComputerName\\ActiveComputerName", 0, KEY_READ);
 
 	if (NT_SUCCESS (status))
 	{
@@ -9587,7 +9587,7 @@ LONG _r_sys_getpackagepath (
 
 	if (_r_initonce_begin (&init_once))
 	{
-		_r_sys_loadlibrary2 (&hkernel32, L"kernel32.dll", 0);
+		status = _r_sys_loadlibrary2 (&hkernel32, L"kernel32.dll", 0);
 
 		if (NT_SUCCESS (status))
 		{
@@ -9969,7 +9969,7 @@ BOOLEAN _r_sys_isprocessimmersive (
 
 	if (_r_initonce_begin (&init_once))
 	{
-		_r_sys_loadlibrary2 (&huser32, L"user32.dll", 0);
+		status = _r_sys_loadlibrary2 (&huser32, L"user32.dll", 0);
 
 		if (NT_SUCCESS (status))
 		{
@@ -10897,7 +10897,7 @@ NTSTATUS _r_sys_loadlibraryasresource (
 			return status;
 	}
 
-	_r_fs_openfile (&hfile, &path->sr, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_DELETE, 0, FALSE);
+	status = _r_fs_openfile (&hfile, &path->sr, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_DELETE, 0, FALSE);
 
 	if (!NT_SUCCESS (status))
 		return status;
@@ -10970,7 +10970,7 @@ NTSTATUS _r_sys_loadlibrary (
 
 	if (flags & (LOAD_LIBRARY_AS_DATAFILE | LOAD_LIBRARY_AS_DATAFILE_EXCLUSIVE | LOAD_LIBRARY_AS_IMAGE_RESOURCE))
 	{
-		_r_sys_loadlibraryasresource (&hmodule, lib_name);
+		status = _r_sys_loadlibraryasresource (&hmodule, lib_name);
 	}
 	else
 	{
@@ -11036,7 +11036,7 @@ NTSTATUS _r_sys_loadlibrarytype (
 		}
 	}
 
-	_r_sys_loadlibraryasresource (&hmodule, &name);
+	status = _r_sys_loadlibraryasresource (&hmodule, &name);
 
 	if (NT_SUCCESS (status))
 	{
@@ -11713,7 +11713,7 @@ NTSTATUS _r_sys_sleep (
 
 	if (_r_initonce_begin (&init_once))
 	{
-		_r_sys_loadlibrary2 (&ntdll, L"ntdll.dll", 0);
+		status = _r_sys_loadlibrary2 (&ntdll, L"ntdll.dll", 0);
 
 		if (NT_SUCCESS (status))
 		{
@@ -11883,7 +11883,7 @@ BOOLEAN _r_dc_adjustwindowrect (
 	// initialize library calls
 	if (_r_initonce_begin (&init_once))
 	{
-		_r_sys_loadlibrary2 (&huser32, L"user32.dll", 0);
+		status = _r_sys_loadlibrary2 (&huser32, L"user32.dll", 0);
 
 		if (NT_SUCCESS (status))
 		{
@@ -12325,7 +12325,7 @@ LONG _r_dc_getdpivalue (
 	// initialize library calls
 	if (_r_initonce_begin (&init_once))
 	{
-		_r_sys_loadlibrary2 (&hshcore, L"shcore.dll", 0);
+		status = _r_sys_loadlibrary2 (&hshcore, L"shcore.dll", 0);
 
 		if (NT_SUCCESS (status))
 		{
@@ -12335,7 +12335,7 @@ LONG _r_dc_getdpivalue (
 			_r_sys_freelibrary (hshcore);
 		}
 
-		_r_sys_loadlibrary2 (&huser32, L"user32.dll", 0);
+		status = _r_sys_loadlibrary2 (&huser32, L"user32.dll", 0);
 
 		if (NT_SUCCESS (status))
 		{
@@ -12467,7 +12467,7 @@ LONG _r_dc_getsystemmetrics (
 	// initialize library calls
 	if (_r_initonce_begin (&init_once))
 	{
-		_r_sys_loadlibrary2 (&huser32, L"user32.dll", 0);
+		status = _r_sys_loadlibrary2 (&huser32, L"user32.dll", 0);
 
 		if (NT_SUCCESS (status))
 		{
@@ -12504,7 +12504,7 @@ BOOLEAN _r_dc_getsystemparametersinfo (
 	// initialize library calls
 	if (_r_initonce_begin (&init_once))
 	{
-		_r_sys_loadlibrary2 (&huser32, L"user32.dll", 0);
+		status = _r_sys_loadlibrary2 (&huser32, L"user32.dll", 0);
 
 		if (NT_SUCCESS (status))
 		{
@@ -12600,7 +12600,7 @@ HTHEME _r_dc_openthemedata (
 	// initialize library calls
 	if (_r_initonce_begin (&init_once))
 	{
-		_r_sys_loadlibrary2 (&huxtheme, L"uxtheme.dll", 0);
+		status = _r_sys_loadlibrary2 (&huxtheme, L"uxtheme.dll", 0);
 
 		if (NT_SUCCESS (status))
 		{
@@ -13429,7 +13429,7 @@ INT_PTR _r_wnd_createmodalwindow (
 	INT_PTR result;
 	NTSTATUS status;
 
-	_r_res_loadresource (&buffer, hinst, RT_DIALOG, (LPCWSTR)name, 0);
+	status = _r_res_loadresource (&buffer, hinst, RT_DIALOG, (LPCWSTR)name, 0);
 
 	if (!NT_SUCCESS (status))
 		return 0;
@@ -13452,7 +13452,7 @@ HWND _r_wnd_createwindow (
 	HWND hwnd;
 	NTSTATUS status;
 
-	_r_res_loadresource (&buffer, hinst, RT_DIALOG, (LPCWSTR)name, 0);
+	status = _r_res_loadresource (&buffer, hinst, RT_DIALOG, (LPCWSTR)name, 0);
 
 	if (!NT_SUCCESS (status))
 		return NULL;
@@ -13527,7 +13527,7 @@ BOOLEAN _r_wnd_isdarkmodeenabled ()
 
 	// "ShouldAppsUseDarkMode" is incorrect started from 1903+, use this instead!
 	// https://github.com/ysc3839/win32-darkmode/issues/3
-	_r_reg_openkey (&hkey, HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize", 0, KEY_READ);
+	status = _r_reg_openkey (&hkey, HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize", 0, KEY_READ);
 
 	if (NT_SUCCESS (status))
 	{
@@ -13556,7 +13556,7 @@ BOOLEAN _r_wnd_isfocusassist ()
 
 	if (_r_initonce_begin (&init_once))
 	{
-		_r_sys_loadlibrary2 (&hntdll, L"ntdll.dll", 0);
+		status = _r_sys_loadlibrary2 (&hntdll, L"ntdll.dll", 0);
 
 		if (NT_SUCCESS (status))
 		{
@@ -14706,7 +14706,7 @@ HANDLE _r_reg_getroothandle (
 	if (_r_initonce_begin (&init_once))
 	{
 		// HKEY_CLASSES_ROOT
-		_r_reg_openkey (&hkeyhkcr, NULL, L"\\Registry\\Machine\\Software\\CLASSES", 0, MAXIMUM_ALLOWED);
+		status = _r_reg_openkey (&hkeyhkcr, NULL, L"\\Registry\\Machine\\Software\\CLASSES", 0, MAXIMUM_ALLOWED);
 
 		if (!NT_SUCCESS (status))
 			RtlRaiseStatus (status);
@@ -14718,25 +14718,25 @@ HANDLE _r_reg_getroothandle (
 			RtlRaiseStatus (status);
 
 		// HKEY_LOCAL_MACHINE
-		_r_reg_openkey (&hkeyhklm, NULL, L"\\Registry\\Machine", 0, MAXIMUM_ALLOWED);
+		status = _r_reg_openkey (&hkeyhklm, NULL, L"\\Registry\\Machine", 0, MAXIMUM_ALLOWED);
 
 		if (!NT_SUCCESS (status))
 			RtlRaiseStatus (status);
 
 		// HKEY_USERS
-		_r_reg_openkey (&hkeyhku, NULL, L"\\Registry\\User", 0, MAXIMUM_ALLOWED);
+		status = _r_reg_openkey (&hkeyhku, NULL, L"\\Registry\\User", 0, MAXIMUM_ALLOWED);
 
 		if (!NT_SUCCESS (status))
 			RtlRaiseStatus (status);
 
 		// HKEY_CURRENT_CONFIG
-		_r_reg_openkey (&hkeyhcc, NULL, L"\\Registry\\Machine\\System\\CurrentControlSet\\Hardware Profiles\\Current", 0, MAXIMUM_ALLOWED);
+		status = _r_reg_openkey (&hkeyhcc, NULL, L"\\Registry\\Machine\\System\\CurrentControlSet\\Hardware Profiles\\Current", 0, MAXIMUM_ALLOWED);
 
 		if (!NT_SUCCESS (status))
 			RtlRaiseStatus (status);
 
 		// HKEY_DYN_DATA
-		_r_reg_openkey (&hkeydd, NULL, L"\\Registry\\DynData", 0, MAXIMUM_ALLOWED);
+		status = _r_reg_openkey (&hkeydd, NULL, L"\\Registry\\DynData", 0, MAXIMUM_ALLOWED);
 		//
 		//if (!NT_SUCCESS (status))
 		//	RtlRaiseStatus (status); // have STATUS_OBJECT_NAME_NOT_FOUND
@@ -15042,7 +15042,7 @@ NTSTATUS _r_reg_querybinary (
 	_Out_ PR_BYTE_PTR out_buffer
 )
 {
-	PR_BYTE bytes;
+	PR_BYTE bytes = NULL;
 	ULONG buffer_length;
 	ULONG type;
 	ULONG attempts = 2;
@@ -15160,7 +15160,7 @@ NTSTATUS _r_reg_querystring (
 	{
 		if (type == REG_EXPAND_SZ)
 		{
-			_r_str_environmentexpandstring (&expanded_string, NULL, &string->sr);
+			status = _r_str_environmentexpandstring (&expanded_string, NULL, &string->sr);
 
 			if (NT_SUCCESS (status))
 				_r_obj_movereference (&string, expanded_string);
@@ -15722,7 +15722,7 @@ NTSTATUS _r_crypt_getfilehash (
 
 	if (path && !hfile)
 	{
-		_r_fs_openfile (&hfile_new, path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_DELETE, 0, FALSE);
+		status = _r_fs_openfile (&hfile_new, path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_DELETE, 0, FALSE);
 
 		if (!NT_SUCCESS (status))
 		{
@@ -16000,7 +16000,7 @@ NTSTATUS _r_res_loadimage (
 	UINT width_src = 0;
 	NTSTATUS status;
 
-	_r_res_loadresource (&buffer, hinst, type, (LPCWSTR)name, 0);
+	status = _r_res_loadresource (&buffer, hinst, type, (LPCWSTR)name, 0);
 
 	if (!NT_SUCCESS (status))
 	{
@@ -16175,7 +16175,7 @@ NTSTATUS _r_res_loadstring (
 	ULONG string_num;
 	NTSTATUS status;
 
-	_r_res_loadresource (&buffer, hinst, RT_STRING, MAKEINTRESOURCE ((LOWORD (string_id) >> 4) + 1), 0);
+	status = _r_res_loadresource (&buffer, hinst, RT_STRING, MAKEINTRESOURCE ((LOWORD (string_id) >> 4) + 1), 0);
 
 	if (!NT_SUCCESS (status))
 	{
@@ -16236,7 +16236,7 @@ PR_STRING _r_res_loadindirectstring (
 		if (!path_string)
 			return NULL;
 
-		_r_sys_loadlibraryasresource (&hlibrary, &path_string->sr);
+		status = _r_sys_loadlibraryasresource (&hlibrary, &path_string->sr);
 
 		if (NT_SUCCESS (status))
 		{
@@ -16344,7 +16344,7 @@ BOOL _r_res_verqueryvalue (
 
 	if (_r_initonce_begin (&init_once))
 	{
-		_r_sys_loadlibrary2 (&hversion, L"version.dll", 0);
+		status = _r_sys_loadlibrary2 (&hversion, L"version.dll", 0);
 
 		if (NT_SUCCESS (status))
 		{

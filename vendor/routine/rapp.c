@@ -1975,7 +1975,7 @@ NTSTATUS _r_autorun_enable (
 	HANDLE hkey;
 	NTSTATUS status;
 
-	_r_reg_openkey (&hkey, HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Run", 0, KEY_WRITE);
+	status = _r_reg_openkey (&hkey, HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Run", 0, KEY_WRITE);
 
 	if (!NT_SUCCESS (status))
 		return status;
@@ -2025,7 +2025,7 @@ BOOLEAN _r_autorun_isenabled ()
 	BOOLEAN is_enabled = FALSE;
 	NTSTATUS status;
 
-	_r_reg_openkey (&hkey, HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Run", 0, KEY_READ);
+	status = _r_reg_openkey (&hkey, HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Run", 0, KEY_READ);
 
 	if (NT_SUCCESS (status))
 	{
@@ -2141,7 +2141,7 @@ static NTSTATUS _r_update_hardencachedir (
 	_r_mem_free (token_user);
 	NtClose (htoken);
 
-	return NT_FROM_WIN32 (win_error);
+	return (NTSTATUS)(ULONG_PTR)win_error; // hardening round 2: direct cast
 }
 
 NTSTATUS _r_update_downloadupdate (
@@ -2207,7 +2207,7 @@ NTSTATUS _r_update_downloadupdate (
 
 	// hardening round 2 (FR-03/SEC-01): verify the artifact sha256 from the
 	// signed manifest before it may land anywhere
-	if (!_r_str_isempty (&update_component->hash->sr)) // hardening round 2: value-type field
+	if (!_r_str_isempty (update_component->hash->buffer)) // hardening round 2: hash string pointer
 	{
 		PR_STRING hash_string;
 
@@ -2451,7 +2451,7 @@ static NTSTATUS _r_update_verifysignature (
 	if (!NT_SUCCESS (status))
 		goto CleanupExit;
 
-		status = BCryptVerifySignature (hkey, NULL, 0, digest, sizeof (digest), 0);
+		status = BCryptVerifySignature (hkey, NULL, digest, sizeof (digest), (PUCHAR)sig_bytes->buffer, (ULONG)sig_bytes->length, 0);
 
 CleanupExit:
 	if (hhash)
@@ -5168,6 +5168,15 @@ BOOL CALLBACK _r_theme_enumchildwindows (
 	_r_obj_dereference (class_name);
 
 	return TRUE;
+}
+
+// hardening round 2 (DEC-04): the consumer calls the 1-arg form - evaluates
+// the theme state exactly like the shim comment above describes
+VOID _r_theme_initialize (
+	_In_ HWND hwnd
+)
+{
+	_r_theme_initialize_ex (hwnd, _r_theme_isenabled ());
 }
 
 // fork-ABI shim (DEC-04): the 2-arg form was renamed _r_theme_initialize_ex;

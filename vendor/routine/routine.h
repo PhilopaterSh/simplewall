@@ -6752,6 +6752,13 @@ FORCEINLINE VOID _r_tooltip_settext (
 // Config (newer-routine convenience)
 //
 
+// hardening round 2: forward declarations - the invertboolean forceinline
+// below calls these (defined in rapp.c); without them C4013 invents int
+// returning externs that conflict with rapp.h's BOOLEAN declarations
+BOOLEAN _r_config_getboolean (LPCWSTR key_name, BOOLEAN def_value, LPCWSTR section_name);
+VOID _r_config_setboolean (LPCWSTR key_name, BOOLEAN value, LPCWSTR section_name);
+
+
 FORCEINLINE BOOLEAN _r_config_invertboolean (
 	_In_ LPCWSTR key_name,
 	_In_ BOOLEAN def_value,
