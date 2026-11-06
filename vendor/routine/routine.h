@@ -4345,8 +4345,8 @@ BOOL _r_res_verqueryvalue (
 
 _Success_ (return)
 BOOLEAN _r_res_queryversion (
-	_In_ LPCVOID ver_block,
-	_Out_ PVOID_PTR out_buffer
+	_Out_ PVOID_PTR out_buffer,
+	_In_ LPCVOID ver_block // hardening round 2: fork ABI out-first
 );
 
 _Ret_maybenull_

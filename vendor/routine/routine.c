@@ -16369,8 +16369,8 @@ BOOL _r_res_verqueryvalue (
 
 _Success_ (return)
 BOOLEAN _r_res_queryversion (
-	_In_ LPCVOID ver_block,
-	_Out_ PVOID_PTR out_buffer
+	_Out_ PVOID_PTR out_buffer,
+	_In_ LPCVOID ver_block // hardening round 2: fork ABI out-first
 )
 {
 	ULONG length;
@@ -16402,7 +16402,7 @@ PR_STRING _r_res_queryversionstring (
 	if (!ver_info)
 		goto CleanupExit;
 
-	ver_info = _r_res_queryversion (ver_block, &file_info);
+	ver_info = _r_res_queryversion (&file_info, ver_block); // hardening round 2: fork ABI out-first
 
 	if (!ver_info)
 		goto CleanupExit;
