@@ -1855,7 +1855,7 @@ VOID _app_command_logshow (
 	_In_ HWND hwnd
 )
 {
-	PR_STRING cmdline, log_path, viewer_path;
+	PR_STRING log_path, viewer_path;
 	HANDLE current_handle;
 	INT item_count;
 	NTSTATUS status;
@@ -1894,23 +1894,16 @@ VOID _app_command_logshow (
 		if (current_handle)
 			_r_fs_flushfile (current_handle);
 
-		cmdline = _r_obj_concatstrings (
-			5,
-			L"\"",
-			viewer_path->buffer,
-			L"\" \"",
-			log_path->buffer,
-			L"\""
-		);
-
-		status = _r_sys_createprocess (&viewer_path->sr, &cmdline->sr, NULL, FALSE);
+		// hardening round 1 (FR-04/SEC-03): de-elevated launch via shell
+		// delegation — the viewer path comes from user-writable config and
+		// must never inherit this process's elevation
+		status = _app_openunelevated (hwnd, viewer_path, log_path);
 
 		if (status != STATUS_SUCCESS)
-			_r_show_errormessage (hwnd, L"Could not create process!", cmdline->buffer, status, ET_NATIVE);
+			_r_show_errormessage (hwnd, L"Could not create process!", viewer_path->buffer, status, ET_NATIVE);
 
 		_r_obj_dereference (viewer_path);
 		_r_obj_dereference (log_path);
-		_r_obj_dereference (cmdline);
 	}
 }
 
@@ -1956,7 +1949,7 @@ VOID _app_command_logerrshow (
 	_In_opt_ HWND hwnd
 )
 {
-	PR_STRING process_path, viewer_path;
+	PR_STRING viewer_path;
 	PR_STRING path;
 	NTSTATUS status;
 
@@ -1970,21 +1963,14 @@ VOID _app_command_logerrshow (
 	if (!viewer_path)
 		return;
 
-	process_path = _r_obj_concatstrings (
-		5,
-		L"\"",
-		viewer_path->buffer,
-		L"\" \"",
-		path->buffer,
-		L"\""
-	);
-
-	status = _r_sys_createprocess (&viewer_path->sr, &process_path->sr, NULL, FALSE);
+	// hardening round 1 (FR-04/SEC-03): de-elevated launch via shell
+	// delegation — the viewer path comes from user-writable config and
+	// must never inherit this process's elevation
+	status = _app_openunelevated (hwnd, viewer_path, path);
 
 	if (status != STATUS_SUCCESS)
 		_r_show_errormessage (hwnd, L"Could not create process!", viewer_path->buffer, status, ET_NATIVE);
 
-	_r_obj_dereference (process_path);
 	_r_obj_dereference (viewer_path);
 }
 

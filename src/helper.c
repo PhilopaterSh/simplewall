@@ -1972,10 +1972,11 @@ VOID _app_wufixhelper (
 {
 	SERVICE_STATUS svc_status;
 	WCHAR reg_key[0x80], reg_value[0x80];
-	PR_STRING image_path;
+	PR_STRING image_path, original_path;
 	SC_HANDLE hsvc;
 	HANDLE hkey;
 	BOOLEAN is_enabled = FALSE;
+	BOOLEAN is_restore = FALSE;
 	NTSTATUS status;
 
 	_r_str_printf (reg_key, RTL_NUMBER_OF (reg_key), L"SYSTEM\\CurrentControlSet\\Services\\%s", service_name);
@@ -1996,13 +1997,69 @@ VOID _app_wufixhelper (
 		if (_r_str_isstartswith2 (&image_path->sr, is_enable ? L"%systemroot%\\system32\\wusvc.exe" : L"%systemroot%\\system32\\svchost.exe", TRUE))
 			is_enabled = TRUE;
 
-		_r_obj_dereference (image_path);
+		// hardening round 1 (FR-06): the string stays alive until the
+		// preserve/restore block below consumed it (dereference moved there;
+		// dereferencing earlier made the ImagePathOriginal backup read freed
+		// memory)
+	}
+	else
+	{
+		image_path = NULL;
 	}
 
 	// set new image path
 	_r_str_printf (reg_value, RTL_NUMBER_OF (reg_value), L"%%systemroot%%\\system32%s -k %s -p", is_enable ? PATH_WUSVC : PATH_SVCHOST, k_value);
 
-	_r_reg_setvalue (hkey, L"ImagePath", REG_EXPAND_SZ, reg_value, (ULONG)(_r_str_getlength (reg_value) * sizeof (WCHAR) + sizeof (UNICODE_NULL)));
+	// hardening round 1 (FR-06/DATA-01): the original ImagePath is preserved
+	// before the first modification; on disable it is restored only when the
+	// current value is still the one we wrote, so a servicing-changed
+	// ImagePath is never overwritten (foreign values are warned and left).
+	// RSK-03: no other wufix behavior change.
+	if (is_enable)
+	{
+		if (image_path && !_r_str_isstartswith2 (&image_path->sr, L"%systemroot%\\system32\\wusvc.exe", TRUE))
+		{
+			_r_reg_setvalue (hkey, L"ImagePathOriginal", REG_EXPAND_SZ, image_path->buffer, (ULONG)(_r_str_getlength (image_path->buffer) * sizeof (WCHAR) + sizeof (UNICODE_NULL)));
+		}
+		else if (!image_path)
+		{
+			_r_log (LOG_LEVEL_WARNING, NULL, L"_app_wufixhelper", L"could not query current ImagePath; original value cannot be preserved", status);
+		}
+	}
+	else
+	{
+		if (image_path && _r_str_isstartswith2 (&image_path->sr, L"%systemroot%\\system32\\wusvc.exe", TRUE))
+		{
+			status = _r_reg_querystring (hkey, L"ImagePathOriginal", &original_path, NULL);
+
+			if (NT_SUCCESS (status))
+			{
+				_r_reg_setvalue (hkey, L"ImagePath", REG_EXPAND_SZ, original_path->buffer, (ULONG)(_r_str_getlength (original_path->buffer) * sizeof (WCHAR) + sizeof (UNICODE_NULL)));
+
+				// the backup has served its purpose; remove it (same handle the
+				// _r_reg_* wrappers operate on)
+				RegDeleteValueW ((HKEY)hkey, L"ImagePathOriginal");
+
+				_r_obj_dereference (original_path);
+
+				is_restore = TRUE;
+			}
+		}
+		else if (image_path && !_r_str_isstartswith2 (&image_path->sr, L"%systemroot%\\system32\\svchost.exe", TRUE))
+		{
+			// current ImagePath is neither ours nor the expected default:
+			// servicing or another administrator changed it - warn and leave
+			_r_log (LOG_LEVEL_WARNING, NULL, L"_app_wufixhelper", L"current ImagePath was changed externally; leaving it untouched", status);
+
+			is_restore = TRUE; // prevent the default write from overwriting it
+		}
+	}
+
+	if (!is_restore)
+		_r_reg_setvalue (hkey, L"ImagePath", REG_EXPAND_SZ, reg_value, (ULONG)(_r_str_getlength (reg_value) * sizeof (WCHAR) + sizeof (UNICODE_NULL)));
+
+	if (image_path)
+		_r_obj_dereference (image_path);
 
 	// restart service
 	if (is_enable != is_enabled)

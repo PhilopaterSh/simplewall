@@ -448,6 +448,40 @@ VOID _app_notify_queueinfo (
 	_r_workqueue_queueitem (&resolve_notify_queue, &_app_queue_notifyinformation, context);
 }
 
+// hardening round 1 (FR-05/SEC-04/DEC-05): terminating another user's
+// process requires SE_DEBUG; hold it only within this call (enable-on-
+// demand, drop immediately after) instead of for the process lifetime.
+static VOID _app_notify_terminateprocess (
+	_In_ HWND hwnd,
+	_In_ ULONG process_id,
+	_In_ LPCWSTR file_name
+)
+{
+	ULONG privileges[] = {SE_DEBUG_PRIVILEGE};
+	HANDLE hprocess;
+	NTSTATUS status;
+
+	_r_sys_setprocessprivilege (hwnd, NtCurrentProcess (), privileges, RTL_NUMBER_OF (privileges), TRUE);
+
+	status = _r_sys_openprocess (&hprocess, process_id, PROCESS_TERMINATE);
+
+	if (NT_SUCCESS (status))
+	{
+		status = NtTerminateProcess (hprocess, STATUS_SUCCESS);
+
+		if (!NT_SUCCESS (status))
+			_r_show_errormessage (hwnd, L"Cannot terminate process!", file_name, status, ET_NATIVE);
+
+		NtClose (hprocess);
+	}
+	else
+	{
+		_r_show_errormessage (hwnd, L"Cannot open process for termination!", file_name, status, ET_NATIVE);
+	}
+
+	_r_sys_setprocessprivilege (hwnd, NtCurrentProcess (), privileges, RTL_NUMBER_OF (privileges), FALSE);
+}
+
 BOOLEAN _app_notify_killprocess (
 	_In_ HWND hwnd
 )
@@ -456,7 +490,6 @@ BOOLEAN _app_notify_killprocess (
 	PNOTIFY_CONTEXT context;
 	PITEM_APP ptr_app;
 	PR_STRING file_name, path;
-	HANDLE hprocess;
 	NTSTATUS status;
 
 	context = _app_notify_getcontext (hwnd);
@@ -497,21 +530,9 @@ BOOLEAN _app_notify_killprocess (
 			{
 				if (_r_str_isequal (&path->sr, &ptr_app->real_path->sr, TRUE))
 				{
-					status = _r_sys_openprocess (&hprocess, HandleToULong (process->UniqueProcessId), PROCESS_TERMINATE);
-
-					if (NT_SUCCESS (status))
-					{
-						status = NtTerminateProcess (hprocess, STATUS_SUCCESS);
-
-						if (!NT_SUCCESS (status))
-							_r_show_errormessage (hwnd, L"Cannot terminate process!", file_name->buffer, status, ET_NATIVE);
-
-						NtClose (hprocess);
-					}
-					else
-					{
-						_r_show_errormessage (hwnd, L"Cannot open process for termination!", file_name->buffer, status, ET_NATIVE);
-					}
+					// hardening round 1 (FR-05/SEC-04): SE_DEBUG is held only
+					// within this call, not for the process lifetime
+					_app_notify_terminateprocess (hwnd, HandleToULong (process->UniqueProcessId), file_name->buffer);
 				}
 
 				_r_obj_dereference (path);
@@ -1169,19 +1190,25 @@ INT_PTR CALLBACK NotificationProc (
 		{
 			INT ctrl_id = LOWORD (wparam);
 
-			if (ctrl_id >= IDX_RULES_SPECIAL && ctrl_id <= IDX_RULES_SPECIAL + (INT)(INT_PTR)_r_obj_getlistsize (rules_list) + 1)
-			{
-				PITEM_RULE ptr_rule;
-				PITEM_APP ptr_app;
-				PITEM_LOG ptr_log;
-				PR_STRING rule;
-				PR_LIST rules;
-				HWND hmain;
-				ULONG_PTR rule_idx;
-				ULONG app_hash;
-				BOOLEAN is_remove;
+				if (ctrl_id >= IDX_RULES_SPECIAL && ctrl_id <= IDX_RULES_SPECIAL + (INT)(INT_PTR)_r_obj_getlistsize (rules_list) + 1)
+				{
+					PITEM_RULE ptr_rule;
+					PITEM_APP ptr_app;
+					PITEM_LOG ptr_log;
+					PR_STRING rule;
+					PR_LIST rules;
+					HWND hmain;
+					ULONG_PTR rule_idx;
+					ULONG app_hash;
+					BOOLEAN is_remove;
 
-				app_hash = _app_notify_getapp_id (hwnd);
+					// hardening round 1 (FR-07/SEC-05): rule-minting from the
+					// notification window is gated like ALLOW/BLOCK — no
+					// action before the safety timer arms the window
+					if (!_r_ctrl_isenabled (hwnd, IDC_ALLOW_BTN))
+						return FALSE;
+
+					app_hash = _app_notify_getapp_id (hwnd);
 				ptr_app = _app_getappitem (app_hash);
 
 				if (!ptr_app)
@@ -1348,7 +1375,9 @@ INT_PTR CALLBACK NotificationProc (
 
 				case IDC_KILLPROCESS_BTN:
 				{
-					if (_app_notify_killprocess (hwnd))
+					// hardening round 1 (FR-07/SEC-05): gated like ALLOW/BLOCK —
+					// no kill before the safety timer arms the window
+					if (_r_ctrl_isenabled (hwnd, ctrl_id) && _app_notify_killprocess (hwnd))
 						_r_ctrl_enable (hwnd, ctrl_id, FALSE);
 
 					break;

@@ -1819,13 +1819,14 @@ VOID _app_initialize (
 	_In_opt_ HWND hwnd
 )
 {
+	// hardening round 1 (FR-05/SEC-04/DEC-05): only privileges with an
+	// in-tree consumer are held process-wide; SE_INC_BASE_PRIORITY backs
+	// the priority class set below. SE_DEBUG moved to enable-on-demand
+	// around the notification kill path (_app_notify_terminateprocess).
+	// SE_SECURITY/SE_TAKE_OWNERSHIP/SE_BACKUP/SE_RESTORE have no consumer
+	// in src/ and are no longer enabled at all.
 	ULONG privileges[] = {
-		SE_SECURITY_PRIVILEGE,
-		SE_TAKE_OWNERSHIP_PRIVILEGE,
 		SE_INC_BASE_PRIORITY_PRIVILEGE,
-		SE_BACKUP_PRIVILEGE,
-		SE_RESTORE_PRIVILEGE,
-		SE_DEBUG_PRIVILEGE,
 	};
 
 	R_STRINGREF svchost_sr = PR_STRINGREF_INIT (PATH_SVCHOST);
@@ -1959,7 +1960,6 @@ INT_PTR CALLBACK DlgProc (
 	{
 		case WM_INITDIALOG:
 		{
-			WCHAR internal_profile_version[0x40];
 			ENUM_INSTALL_TYPE install_type;
 			LONG dpi_value;
 
@@ -2021,13 +2021,11 @@ INT_PTR CALLBACK DlgProc (
 			_r_settings_addpage (IDD_SETTINGS_LOGGING, IDS_TITLE_LOGGING);
 			_r_settings_addpage (IDD_SETTINGS_EXCLUDE, IDS_TITLE_EXCLUDE);
 
-			// add blocklist to update
-			if (!_r_config_getboolean (L"IsInternalRulesDisabled", FALSE, NULL))
-			{
-				_r_str_fromlong64 (internal_profile_version, RTL_NUMBER_OF (internal_profile_version), profile_info.profile_internal_timestamp);
-
-				_r_update_addcomponent (L"Internal rules", L"rules_internal", internal_profile_version, &profile_info.profile_path_internal->sr, FALSE);
-			}
+			// hardening round 1 (FR-03/DEC-03/RSK-02): the runtime updater no
+			// longer distributes internal rules — an updated file would land
+			// as an attacker-writable artifact the app must not trust. Refresh
+			// rules via build_simplewall_rules.bat or fork releases instead;
+			// signed rule packages are the planned Round 2 replacement.
 
 			_app_network_initialize (hwnd);
 
@@ -2144,11 +2142,56 @@ INT_PTR CALLBACK DlgProc (
 
 		case WM_NOTIFICATION:
 		{
+			PITEM_APP ptr_app;
+			PITEM_LOG ptr_log;
 			HWND hnotify;
+			ULONG_PTR enum_key;
+			BOOLEAN is_known;
+
+			ptr_log = (PITEM_LOG)lparam;
+
+			// hardening round 1 (FR-08): WM_NOTIFICATION carries a pointer
+			// through a window message any same-desktop process can post;
+			// re-acquire it through the apps table instead of trusting
+			// lparam, and ignore+log unknown pointers
+			is_known = FALSE;
+
+			if (ptr_log)
+			{
+				_r_queuedlock_acquireshared (&lock_apps);
+
+				while (_r_obj_enumhashtablepointer (apps_table, (PVOID_PTR)&ptr_app, NULL, &enum_key))
+				{
+					if (ptr_app->notification == ptr_log)
+					{
+						is_known = TRUE;
+						break;
+					}
+				}
+
+				_r_queuedlock_releaseshared (&lock_apps);
+			}
+
+			if (!is_known)
+			{
+				// hardening round 1 (FR-08): rate-limited so a same-desktop
+				// process cannot flood the log by posting garbage pointers
+				static ULONGLONG last_log_tick;
+				ULONGLONG now = GetTickCount64 ();
+
+				if (now - last_log_tick > 10000)
+				{
+					last_log_tick = now;
+
+					_r_log (LOG_LEVEL_WARNING, NULL, L"WM_NOTIFICATION", L"unrecognized log pointer ignored", 0);
+				}
+
+				return 0;
+			}
 
 			if (_r_queuedlock_tryacquireexclusive (&lock_notify))
 			{
-				hnotify = _app_notify_getwindow ((PITEM_LOG)_r_obj_reference ((PITEM_LOG)lparam));
+				hnotify = _app_notify_getwindow ((PITEM_LOG)_r_obj_reference (ptr_log));
 
 				_r_queuedlock_releaseexclusive (&lock_notify);
 

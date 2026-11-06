@@ -57,6 +57,12 @@ PR_STRING _app_getlogpath ();
 _Ret_maybenull_
 PR_STRING _app_getlogviewer ();
 
+NTSTATUS _app_openunelevated (
+	_In_ HWND hwnd,
+	_In_ PR_STRING viewer_path,
+	_In_ PR_STRING document_path
+);
+
 BOOLEAN _app_islogfound (
 	_In_ ULONG log_hash
 );

@@ -3,10 +3,78 @@
 
 #include "global.h"
 
+// hardening round 1 (FR-09/SEC-06): the connection log carries per-
+// connection metadata (remote addresses/ports and process names); it is
+// readable only by the current user and administrators. Note (routine
+// audit): _r_fs_createfile has no SECURITY_ATTRIBUTES parameter in any
+// known variant — its last argument is the allocation size — so the DACL
+// is applied immediately after creation via SetNamedSecurityInfoW.
+
+static BOOLEAN _app_log_getdacl (
+	_Out_ PACL *ppacl
+)
+{
+	BYTE admins_sid[SECURITY_MAX_SID_SIZE];
+	EXPLICIT_ACCESSW explicit_access[2];
+	PTOKEN_USER token_user;
+	ULONG cb_sid, return_length;
+	HANDLE htoken;
+	BOOLEAN is_success = FALSE;
+
+	if (!OpenProcessToken (NtCurrentProcess (), TOKEN_QUERY, &htoken))
+		return FALSE;
+
+	return_length = 0;
+
+	if (!GetTokenInformation (htoken, TokenUser, NULL, 0, &return_length) && return_length == 0)
+	{
+		NtClose (htoken);
+		return FALSE;
+	}
+
+	token_user = _r_mem_allocate (return_length);
+
+	if (!GetTokenInformation (htoken, TokenUser, token_user, return_length, &return_length))
+	{
+		_r_mem_free (token_user);
+		NtClose (htoken);
+		return FALSE;
+	}
+
+	cb_sid = sizeof (admins_sid);
+
+	// grant access to the current user and to the built-in administrators
+	// (well-known SID, locale-independent)
+	if (CreateWellKnownSid (WinBuiltinAdministratorsSid, NULL, admins_sid, &cb_sid))
+	{
+		ZeroMemory (&explicit_access, sizeof (explicit_access));
+
+		explicit_access[0].grfAccessPermissions = GENERIC_ALL;
+		explicit_access[0].grfAccessMode = GRANT_ACCESS;
+		explicit_access[0].grfInheritance = SUB_CONTAINERS_AND_OBJECTS_INHERIT;
+		BuildTrusteeWithSidW (&explicit_access[0].Trustee, token_user->User.Sid);
+
+		explicit_access[1].grfAccessPermissions = GENERIC_ALL;
+		explicit_access[1].grfAccessMode = GRANT_ACCESS;
+		explicit_access[1].grfInheritance = SUB_CONTAINERS_AND_OBJECTS_INHERIT;
+		BuildTrusteeWithSidW (&explicit_access[1].Trustee, admins_sid);
+
+		if (SetEntriesInAclW (RTL_NUMBER_OF (explicit_access), explicit_access, NULL, ppacl) == ERROR_SUCCESS)
+			is_success = TRUE;
+	}
+
+	_r_mem_free (token_user);
+	NtClose (htoken);
+
+	return is_success;
+}
+
 VOID _app_loginit (
 	_In_ BOOLEAN is_install
 )
 {
+	PACL dacl;
+	BOOLEAN has_dacl;
 	HANDLE current_handle, new_handle;
 	PR_STRING log_path;
 	NTSTATUS status;
@@ -25,10 +93,26 @@ VOID _app_loginit (
 	if (!log_path)
 		return;
 
+	// hardening round 1 (FR-09): build a user+admins DACL up front; fall
+	// back to the default descriptor rather than disabling logging entirely
+	has_dacl = _app_log_getdacl (&dacl);
+
 	status = _r_fs_createfile (&new_handle, &log_path->sr, FILE_OPEN_IF, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, FILE_ATTRIBUTE_NORMAL, 0, FALSE, NULL);
 
 	if (NT_SUCCESS (status))
 	{
+		if (has_dacl)
+		{
+			// hardening round 1 (FR-09): applied at every logging start
+			// (idempotent) so freshly created and pre-existing files from
+			// older builds all end up with the restrictive DACL; failures
+			// are logged
+			DWORD sa_error = SetNamedSecurityInfoW (log_path->buffer, SE_FILE_OBJECT, DACL_SECURITY_INFORMATION, NULL, NULL, dacl, NULL);
+
+			if (sa_error != ERROR_SUCCESS)
+				_r_log (LOG_LEVEL_WARNING, NULL, L"SetNamedSecurityInfoW", L"log ACL migration failed", sa_error);
+		}
+
 		_app_loginitfile (new_handle);
 
 		current_handle = _InterlockedCompareExchangePointer ((volatile PVOID_PTR)&config.hlogfile, new_handle, NULL);
@@ -36,6 +120,9 @@ VOID _app_loginit (
 		if (current_handle)
 			NtClose (new_handle);
 	}
+
+	if (has_dacl)
+		LocalFree (dacl);
 
 	_r_obj_dereference (log_path);
 }
@@ -108,6 +195,88 @@ PR_STRING _app_getlogviewer ()
 	}
 
 	return path;
+}
+
+// hardening round 1 (FR-04/SEC-03/DEC-04): the log viewer is configured
+// through user-writable config, so it must never be started with this
+// (elevated) process token — that would hand local elevation to any
+// same-user process able to write the config value. Delegate the launch
+// to the user's shell (Explorer) instead: an attacker-chosen binary then
+// runs at the attacker's own privilege level and gains nothing. On
+// delegation failure the launch is refused and logged (never silent).
+NTSTATUS _app_openunelevated (
+	_In_ HWND hwnd,
+	_In_ PR_STRING viewer_path,
+	_In_ PR_STRING document_path
+)
+{
+	IShellDispatch2 *p_shell_dispatch = NULL;
+	PR_STRING quoted_document;
+	VARIANT var_file, var_params, var_dir, var_operation, var_show;
+	HRESULT status;
+
+	quoted_document = _r_obj_concatstrings (3, L"\"", document_path->buffer, L"\"");
+
+	status = CoCreateInstance (&CLSID_Shell, NULL, CLSCTX_LOCAL_SERVER, &IID_IShellDispatch2, (PVOID_PTR)&p_shell_dispatch);
+
+	if (FAILED (status))
+	{
+		_r_log (LOG_LEVEL_ERROR, NULL, L"CoCreateInstance", L"shell delegation failed; unelevated viewer launch refused", (ULONG)status);
+
+		_r_obj_dereference (quoted_document);
+
+		return STATUS_UNSUCCESSFUL;
+	}
+
+	VariantInit (&var_file);
+	VariantInit (&var_params);
+	VariantInit (&var_dir);
+	VariantInit (&var_operation);
+	VariantInit (&var_show);
+
+	var_file.vt = VT_BSTR;
+	var_file.bstrVal = SysAllocString (viewer_path->buffer);
+
+	var_params.vt = VT_BSTR;
+	var_params.bstrVal = SysAllocString (quoted_document->buffer);
+
+	var_operation.vt = VT_BSTR;
+	var_operation.bstrVal = SysAllocString (L"open");
+
+	var_show.vt = VT_I4;
+	var_show.lVal = SW_SHOWNORMAL;
+
+	if (!var_file.bstrVal || !var_params.bstrVal || !var_operation.bstrVal)
+	{
+		VariantClear (&var_operation);
+		VariantClear (&var_params);
+		VariantClear (&var_file);
+
+		p_shell_dispatch->lpVtbl->Release (p_shell_dispatch);
+
+		_r_obj_dereference (quoted_document);
+
+		return STATUS_NO_MEMORY;
+	}
+
+	status = IShellDispatch2_ShellExecute (p_shell_dispatch, var_file, var_params, var_dir, var_operation, var_show);
+
+	VariantClear (&var_operation);
+	VariantClear (&var_params);
+	VariantClear (&var_file);
+
+	p_shell_dispatch->lpVtbl->Release (p_shell_dispatch);
+
+	_r_obj_dereference (quoted_document);
+
+	if (FAILED (status))
+	{
+		_r_log (LOG_LEVEL_ERROR, NULL, L"IShellDispatch2::ShellExecute", L"unelevated viewer launch failed", (ULONG)status);
+
+		return STATUS_UNSUCCESSFUL;
+	}
+
+	return STATUS_SUCCESS;
 }
 
 BOOLEAN _app_islogfound (
