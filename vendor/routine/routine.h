@@ -2432,9 +2432,10 @@ ULONG _r_str_fromsecuritydescriptor (
 );
 
 _Success_ (NT_SUCCESS (return))
+// hardening round 2 (DEC-04): fork ABI contract - out-buffer comes first
 NTSTATUS _r_str_fromsid (
-	_In_ PSID sid,
-	_Out_ PR_STRING_PTR out_buffer
+	_Out_ PR_STRING_PTR out_buffer,
+	_In_ PSID sid
 );
 
 VOID _r_str_generaterandom (
