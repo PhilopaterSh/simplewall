@@ -2183,6 +2183,41 @@ NTSTATUS _r_update_downloadupdate (
 		return status;
 	}
 
+	// hardening round 2 (FR-03/SEC-01): verify the artifact sha256 from the
+	// signed manifest before it may land anywhere
+	if (update_component->hash && !_r_str_isempty (&update_component->hash->sr))
+	{
+		PR_STRING hash_string;
+
+		_r_fs_setpos (hfile, 0);
+
+		status = _r_crypt_getfilehash (BCRYPT_SHA256_ALGORITHM, NULL, hfile, &hash_string);
+
+		if (!NT_SUCCESS (status))
+		{
+			NtClose (hfile); // required!
+
+			return status;
+		}
+
+		status = _r_str_isequal (&hash_string->sr, &update_component->hash->sr, TRUE) ? STATUS_SUCCESS : STATUS_DATA_ERROR;
+
+		_r_obj_dereference (hash_string);
+
+		if (status != STATUS_SUCCESS)
+		{
+			NtClose (hfile); // required!
+
+			_r_fs_deletefile (&update_component->cache_path->sr, NULL);
+
+			_r_log (LOG_LEVEL_ERROR, NULL, L"_r_update_downloadupdate", L"artifact sha256 mismatch (fail-closed)", status);
+
+			return status;
+		}
+
+		_r_fs_setpos (hfile, 0);
+	}
+
 	is_renamed = FALSE;
 
 	if (update_component->flags & PR_UPDATE_FLAG_FILE)
@@ -2312,6 +2347,108 @@ NTSTATUS NTAPI _r_update_downloadthread (
 	return STATUS_SUCCESS;
 }
 
+// hardening round 2 (FR-03/DEC-05/DEC-02): the fork's embedded ECDSA P-256
+// public key (raw 64-byte X||Y, key-epoch rotation documented in RSK-02)
+// and the CNG verification core for the signed update feed. The private
+// key never lives in this repository.
+static BYTE update_public_key_bytes[64];
+static ULONG update_public_key_length = 0;
+
+VOID _r_update_setpublickey (
+	_In_reads_ (64) const BYTE *raw_key,
+	_In_ ULONG length
+)
+{
+	if (length != sizeof (update_public_key_bytes))
+		return;
+
+	RtlCopyMemory (update_public_key_bytes, raw_key, length);
+	update_public_key_length = length;
+}
+
+// verify: ECDSA P-256 detached signature (raw 64-byte r||s, IEEE P1363)
+// over the exact data bytes, against the embedded public key
+static NTSTATUS _r_update_verifysignature (
+	_In_ PR_STRING data_bytes,
+	_In_ PR_STRING sig_bytes
+)
+{
+	BCRYPT_ALG_HANDLE halg_ecdsa = NULL;
+	BCRYPT_ALG_HANDLE halg_sha = NULL;
+	BCRYPT_KEY_HANDLE hkey = NULL;
+	BCRYPT_HASH_HANDLE hhash = NULL;
+	BCRYPT_ECDSA_PUBLIC_BLOB *public_blob;
+	BYTE digest[32];
+	ULONG blob_length;
+	NTSTATUS status;
+
+	if (update_public_key_length != sizeof (update_public_key_bytes))
+		return STATUS_INVALID_PARAMETER;
+
+	if (!data_bytes || !sig_bytes || sig_bytes->length != 64)
+		return STATUS_INVALID_PARAMETER;
+
+	// BCRYPT_ECDSA_PUBLIC_BLOB layout: magic (ULONG) + cbKey (ULONG) +
+	// little-endian X + little-endian Y
+	blob_length = sizeof (BCRYPT_ECDSA_PUBLIC_BLOB) + sizeof (update_public_key_bytes);
+
+	public_blob = _r_mem_allocate (blob_length);
+
+	public_blob->Magic = BCRYPT_ECDSA_PUBLIC_P256_MAGIC;
+	public_blob->cbKey = 32;
+
+	RtlCopyMemory (public_blob + 1, update_public_key_bytes, sizeof (update_public_key_bytes));
+
+	status = BCryptOpenAlgorithmProvider (&halg_ecdsa, BCRYPT_ECDSA_P256_ALGORITHM, NULL, 0);
+
+	if (!NT_SUCCESS (status))
+		goto CleanupExit;
+
+	status = BCryptImportKeyPair (halg_ecdsa, NULL, BCRYPT_ECDSA_PUBLIC_BLOB, &hkey, (PUCHAR)public_blob, blob_length, 0);
+
+	if (!NT_SUCCESS (status))
+		goto CleanupExit;
+
+	status = BCryptOpenAlgorithmProvider (&halg_sha, BCRYPT_SHA256_ALGORITHM, NULL, 0);
+
+	if (!NT_SUCCESS (status))
+		goto CleanupExit;
+
+	status = BCryptCreateHash (halg_sha, &hhash, NULL, 0, NULL, 0, 0);
+
+	if (!NT_SUCCESS (status))
+		goto CleanupExit;
+
+	status = BCryptHashData (hhash, (PUCHAR)data_bytes->buffer, (ULONG)data_bytes->length, 0);
+
+	if (!NT_SUCCESS (status))
+		goto CleanupExit;
+
+	status = BCryptFinishHash (hhash, digest, sizeof (digest), 0);
+
+	if (!NT_SUCCESS (status))
+		goto CleanupExit;
+
+	status = BCryptVerifySignature (hkey, digest, sizeof (digest), (PUCHAR)sig_bytes->buffer, (ULONG)sig_bytes->length, 0);
+
+CleanupExit:
+	if (hhash)
+		BCryptDestroyHash (hhash);
+
+	if (halg_sha)
+		BCryptCloseAlgorithmProvider (halg_sha, 0);
+
+	if (hkey)
+		BCryptDestroyKey (hkey);
+
+	if (halg_ecdsa)
+		BCryptCloseAlgorithmProvider (halg_ecdsa, 0);
+
+	_r_mem_free (public_blob);
+
+	return status;
+}
+
 NTSTATUS NTAPI _r_update_checkthread (
 	_In_ PVOID arglist
 )
@@ -2358,6 +2495,41 @@ NTSTATUS NTAPI _r_update_checkthread (
 		goto CleanupExit;
 	}
 
+	// hardening round 2 (FR-03/SEC-01/DEC-05): fetch the detached signature
+	// next to the feed and verify the exact feed bytes before parsing
+	// anything — a missing or invalid signature is fail-closed
+	{
+		PR_STRING sig_url;
+		R_DOWNLOAD_INFO sig_download_info = {0};
+
+		sig_url = _r_obj_concatstrings (2, update_url->buffer, L".sig");
+
+		_r_inet_initializedownload (&sig_download_info, NULL, NULL, NULL);
+
+		status = _r_inet_begindownload (update_info->hsession, &sig_url->sr, &sig_download_info);
+
+		_r_obj_dereference (sig_url);
+
+		if (status != STATUS_SUCCESS)
+		{
+			_r_log (LOG_LEVEL_ERROR, NULL, L"_r_update_checkthread", L"update feed signature is missing (fail-closed)", status);
+
+			goto CleanupExit;
+		}
+
+		status = _r_update_verifysignature (download_info.string, sig_download_info.string);
+
+		if (sig_download_info.string)
+			_r_obj_dereference (sig_download_info.string);
+
+		if (status != STATUS_SUCCESS)
+		{
+			_r_log (LOG_LEVEL_ERROR, NULL, L"_r_update_checkthread", L"update feed signature verification failed (fail-closed)", status);
+
+			goto CleanupExit;
+		}
+	}
+
 	string_table = _r_str_unserialize (&download_info.string->sr, L';', L'=');
 
 	if (string_table)
@@ -2384,6 +2556,10 @@ NTSTATUS NTAPI _r_update_checkthread (
 
 			_r_obj_movereference (&update_component->url, _r_obj_createstring2 (&new_url_sr));
 			_r_obj_movereference (&update_component->new_version, _r_obj_createstring2 (&new_version_sr));
+
+			// hardening round 2 (FR-03): optional third field = sha256 of the
+			// artifact (hex) from the signed manifest — verified after download
+			_r_obj_movereference (&update_component->hash, _r_obj_createstring2 (&remaining_part));
 
 			update_component->flags |= PR_UPDATE_FLAG_AVAILABLE;
 

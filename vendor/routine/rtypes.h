@@ -1052,6 +1052,7 @@ typedef struct _R_UPDATE_COMPONENT
 	PR_STRING cache_path;
 	PR_STRING target_path;
 	PR_STRING url;
+	PR_STRING hash; // hardening round 2 (FR-03): sha256 of the artifact, from the signed manifest
 	ULONG flags;
 } R_UPDATE_COMPONENT, *PR_UPDATE_COMPONENT;
 

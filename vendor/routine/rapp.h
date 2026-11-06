@@ -515,6 +515,13 @@ VOID _r_update_addcomponent (
 	_In_ BOOLEAN is_installer
 );
 
+// hardening round 2 (FR-03/DEC-05): embed the fork's ECDSA P-256 public
+// key (raw 64-byte X||Y) used to verify the signed update feed
+VOID _r_update_setpublickey (
+	_In_reads_ (64) const BYTE *raw_key,
+	_In_ ULONG length
+);
+
 VOID _r_update_applyconfig ();
 
 VOID _r_update_install (
@@ -744,7 +751,9 @@ FORCEINLINE LPCWSTR _r_app_getwebsite_url ()
 
 FORCEINLINE LPCWSTR _r_app_getupdate_url ()
 {
-	return L"https://raw.githubusercontent.com/henrypp/" APP_NAME_SHORT L"/master/VERSION";
+	// hardening round 2 (DEC-03): the fork's own signed feed — upstream's
+	// unsigned feed is no longer consulted by this build
+	return L"https://raw.githubusercontent.com/PhilopaterSh/" APP_NAME_SHORT L"/master/VERSION";
 }
 
 FORCEINLINE LPCWSTR _r_app_getversiontype ()

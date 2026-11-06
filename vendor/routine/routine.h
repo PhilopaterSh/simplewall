@@ -38,6 +38,7 @@
 // crt
 #include <assert.h>
 #include <inttypes.h>
+#include <string.h>
 #include <math.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -6372,3 +6373,11 @@ VOID NTAPI _r_util_cleanhashtablepointer_callback (
 );
 
 EXTERN_C_END
+
+// hardening round 2 (DEC-04/FR-10): compile-time contract guards — the
+// fork calls these APIs with exactly these shapes; any signature drift in
+// the vendored library fails the build instead of corrupting arguments
+static const NTSTATUS (*_r_contract_fs_createfile) (PHANDLE, PR_STRINGREF, ULONG, ACCESS_MASK, ULONG, ULONG, ULONG, BOOLEAN, PLARGE_INTEGER) = _r_fs_createfile;
+static const NTSTATUS (*_r_contract_sys_setprocessprivilege) (HWND, HANDLE, PULONG, ULONG, BOOLEAN) = _r_sys_setprocessprivilege;
+static const NTSTATUS (*_r_contract_reg_queryvalue) (HANDLE, LPWSTR, PVOID, ULONG, PULONG, PULONG) = _r_reg_queryvalue;
+static const NTSTATUS (*_r_contract_fs_renamefilebyhandle) (HANDLE, PR_STRINGREF) = _r_fs_renamefilebyhandle;

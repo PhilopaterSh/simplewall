@@ -3,6 +3,8 @@
 
 #include "global.h"
 
+#include "update_key.h" // hardening round 2: update feed verification public key
+
 BOOLEAN _app_changefilters (
 	_In_ HWND hwnd,
 	_In_ BOOLEAN is_install,
@@ -1832,6 +1834,10 @@ VOID _app_initialize (
 	R_STRINGREF svchost_sr = PR_STRINGREF_INIT (PATH_SVCHOST);
 	R_STRINGREF wusvc_sr = PR_STRINGREF_INIT (PATH_WUSVC);
 	R_ENVIRONMENT environment;
+
+	// hardening round 2 (FR-03/DEC-05): embed the update feed verification
+	// public key (the private key is held off-repository by the fork owner)
+	_r_update_setpublickey (UPDATE_PUBLIC_KEY, RTL_NUMBER_OF (UPDATE_PUBLIC_KEY));
 
 	// set privileges
 	_r_sys_setprocessprivilege (hwnd, NtCurrentProcess (), privileges, RTL_NUMBER_OF (privileges), TRUE);
