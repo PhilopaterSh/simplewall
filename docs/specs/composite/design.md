@@ -1,14 +1,25 @@
 # Design: Composite — Fork Product Evolution (Umbrella Architecture)
 
-> Revision `2026-11-06-r4` — r3 closed the delta review's two gaps; the
-> full third goldfish pass (`review-r3.md`: 6 blocking + 6 suggestions —
-> journey/DEC rollback wording drift, seal over-claim, healthy-direction
-> and removed-engine test gaps, wrong GP registry path, anti-rollback vs
-> FR-12 rebuild soundness) is fully addressed in this revision. Elephant
+> Revision `2026-11-06-r5` — the fourth full goldfish pass
+> (`review-r4.md`: 6 blocking — three of them regressions of r4's own
+> partial fixes — + 8 suggestions) is fully addressed: unified
+> non-rebuildable water-mark store, service-scoped survival rules with an
+> executable degraded-direction test, post-commit rollback route,
+> per-zone load configuration, unfiltered-window metric, orphan keys
+> wired, audit-optional Lockdown, 5157-storm risk, reject semantics,
+> pinned burst precondition, lane-ownership fixes, SEC-03 inventory home.
+> Elephant
 > evidence base: `D:\CV\Github\_sw-dd\DEEP-DIVE-REPORT.md` (9-repo code
 > teardown, 2026-11-06) plus the approved hardening-round-1 chain (r4,
-> gates exit 0). Human approval gate: pending — no handoff before the
-> design owner marks approval.
+> gates exit 0). Human approval gate: **PASSED — recorded 2026-11-06**.
+> The design owner approved the composite direction and authorized
+> implementation in session, verbatim: «هذه هي فقط للتجربة لاكني لا
+> مشكلة لدي في حالت انه قدرنا نوصل لمحتوي العام والكبير الخاص بكيفية
+> الوصول الي افضل شكل ونسخة ممكنة مع جمع الممميزات من مختلف النسة في
+> مكان واحد نبداء في تطبيقة والعمل علي الوصلو الي اصلاحات المناسبة في
+> الوقت الحالي» — umbrella (r5) approved as the product shape; the
+> Phase 1 chain (handoff → spec → plan → tasks) is authorized to start;
+> Phase 2/3 remain governed by DEC-08 per-phase chains.
 >
 > Key-namespace convention: keys in this table are composite keys,
 > consumed only by composite-phase chains. Hardening chains keep their own
@@ -25,9 +36,11 @@ portable design — but scattered across codebases with incompatible
 identities (kernel drivers, .NET runtimes, AGPL, closed source). No single
 tool combines: no-driver lightness + domain-level filtering + smart
 prompting (publisher rules, durations, single-flight) + guarded lockdown +
-community rule packs. That combination is the fork's product lane.
+community rule packs. That combination is the fork's product lane
+(DEC-01).
 
-Intended observable outcomes (per phase; each phase ships independently):
+Intended observable outcomes (per phase; each phase ships independently —
+RSK-05):
 
 1. **Phase 1 — Trust-aware prompting and lockdown.** A first unknown
    outbound connection produces one prompt (never a storm), offering
@@ -62,7 +75,7 @@ alternative UI toolkit, telemetry egress, DPI-circumvention bundling.
 
 ## In scope and out of scope
 
-- **In scope:** `src/` C code (fork only); system libraries already
+- **In scope:** `src/` C code (fork only, per DEC-01); system libraries already
   linked by the project plus `wevtapi`, consumed via the existing
   dynamic-resolve pattern (`src/log.c:294-391`) — dnsapi/iphlpapi users
   arrive only with Phase 3, whose internals stay out of scope until their
@@ -95,8 +108,10 @@ alternative UI toolkit, telemetry egress, DPI-circumvention bundling.
    WSL), then sets WFAS default-outbound BLOCK per profile and disables
    the recorded outbound-allow set (survival and app-own rules
    excluded); any verification failure aborts before anything is
-   committed — it never locks the user out blind, and any later failure
-   rolls back to the recorded snapshot (FR-06, DEC-04).
+   committed — it never locks the user out blind; if the audit
+   subcategory cannot be enabled (GPO), an explicit confirm-without-
+   prompts path (logged) is offered instead of a hard refusal; any later
+   failure rolls back to the recorded snapshot (FR-06, DEC-04).
 4. User imports the AI-Agents pack. The pack file's detached signature is
    verified against the embedded public key before a single rule parses;
    its sidecar state is hash-checked at load; a tampered pack or state is
@@ -163,9 +178,14 @@ alternative UI toolkit, telemetry egress, DPI-circumvention bundling.
   rules outrank the default action, the enable sequence makes the seal
   real: (1) record per-profile defaults + the existing outbound-allow
   rule set, (2) verify the audit subcategory via `AuditQuerySystemPolicy`
-  *before* committing, (3) pre-create survival rules (DHCP, CryptSvc,
-  WSL/Hyper-V ICS — they exist for exactly the degraded/absent case
-  where simplewall's own permits are gone), (4) set
+  *before* committing — if it cannot be enabled (GPO, RSK-01), Lockdown
+  proceeds only after explicit user confirmation to run without
+  connection prompts (logged); the seal itself does not depend on audit,
+  (3) pre-create survival rules — **service-scoped** WFAS rules
+  (program = svchost.exe, ServiceName = Dhcp / CryptSvc) plus the
+  WSL/Hyper-V ICS service rule; port-wide allows are explicitly rejected
+  because they would dissolve the seal; they exist for exactly the
+  degraded/absent case where simplewall's own permits are gone, (4) set
   `INetFwPolicy2::DefaultOutboundAction = BLOCK` per profile, (5) disable
   the recorded outbound-allow set (survival and app-own rules excluded).
   Any failure rolls back to the **recorded snapshot** — never an
@@ -225,7 +245,8 @@ alternative UI toolkit, telemetry egress, DPI-circumvention bundling.
   `henrypp/simplewall` (alive: v3.9.2 mid-cycle, pushed 2026-11-05);
   upstream features that overlap composite work (e.g. `udpstats.c`) are
   pulled, not duplicated. Fork features are confined to fork-namespaced
-  files where practical to keep rebase cost low.
+  files where practical to keep rebase cost low (the operating answer to
+  RSK-02).
 
 ## Verification split (honest automatable/manual)
 
@@ -244,16 +265,25 @@ phase spec's acceptance criteria.
     logged only (FR-02).
   - FR-04 durations: once/until-restart decisions verified present in
     session state and verified absent from profile.xml on disk.
-  - FR-05 single-flight: 40-connection burst → exactly one prompt window;
+  - FR-05 single-flight: 40-connection burst from 40 distinct probe
+    processes → exactly one prompt window;
     the other 39 hold at block and appear in the log.
-  - FR-06 lockdown rollback: force audit-verification failure → WFAS
-    defaults return to the recorded pre-lockdown values + survival rules
-    removed + tray state restored.
-  - FR-06 arbitration, degraded direction (DEC-04): in the sandbox VM
-    degrade the engine (delete the app's provider filters, per the
-    hardening FR-01 path) with Lockdown on → an un-permitted probe
-    binary is denied by the WFAS seal; DHCP (UDP 67/68) and CryptoSvc
-    (TCP 80/443) probes pass via survival rules.
+  - FR-06 pre-commit abort: force audit-verification failure at enable
+    step (2) → nothing was committed; WFAS state is unchanged by
+    definition and the app surfaces the abort (DEC-04).
+  - FR-06 post-commit rollback: induce a mid-sequence failure after the
+    commit began (sandbox forces the step-(5) allow-set disable to fail
+    partway) → the app rolls back to the recorded snapshot: defaults
+    restored, the partially-disabled allow set re-enabled, survival
+    rules removed, failure surfaced (DEC-04).
+  - FR-06 arbitration, degraded direction (DEC-04): degrade the engine
+    (delete the app's provider filters per the hardening FR-01 path)
+    with Lockdown on → an un-permitted probe binary is denied by the
+    WFAS seal; the sandbox asserts the survival rules exist with their
+    defined service-scoped shape (program = svchost.exe + ServiceName =
+    Dhcp / CryptSvc, plus the WSL/ICS service rule) and that
+    non-matching probes stay denied; functional DHCP/CryptSvc continuity
+    while locked is the manual-lane check.
   - FR-06 arbitration, stopped direction (DEC-04): terminate the app
     process with Lockdown on → the seal still denies (no lane depends
     on the app running); relaunching resumes normal arbitration.
@@ -262,8 +292,9 @@ phase spec's acceptance criteria.
     probe stays blocked (the seal is shadowed — no behavior change);
     disable restores the recorded snapshot exactly (defaults, the
     disabled allow set re-enabled, survival rules removed).
-  - FR-07 zones: 2M-entry/32-zone load ≤ 3 s wall, lookup p99 ≤ 10 µs,
-    resident set ≤ 64 MB (budgets owned by this lane; NFR-04 covers
+  - FR-07 zones: 32 zones × 2M entries each (64M entries total) load
+    ≤ 30 s wall, per-lookup p99 ≤ 10 µs, resident set ≤ 128 MB with all
+    zones loaded (budgets owned by this lane; NFR-04 covers
     rule-apply only); equivalence test —
     same final verdicts as the current engine on the internal pack
     (FR-07).
@@ -271,7 +302,8 @@ phase spec's acceptance criteria.
     enable/disable/update produces exactly the expected filter delta
     (FR-08, SEC-01); anti-rollback test — precondition: a higher-version
     pack was previously applied (persisting its version high-water mark
-    in the pack-state sidecar, DATA-02), then serve an older-version
+    in the dedicated non-rebuildable water-mark store, DATA-02), then
+    serve an older-version
     correctly-signed pack → refused with the anti-rollback reason
     logged; sidecar hash-check refuses a corrupted state file.
   - FR-09 packs repo: CI in the packs repo builds, signs, and
@@ -283,13 +315,18 @@ phase spec's acceptance criteria.
     reported, never quarantined (RSK-06).
   - FR-11 incremental apply: equivalence test — same final filter set as
     full rebuild on a synthetic profile; p95(incremental) ≤ 1.1 ×
-    p95(full rebuild) measured back-to-back in the same session against
-    a recorded baseline (FR-11, NFR-04).
-  - FR-12 integrity: corrupted ledger baseline / pack sidecar → refuse +
-    rebuild from source of truth; the rebuild preserves pack version
-    high-water marks (stored apart from the rebuildable state — a lost
-    water-mark file makes affected packs refuse until re-confirmed, so
-    corruption cannot reset anti-rollback; FR-12 + DATA-02).
+    p95(full rebuild) in a back-to-back same-session run (the
+    authoritative procedure — NFR-04); unfiltered window (apply-
+    transaction wall time during which effective policy ≠ target)
+    asserted strictly smaller than the full-rebuild path in the same
+    run, with zero full-teardown applies in steady state (FR-11,
+    NFR-04).
+  - FR-12 integrity: corrupted ledger baseline / pack-state sidecar →
+    refuse + rebuild from source of truth (rebuild covers the ledger
+    baseline and pack preferences only); `pack_watermarks.json` is
+    outside the rebuild set — corrupt or absent ⇒ affected packs refuse
+    until re-confirmed, so corruption cannot reset anti-rollback
+    (FR-12 + DATA-02).
   - SEC-02: re-sign/self-signed binary swap → publisher rule stops
     matching, logged (DEC-05 trigger).
   - SEC-05 build inventory: CI asserts the release produces exactly the
@@ -302,7 +339,9 @@ phase spec's acceptance criteria.
   GPO-locked fallback path on a domain-joined VM (RSK-01); publisher-rule
   survival across a real app update (FR-03, DEC-05); i18n sweep of every
   new string (NFR-05); build gate — MSVC `/W4` + `/analyze` clean on every
-  touched file (NFR-02, NFR-06 owns the broader test gate).
+  touched file (NFR-02; NFR-06's test gate runs in the automated lane —
+  CI when available, local pre-merge otherwise, same convention as
+  OPS-01).
 
 ## Risks and open questions
 
@@ -344,6 +383,13 @@ phase spec's acceptance criteria.
   key, anti-rollback does not help — the mitigation is documented key
   rotation in the packs repo before first release, with the residual
   window accepted. Owner: fork owner.
+- **RSK-08:** Security-log volume under Lockdown: with the engine
+  degraded, every outbound attempt is a WFAS default-block and therefore
+  a 5157 event; a chatty machine can fill the Security log (wrap, or a
+  stop under no-overwrite retention). Mitigations: subscription-side
+  dedup/throttling (FR-01), documented log-sizing guidance in the
+  Lockdown UI; the failure mode degrades to Windows' own audit
+  behavior, never a silent app failure. Owner: fork owner.
 - **Open question (design owner):** product naming/branding — the fork's
   identity diverges from "simplewall" the moment Phase 1 ships (no phase
   blocked). Authenticode certificate acquisition for OPS-02: must be
@@ -359,31 +405,31 @@ phase spec's acceptance criteria.
 | FR-03 | prompt offers publisher binding per DEC-05: signer-hash anchor + materialized path filters; rules survive binary updates; self-signed binaries fall back to path binding |
 | FR-04 | decision durations: once / until-restart / always; non-always decisions live as session-scoped state, never written to profile.xml |
 | FR-05 | single-flight prompting: at most one prompt visible; concurrent novel connections take the hard default (block — an "ask" default resolves to block inside the single-flight window) and are logged for batch review |
-| FR-06 | Lockdown per DEC-04: WFAS default-outbound BLOCK per profile as defense-in-depth backstop for the degraded/stopped-engine case; enable records per-profile defaults + the outbound-allow set and disables that set (survival/app-own excluded); pre-flight audit verification, survival rules (DHCP/CryptSvc/WSL), automatic rollback to the recorded snapshot, visible tray state, exact-state restore on disable, keep-or-release on uninstall (default release) |
+| FR-06 | Lockdown per DEC-04: WFAS default-outbound BLOCK per profile as defense-in-depth backstop for the degraded/stopped-engine case; enable records per-profile defaults + the outbound-allow set and disables that set (survival/app-own excluded); pre-flight audit verification with an explicit logged confirm-without-prompts path when audit is GPO-blocked; **service-scoped** survival rules (svchost + Dhcp/CryptSvc, WSL/ICS — port-wide allows rejected); automatic rollback to the recorded snapshot on any post-commit failure, visible tray state, exact-state restore on disable, keep-or-release on uninstall (default release) |
 | FR-07 | blocklist engine: sorted range arrays + binary search replacing per-IP filter explosion; ≥2M entries per zone, ≥32 zones, IPv4+IPv6; same final verdicts as today's engine on the internal pack |
 | FR-08 | signed rule packs: versioned JSON pack + detached signature verified against an embedded public key before parsing; tampered/unsigned packs refused and logged; packs enable/disable/update as a unit; pack-state sidecars hash-checked at load from Phase 1 |
 | FR-09 | packs repository (separate repo): pack schema docs + first three packs (Telemetry-Refresh, Vendor-blockers, AI-Agents) + CI that builds/signs/validates every pack |
-| FR-10 | audit ledger: WFAS rule store diffed against a persisted baseline (DATA-03); foreign add/modify/delete surfaced in an Audit tab; optional quarantine disables the foreign rule pending review and restores exactly on approve; policy-managed rules (origin = policy store: GPO rules live under `HKLM\SOFTWARE\Policies\Microsoft\WindowsFireWall\FirewallRules` vs the local FirewallProfiles store; MDM/CSP origin finalized as a heuristic in the phase spec) are reported, never quarantined |
+| FR-10 | audit ledger: WFAS rule store diffed against a persisted baseline (DATA-03); foreign add/modify/delete surfaced in an Audit tab; optional quarantine disables the foreign rule pending review — approve restores exactly; reject keeps it disabled permanently and flagged (deletion is a separate explicit action; a recreated rule is re-flagged as new); policy-managed rules (origin = policy store: GPO rules live under `HKLM\SOFTWARE\Policies\Microsoft\WindowsFireWall\FirewallRules` vs the local FirewallProfiles store; MDM/CSP origin finalized as a heuristic in the phase spec) are reported, never quarantined |
 | FR-11 | incremental filter apply: diff-based add/remove of changed filters only, preserving the hardening tri-state transaction contract and the applying-never-sticks invariant |
-| FR-12 | profile + derived-state integrity (Phase 2): config directory ACL hardening; ledger baseline tamper-evident (hash-checked at load; corrupt ⇒ refuse + rebuild from source of truth); pack version high-water marks stored apart from rebuildable state so corruption cannot reset anti-rollback (DATA-02) |
+| FR-12 | profile + derived-state integrity (Phase 2): config directory ACL hardening; ledger baseline tamper-evident (hash-checked at load; corrupt ⇒ refuse + rebuild from source of truth); pack version high-water marks live in `pack_watermarks.json`, outside the rebuildable set (lost/corrupt ⇒ affected packs refuse until re-confirmed — DATA-02) |
 | FR-13 | domain layer interface contract (Phase 3): resolver-ownership + ETW DNS attribution + TTL-clamped IP↔domain cache; no driver, no service; implemented under its own future design round consuming this key unchanged |
 | FR-14 | secure DNS contract (Phase 3): DoH/DoT upstream via the same resolver; DNS-leak prevention = detect and block apps bypassing the resolver; rides FR-13 |
 | SEC-01 | a pack that fails signature or schema validation never contributes a single filter; refusal is logged with reason |
 | SEC-02 | publisher rules bind only to chains that validate under WinVerifyTrust at every materialization/apply point (DEC-05); a binary whose signer no longer validates drops out of the publisher set (logged), never silently permitted |
-| SEC-03 | audit-policy machine changes are inventoried at install and exactly reverted at uninstall/disable (default release path), with a startup consistency check covering crash residue |
+| SEC-03 | audit-policy machine changes are inventoried at install (recorded prior subcategory + SCENoApplyLegacyAuditPolicy state, stored per DATA-01) and exactly reverted at uninstall/disable (default release path), with a startup consistency check covering crash residue; loss of the inventory downgrades revert to warn-and-leave (logged) — exact revert is guaranteed only while the inventory exists |
 | SEC-04 | Phase 3 domain data (domains, DNS cache) is stored locally only; no telemetry egress; opt-out removes stored data |
 | SEC-05 | no new elevated execution path: every new feature runs inside the existing elevation model; no helper binaries, no downloaded executables, no new processes |
 | NFR-01 | zero UX regression on paths that never fail (hardening NFR-01 inheritance); journey 7 is the acceptance surface |
-| NFR-02 | MSVC build green at /W4 + /analyze with system libraries only (existing links + dynamic-resolve wevtapi); no new package dependencies |
+| NFR-02 | MSVC build green at /W4 + /analyze with system libraries only, consumed via the established dynamic-resolve pattern as needed (no new package dependencies) |
 | NFR-03 | footprint: installed size ≤ 8 MB, single portable binary, no service, no driver; CI-checked in the SEC-05 inventory job |
-| NFR-04 | rule-apply: incremental p95 ≤ 1.1 × full-rebuild p95 measured back-to-back on the same profile; unfiltered window strictly smaller than today |
+| NFR-04 | rule-apply: incremental p95 ≤ 1.1 × full-rebuild p95 in a back-to-back same-session run (authoritative procedure); unfiltered window (apply-transaction wall time where effective policy ≠ target) strictly smaller than the full-rebuild path |
 | NFR-05 | every new UI string ships localized through the existing i18n pipeline |
-| NFR-06 | every new module carries automated tests runnable without elevation; CI green is a merge gate (composite rounds) |
-| DATA-01 | profile.xml remains v5 wire-compatible; new state lives in namespaced sidecar files (pack state, ledger baseline), never in profile.xml |
-| DATA-02 | pack format: `packs/<id>/pack.json` + detached signature, semver, key-id field + monotonic version (anti-rollback — the per-pack version high-water mark persists in the pack-state sidecar and survives FR-12 rebuilds), explicit rule schema (apps/publisher/ports/addresses/direction) |
+| NFR-06 | every new module carries automated tests runnable without elevation; the gate (CI when available, local pre-merge otherwise — same convention as OPS-01) must be green to merge (composite rounds) |
+| DATA-01 | profile.xml remains v5 wire-compatible; new state lives in namespaced sidecar files (pack state, ledger baseline, audit-policy inventory), never in profile.xml |
+| DATA-02 | pack format: `packs/<id>/pack.json` + detached signature, semver, key-id field + monotonic version (anti-rollback — the per-pack version high-water mark persists in a dedicated non-rebuildable sidecar, `pack_watermarks.json`, outside FR-12's rebuild scope), explicit rule schema (apps/publisher/ports/addresses/direction) |
 | DATA-03 | ledger baseline: JSON snapshot of WFAS rule identities (name+hash), rebuildable on demand |
 | DATA-04 | Phase 3 cache contract: TTL clamp (floor 17 s), bounded retention past expiry, CNAME-chain retention — exact numbers set by the Phase 3 round |
-| OPS-01 | every composite implementation round runs `goldfish check` against this design in CI; exit 1 blocks merge (composite chains only — DEC-08) |
+| OPS-01 | every composite implementation round runs `goldfish check` against this design — in CI where available; until the fork gains CI it is a required local pre-merge step recorded in verification.md (OPS-04); a failing gate blocks merge (composite chains only — DEC-08) |
 | OPS-02 | releases are Authenticode + GPG signed binaries with winget manifest automation (certificate acquisition = open question) |
 | OPS-03 | monthly upstream rebase window; upstream-overlapping features pulled not duplicated (operational arm of DEC-09) |
 | OPS-04 | each shipped round carries CHANGELOG entries + a verification.md following the hardening convention |
@@ -396,10 +442,11 @@ phase spec's acceptance criteria.
 | DEC-07 | licensing hygiene: code only from GPL-3-compatible sources with per-file audit (Portmaster core GPL-3.0 yes; safing/spn AGPL-3.0, minimalfirewall AGPL-3.0, unlicensed repos, GPL-2-only = ideas only); upstream attribution headers required |
 | DEC-08 | process: umbrella design approved once; per-phase goldfish-gated chains consume keys, never invent them; amendments require revision bump + design-owner approval; hardening rounds keep merge precedence and run against their own key space |
 | DEC-09 | monthly upstream rebase; pull overlapping upstream features; fork code namespaced for rebase cost |
-| RSK-01 | audit subcategory is machine-wide and GPO-blockable/reversible; prompt-degradation state + fallback + revert-on-uninstall carried as the answer |
+| RSK-01 | audit subcategory is machine-wide and GPO-blockable/reversible; prompt-degradation state + fallback + revert-on-uninstall carried as the answer; Lockdown under a blocked subcategory proceeds only via explicit logged confirm-without-prompts (DEC-04) |
 | RSK-02 | upstream drift during multi-phase build; monthly rebase + namespacing carried as the answer |
 | RSK-03 | AV/SmartScreen false-positive risk on new behaviors; wufix System32 path remains (hardening RSK-03) and stays flagged; Authenticode+GPG signing from Phase 1 |
 | RSK-04 | port-53 conflict surfaces in Phase 3; detect-and-report contract, no silent override; owner: fork owner until Phase 3 round |
 | RSK-05 | multi-month scope; per-phase independent shipping is the mitigation |
 | RSK-06 | managed environments: ledger quarantine would fight GPO/Intune; policy-managed rules reported, never quarantined |
 | RSK-07 | Lockdown negatable by other elevated processes (threat-model boundary, hardening-consistent); pack key compromise mitigated by key-id + monotonic version + documented rotation |
+| RSK-08 | Security-log volume under Lockdown (every outbound attempt = 5157); subscription-side dedup/throttle + documented log-sizing guidance; failure mode degrades to Windows' own audit behavior, never a silent app failure |
