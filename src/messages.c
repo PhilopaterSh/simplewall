@@ -786,7 +786,7 @@ VOID _app_message_contextmenu (
 		}
 	}
 
-	_r_menu_popup (hmenu, hwnd, NULL, (LPARAM)lpnmlv->iSubItem);
+	_r_menu_popup (hmenu, hwnd, NULL, (BOOLEAN)lpnmlv->iSubItem); // hardening round 2: v143 narrowing cast
 
 	if (localized_string)
 		_r_obj_dereference (localized_string);
@@ -1921,7 +1921,7 @@ VOID _app_command_logclear (
 	current_handle = _InterlockedCompareExchangePointer (&config.hlogfile, NULL, NULL);
 
 	if (current_handle)
-		_r_fs_getsize (NULL, current_handle, &file_size);
+		_r_fs_getsize (NULL, current_handle, (PLARGE_INTEGER)&file_size); // hardening round 2: v143 width cast
 
 	is_valid = (current_handle && file_size > 2) || (log_path && _r_fs_isexists (&log_path->sr));
 
@@ -2298,7 +2298,7 @@ VOID _app_command_delete (
 
 				enum_key = 0;
 
-				while (_r_obj_enumhashtable (ptr_rule->apps, NULL, &hash_code, &enum_key))
+				while (_r_obj_enumhashtable (ptr_rule->apps, NULL, (PULONG_PTR)&hash_code, &enum_key)) // hardening round 2: v143 width cast
 				{
 					_r_obj_addhashtableitem (apps_checker, hash_code, NULL);
 				}
@@ -2313,7 +2313,7 @@ VOID _app_command_delete (
 
 				enum_key = 0;
 
-				while (_r_obj_enumhashtable (apps_checker, NULL, &hash_code, &enum_key))
+				while (_r_obj_enumhashtable (apps_checker, NULL, (PULONG_PTR)&hash_code, &enum_key)) // hardening round 2: v143 width cast
 				{
 					_app_listview_updateitemby_param (hwnd, hash_code, TRUE);
 				}
@@ -2778,7 +2778,7 @@ VOID _app_command_purgeunused (
 
 	_r_queuedlock_acquireshared (&lock_apps);
 
-	while (_r_obj_enumhashtablepointer (apps_table, (PVOID_PTR)&ptr_app, &hash_code, &enum_key))
+	while (_r_obj_enumhashtablepointer (apps_table, (PVOID_PTR)&ptr_app, (PULONG_PTR)&hash_code, &enum_key)) // hardening round 2: v143 width cast
 	{
 		if (!_app_isappunused (ptr_app) || ptr_app->type == DATA_APP_SERVICE || ptr_app->type == DATA_APP_UWP)
 			continue;

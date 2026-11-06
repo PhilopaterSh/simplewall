@@ -5,6 +5,11 @@
 
 #include "routine.h"
 
+// hardening round 2: this SDK variant does not declare IN6_IS_ADDR_ULA
+#ifndef IN6_IS_ADDR_ULA
+#define IN6_IS_ADDR_ULA(a) ((((const IN6_ADDR *)(a))->u.Byte[0] & 0xFE) == 0xfc)
+#endif
+
 #include <winsock2.h>
 #include <ws2ipdef.h>
 #include <ws2tcpip.h>

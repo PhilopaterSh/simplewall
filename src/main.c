@@ -3,6 +3,8 @@
 
 #include "global.h"
 
+#include "update_key.h" // hardening round 2: update feed verification public key
+
 BOOLEAN _app_changefilters (
 	_In_ HWND hwnd,
 	_In_ BOOLEAN is_install,
@@ -1746,7 +1748,7 @@ VOID _app_tabs_init (
 
 		if (tab_context->listview_id >= IDC_APPS_PROFILE && tab_context->listview_id <= IDC_RULES_CUSTOM)
 		{
-			_r_listview_setstyle (hwnd, tab_context->listview_id, style | LVS_EX_CHECKBOXES, TRUE); // with checkboxes
+			_r_listview_setstyle (hwnd, tab_context->listview_id, (ULONG)(style | LVS_EX_CHECKBOXES), TRUE); // with checkboxes
 
 			if (tab_context->listview_id >= IDC_APPS_PROFILE && tab_context->listview_id <= IDC_APPS_UWP)
 			{
@@ -1768,7 +1770,7 @@ VOID _app_tabs_init (
 		}
 		else if (tab_context->listview_id == IDC_NETWORK)
 		{
-			_r_listview_setstyle (hwnd, tab_context->listview_id, style, TRUE);
+			_r_listview_setstyle (hwnd, tab_context->listview_id, (ULONG)style, TRUE);
 
 			_r_listview_addcolumn (hwnd, tab_context->listview_id, 0, L"", -20, LVCFMT_LEFT);
 			_r_listview_addcolumn (hwnd, tab_context->listview_id, 1, L"", -10, LVCFMT_LEFT);
@@ -1789,7 +1791,7 @@ VOID _app_tabs_init (
 		}
 		else if (tab_context->listview_id == IDC_LOG)
 		{
-			_r_listview_setstyle (hwnd, tab_context->listview_id, style, TRUE);
+			_r_listview_setstyle (hwnd, tab_context->listview_id, (ULONG)style, TRUE);
 
 			_r_listview_addcolumn (hwnd, tab_context->listview_id, 0, L"", -10, LVCFMT_LEFT);
 			_r_listview_addcolumn (hwnd, tab_context->listview_id, 1, L"", -10, LVCFMT_LEFT);
@@ -1833,6 +1835,10 @@ VOID _app_initialize (
 	R_STRINGREF wusvc_sr = PR_STRINGREF_INIT (PATH_WUSVC);
 	R_ENVIRONMENT environment;
 
+	// hardening round 2 (FR-03/DEC-05): embed the update feed verification
+	// public key (the private key is held off-repository by the fork owner)
+	_r_update_setpublickey (UPDATE_PUBLIC_KEY, RTL_NUMBER_OF (UPDATE_PUBLIC_KEY));
+
 	// set privileges
 	_r_sys_setprocessprivilege (hwnd, NtCurrentProcess (), privileges, RTL_NUMBER_OF (privileges), TRUE);
 
@@ -1861,7 +1867,13 @@ VOID _app_initialize (
 
 	_app_profile_initialize ();
 
-	config.my_path = _r_obj_createstring2 (_r_sys_getimagepath ());
+	{
+		R_STRINGREF image_path_sr;
+
+		_r_obj_initializestringref (&image_path_sr, _r_sys_getimagepath ()); // hardening round 2: raw buffer wrap
+
+		config.my_path = _r_obj_createstring2 (&image_path_sr);
+	}
 
 	config.svchost_path = _r_obj_concatstringrefs (
 		2,
@@ -1929,7 +1941,7 @@ VOID _app_initialize (
 	NtCreateEvent (&config.hnotify_evt, EVENT_ALL_ACCESS, NULL, NotificationEvent, TRUE);
 
 	if (hwnd)
-		_r_sys_createthread (NULL, NtCurrentProcess (), &_app_package_threadproc, hwnd, &environment, L"ServicesMonitor");
+		_r_sys_createthread (NULL, NtCurrentProcess (), (PUSER_THREAD_START_ROUTINE)&_app_package_threadproc, hwnd, &environment, L"ServicesMonitor");
 }
 
 INT FirstDriveFromMask (

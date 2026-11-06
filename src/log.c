@@ -134,7 +134,7 @@ VOID _app_loginitfile (
 	BYTE bom[] = {0xFF, 0xFE};
 	LONG64 file_size;
 
-	_r_fs_getsize (NULL, hfile, &file_size);
+	_r_fs_getsize (NULL, hfile, (PLARGE_INTEGER)&file_size); // hardening round 2: v143 width cast
 
 	if (file_size == 0)
 	{
@@ -143,7 +143,7 @@ VOID _app_loginitfile (
 	}
 	else
 	{
-		_r_fs_setpos (hfile, file_size); // move to eof
+		_r_fs_setpos (hfile, (PLARGE_INTEGER)&file_size); // move to eof (hardening round 2: v143 pointer param)
 	}
 }
 
@@ -167,7 +167,7 @@ ULONG _app_getloghash (
 		_r_obj_getstring (ptr_log->local_addr_str)
 	);
 
-	return _r_str_gethash2 (buffer, TRUE);
+	return _r_str_gethash2_w (buffer, TRUE); // hardening round 2: raw-buffer hash helper
 }
 
 _Ret_maybenull_
@@ -303,7 +303,7 @@ BOOLEAN _app_logislimitreached (
 	if (!limit)
 		return FALSE;
 
-	_r_fs_getsize (NULL, hfile, &file_size);
+	_r_fs_getsize (NULL, hfile, (PLARGE_INTEGER)&file_size); // hardening round 2: v143 width cast
 
 	return (file_size >= (_r_calc_kilobytes2bytes64 (limit)));
 }
@@ -773,7 +773,7 @@ VOID CALLBACK _wfp_logcallback (
 
 	// get username information
 	if ((log->flags & FWPM_NET_EVENT_FLAG_USER_ID_SET) == FWPM_NET_EVENT_FLAG_USER_ID_SET && log->user_id)
-		_r_sys_getusername (&ptr_log->username, log->user_id, TRUE);
+		_r_sys_getusername (log->user_id, TRUE, &ptr_log->username); // hardening round 2: vendor master-order
 
 	// destination
 	if ((log->flags & FWPM_NET_EVENT_FLAG_IP_VERSION_SET) == FWPM_NET_EVENT_FLAG_IP_VERSION_SET)

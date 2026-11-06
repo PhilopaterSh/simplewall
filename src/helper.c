@@ -787,7 +787,7 @@ PR_STRING _app_verifygetstring (
 	PCRYPT_PROVIDER_SGNR prov_signer;
 	PCRYPT_PROVIDER_DATA prov_data;
 	PCRYPT_PROVIDER_CERT prov_cert;
-	PR_STRING string;
+	PR_STRING string = NULL;
 	ULONG idx = 0, length;
 
 	prov_data = WTHelperProvDataFromStateData (state_data);
@@ -902,7 +902,7 @@ NTSTATUS _app_verifyfilefromcatalog (
 	ULONG file_hash_length;
 	NTSTATUS status;
 
-	status = _r_fs_getsize (NULL, hfile, &file_size);
+	status = _r_fs_getsize (NULL, hfile, (PLARGE_INTEGER)&file_size); // hardening round 2: v143 width cast
 
 	if (!NT_SUCCESS (status))
 	{
@@ -1041,7 +1041,7 @@ VOID _app_getfileversioninfo (
 	if (!NT_SUCCESS (status))
 		goto CleanupExit;
 
-	status = _r_res_loadresource (&ver_block, hlibrary, RT_VERSION, MAKEINTRESOURCE (VS_VERSION_INFO), 0);
+	status = _r_res_loadresource (&ver_block, hlibrary, (LPCWSTR)RT_VERSION, MAKEINTRESOURCE (VS_VERSION_INFO), 0); // hardening round 2: v143 type cast
 
 	if (!NT_SUCCESS (status))
 		goto CleanupExit;
@@ -1110,7 +1110,7 @@ PR_STRING _app_getfilehashinfo (
 )
 {
 	PITEM_APP ptr_app;
-	PR_STRING string;
+	PR_STRING string = NULL;
 
 	ptr_app = _app_getappitem (app_hash);
 
@@ -1256,7 +1256,7 @@ BOOLEAN _app_parsenetworkstring (
 	}
 	else
 	{
-		_r_str_copystring (rule_string, RTL_NUMBER_OF (rule_string), network_string);
+		_r_str_copystring (rule_string, RTL_NUMBER_OF (rule_string), network_string); // hardening round 2: vendor now takes const stringref
 
 		status = ParseNetworkString (rule_string, types, &ni, &port, &prefix_length);
 
@@ -1430,7 +1430,7 @@ BOOLEAN _app_preparserulestring (
 	}
 	else
 	{
-		_r_str_copystring (rule_string, RTL_NUMBER_OF (rule_string), rule);
+		_r_str_copystring (rule_string, RTL_NUMBER_OF (rule_string), rule); // hardening round 2: vendor takes const stringref
 
 		status = ParseNetworkString (rule_string, types, NULL, NULL, NULL);
 
@@ -1600,7 +1600,7 @@ VOID _app_fileloggingenable ()
 	if (_r_config_getboolean (L"IsEnableAppMonitor", FALSE, NULL))
 	{
 		// TODO! rewrite this and watch FS changes through NtNotifyChangeDirectoryFile, then read file hash!
-		if (NT_SUCCESS (_r_sys_createthread (&config.hmonitor_thread, NtCurrentProcess (), &_app_timercallback, NULL, NULL, L"FileMonitor")))
+		if (NT_SUCCESS (_r_sys_createthread (&config.hmonitor_thread, NtCurrentProcess (), (PUSER_THREAD_START_ROUTINE)&_app_timercallback, NULL, NULL, L"FileMonitor")))
 			NtResumeThread (config.hmonitor_thread, NULL);
 	}
 	else
