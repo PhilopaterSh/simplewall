@@ -1,0 +1,89 @@
+name: smoke-test
+
+# Hardened fork verification: build + launch + lifetime check
+# Runs on push to feat branches (windows runner = admin, no UAC, no SAC)
+
+on:
+  push:
+    branches: [feat/routine-hardening, feat/hardening-round-1, master]
+  workflow_dispatch:
+
+jobs:
+  build-and-smoke:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Restore CppWinRT
+        shell: cmd
+        run: |
+          curl -L -o nuget.exe https://dist.nuget.org/win-x86-commandline/latest/nuget.exe
+          nuget.exe install Microsoft.Windows.CppWinRT -Version 2.0.230706.1 -OutputDirectory packages -NonInteractive -Source https://api.nuget.org/v3/index.json
+
+      - name: Build (Release x64)
+        shell: cmd
+        run: msbuild simplewall.vcxproj -p:Configuration=Release -p:Platform=x64 -p:PlatformToolset=v143 -p:WindowsTargetPlatformVersion=10.0 -p:TreatWarningAsError=false -m -nologo -v:m
+
+      - name: Verify exe exists
+        shell: pwsh
+        run: |
+          $exe = 'bin/64/simplewall.exe'
+          if (-not (Test-Path $exe)) { Write-Error 'exe missing'; exit 1 }
+          $h = (Get-FileHash $exe -Algorithm SHA256).Hash
+          Write-Host "exe OK: $((Get-Item $exe).Length) bytes, SHA256=$h"
+          "sha256=$h" | Out-File -Encoding utf8 exe-hash.txt
+
+      - name: Smoke test - launch and lifetime
+        shell: pwsh
+        run: |
+          # runners run elevated: WFP app launches without relaunch
+          $p = Start-Process -FilePath 'bin/64/simplewall.exe' -PassThru
+          Start-Sleep 20
+          $alive = Get-Process -Id $p.Id -ErrorAction SilentlyContinue
+          if ($alive) {
+            Write-Host "PASS: simplewall alive after 20s (PID $($p.Id))"
+            "result=PASS" | Out-File -Encoding utf8 smoke-result.txt
+          } else {
+            Write-Host "FAIL: simplewall exited within 20s (exit code 0x$($p.ExitCode.ToString('X')))"
+            "result=FAIL" | Out-File -Encoding utf8 smoke-result.txt
+          }
+
+      - name: Smoke test - config and log collection
+        shell: pwsh
+        run: |
+          Start-Sleep 5
+          $dirs = @("$env:APPDATA\simplewall", "$env:LOCALAPPDATA\simplewall", "$env:USERPROFILE\Desktop\simplewall_crash")
+          $out = 'smoke-artifacts'
+          New-Item -ItemType Directory -Path $out -Force | Out-Null
+          foreach ($d in $dirs) {
+            if (Test-Path $d) { Copy-Item $d -Destination "$out/$(Split-Path $d -Leaf)" -Recurse -Force -ErrorAction SilentlyContinue }
+          }
+          Get-ChildItem $out -Recurse | Select-Object FullName, Length | Out-File -Encoding utf8 "$out/inventory.txt"
+
+      - name: Stop app
+        if: always()
+        shell: pwsh
+        run: Stop-Process -Name simplewall -Force -ErrorAction SilentlyContinue
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-artifacts
+          path: |
+            exe-hash.txt
+            smoke-result.txt
+            smoke-artifacts/
+
+      - name: Verdict
+        shell: pwsh
+        run: |
+          if (Test-Path smoke-result.txt) {
+            Get-Content smoke-result.txt
+            if ((Get-Content smoke-result.txt) -match 'FAIL') { exit 1 }
+          }
