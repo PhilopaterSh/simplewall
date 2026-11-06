@@ -11713,7 +11713,7 @@ NTSTATUS _r_sys_sleep (
 
 	if (_r_initonce_begin (&init_once))
 	{
-		_r_sys_loadlibrary2 (&ntdll), L"ntdll.dll", 0);
+		_r_sys_loadlibrary2 (&ntdll, L"ntdll.dll", 0);
 
 		if (NT_SUCCESS (status))
 		{
@@ -14696,7 +14696,6 @@ HANDLE _r_reg_getroothandle (
 	static R_INITONCE init_once = PR_INITONCE_INIT;
 	static HANDLE hkeyhkcr = NULL;
 	static HANDLE hkeyhkcu = NULL;
-	static HANDLE hkeyhklm = NULL;
 	static HANDLE hkeyhklm = NULL;
 	static HANDLE hkeyhku = NULL;
 	static HANDLE hkeyhcc = NULL;

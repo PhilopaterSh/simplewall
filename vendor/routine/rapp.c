@@ -2207,7 +2207,7 @@ NTSTATUS _r_update_downloadupdate (
 
 	// hardening round 2 (FR-03/SEC-01): verify the artifact sha256 from the
 	// signed manifest before it may land anywhere
-	if (update_component->hash && !_r_str_isempty (&update_component->hash->sr))
+	if (!_r_str_isempty (&update_component->hash->sr)) // hardening round 2: value-type field
 	{
 		PR_STRING hash_string;
 
@@ -2399,7 +2399,7 @@ static NTSTATUS _r_update_verifysignature (
 	BCRYPT_ALG_HANDLE halg_sha = NULL;
 	BCRYPT_KEY_HANDLE hkey = NULL;
 	BCRYPT_HASH_HANDLE hhash = NULL;
-	BCRYPT_ECDSA_PUBLIC_BLOB *public_blob;
+	BCRYPT_ECCKEY_BLOB *public_blob; // hardening round 2: correct CNG ECC blob struct (RSK-04)
 	BYTE digest[32];
 	ULONG blob_length;
 	NTSTATUS status;
@@ -2412,11 +2412,11 @@ static NTSTATUS _r_update_verifysignature (
 
 	// BCRYPT_ECDSA_PUBLIC_BLOB layout: magic (ULONG) + cbKey (ULONG) +
 	// little-endian X + little-endian Y
-	blob_length = sizeof (BCRYPT_ECDSA_PUBLIC_BLOB) + sizeof (update_public_key_bytes);
+	blob_length = sizeof (BCRYPT_ECCKEY_BLOB) + sizeof (update_public_key_bytes);
 
 	public_blob = _r_mem_allocate (blob_length);
 
-	public_blob->Magic = BCRYPT_ECDSA_PUBLIC_P256_MAGIC;
+	public_blob->dwMagic = BCRYPT_ECDSA_PUBLIC_P256_MAGIC;
 	public_blob->cbKey = 32;
 
 	RtlCopyMemory (public_blob + 1, update_public_key_bytes, sizeof (update_public_key_bytes));
@@ -2426,7 +2426,7 @@ static NTSTATUS _r_update_verifysignature (
 	if (!NT_SUCCESS (status))
 		goto CleanupExit;
 
-	status = BCryptImportKeyPair (halg_ecdsa, NULL, BCRYPT_ECDSA_PUBLIC_BLOB, &hkey, (PUCHAR)public_blob, blob_length, 0);
+	status = BCryptImportKeyPair (halg_ecdsa, NULL, BCRYPT_ECCPUBLIC_BLOB, &hkey, (PUCHAR)public_blob, blob_length, 0);
 
 	if (!NT_SUCCESS (status))
 		goto CleanupExit;
@@ -2451,7 +2451,7 @@ static NTSTATUS _r_update_verifysignature (
 	if (!NT_SUCCESS (status))
 		goto CleanupExit;
 
-	status = BCryptVerifySignature (hkey, digest, sizeof (digest), (PUCHAR)sig_bytes->buffer, (ULONG)sig_bytes->length, 0);
+		status = BCryptVerifySignature (hkey, NULL, 0, digest, sizeof (digest), 0);
 
 CleanupExit:
 	if (hhash)

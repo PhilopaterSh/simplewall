@@ -74,6 +74,7 @@
 // winapi
 #include <initguid.h>
 #include <windows.h>
+#include <bcrypt.h> // hardening round 2: CNG types for the signature core
 #include <windowsx.h>
 #include <ntstatus.h>
 #include <aclapi.h>
