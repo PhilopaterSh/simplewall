@@ -1239,6 +1239,7 @@ PR_STRING _r_config_getstring_ex (
 
 	PR_OBJECT_POINTER object_ptr;
 	PR_STRING section_string;
+	PR_STRING string;
 	ULONG hash_code;
 
 	if (_r_initonce_begin (&init_once))
@@ -1280,19 +1281,37 @@ PR_STRING _r_config_getstring_ex (
 	if (!hash_code)
 		return NULL;
 
+	// hardening round 2 (F5/FR-06): the object body is referenced while
+	// holding the lock protecting it — a concurrent set/clear (which now
+	// mutates under the exclusive lock) can no longer free it between our
+	// read and reference; the miss path holds the exclusive lock across
+	// find-or-add to close the find-then-add gap
 	_r_queuedlock_acquireshared (&app_global.config.lock);
 	object_ptr = _r_obj_findhashtable (app_global.config.table, hash_code);
+
+	if (object_ptr && object_ptr->object_body)
+	{
+		string = _r_obj_referencesafe (object_ptr->object_body);
+
+		_r_queuedlock_releaseshared (&app_global.config.lock);
+
+		return string;
+	}
+
 	_r_queuedlock_releaseshared (&app_global.config.lock);
+
+	_r_queuedlock_acquireexclusive (&app_global.config.lock);
+	object_ptr = _r_obj_findhashtable (app_global.config.table, hash_code);
+
+	if (!object_ptr)
+		object_ptr = _r_obj_addhashtablepointer (app_global.config.table, hash_code, NULL);
 
 	if (!object_ptr)
 	{
-		_r_queuedlock_acquireexclusive (&app_global.config.lock);
-		object_ptr = _r_obj_addhashtablepointer (app_global.config.table, hash_code, NULL);
 		_r_queuedlock_releaseexclusive (&app_global.config.lock);
-	}
 
-	if (!object_ptr)
 		return NULL;
+	}
 
 	if (!object_ptr->object_body)
 	{
@@ -1300,7 +1319,11 @@ PR_STRING _r_config_getstring_ex (
 			_r_obj_movereference (&object_ptr->object_body, _r_obj_createstring (def_value));
 	}
 
-	return _r_obj_referencesafe (object_ptr->object_body);
+	string = _r_obj_referencesafe (object_ptr->object_body);
+
+	_r_queuedlock_releaseexclusive (&app_global.config.lock);
+
+	return string;
 }
 
 VOID _r_config_setboolean (
@@ -1503,6 +1526,7 @@ VOID _r_config_setstring_ex (
 	WCHAR section_string[128];
 	PR_STRING section_string_full;
 	PR_STRING path;
+	PR_STRING body_string;
 	ULONG hash_code;
 
 	if (_r_initonce_begin (&init_once))
@@ -1548,19 +1572,21 @@ VOID _r_config_setstring_ex (
 	if (!hash_code)
 		return;
 
-	_r_queuedlock_acquireshared (&app_global.config.lock);
+	// hardening round 2 (F5/FR-06): body mutation happens under the
+	// exclusive lock so a concurrent getter cannot reference a freed body;
+	// the INI write uses a referenced snapshot taken under the same lock
+	_r_queuedlock_acquireexclusive (&app_global.config.lock);
 	object_ptr = _r_obj_findhashtable (app_global.config.table, hash_code);
-	_r_queuedlock_releaseshared (&app_global.config.lock);
+
+	if (!object_ptr)
+		object_ptr = _r_obj_addhashtablepointer (app_global.config.table, hash_code, NULL);
 
 	if (!object_ptr)
 	{
-		_r_queuedlock_acquireexclusive (&app_global.config.lock);
-		object_ptr = _r_obj_addhashtablepointer (app_global.config.table, hash_code, NULL);
 		_r_queuedlock_releaseexclusive (&app_global.config.lock);
-	}
 
-	if (!object_ptr)
 		return;
+	}
 
 	if (value)
 	{
@@ -1571,9 +1597,18 @@ VOID _r_config_setstring_ex (
 		_r_obj_clearreference (&object_ptr->object_body);
 	}
 
+	body_string = _r_obj_referencesafe (object_ptr->object_body);
+
+	_r_queuedlock_releaseexclusive (&app_global.config.lock);
+
 	path = _r_app_getconfigpath ();
 
-	WritePrivateProfileStringW (section_string, key_name, _r_obj_getstring (object_ptr->object_body), path->buffer);
+	if (body_string)
+	{
+		WritePrivateProfileStringW (section_string, key_name, _r_obj_getstring (body_string), path->buffer);
+
+		_r_obj_dereference (body_string);
+	}
 }
 
 //
@@ -2020,6 +2055,73 @@ BOOLEAN NTAPI _r_update_downloadcallback (
 	return TRUE;
 }
 
+// hardening round 2 (F6/FR-07/SEC-02): restrict the update cache directory
+// to the current user and administrators — other-user tampering with the
+// update chain is blocked entirely (same-user attacks are handled by the
+// exclusive handle, reparse check, and integrity verification)
+static NTSTATUS _r_update_hardencachedir (
+	_In_ PR_STRING dir_path
+)
+{
+	BYTE admins_sid[SECURITY_MAX_SID_SIZE];
+	EXPLICIT_ACCESSW explicit_access[2];
+	PTOKEN_USER token_user;
+	ULONG cb_sid, return_length;
+	PACL dacl;
+	HANDLE htoken;
+	DWORD win_error;
+
+	if (!OpenProcessToken (NtCurrentProcess (), TOKEN_QUERY, &htoken))
+		return STATUS_UNSUCCESSFUL;
+
+	return_length = 0;
+
+	if (!GetTokenInformation (htoken, TokenUser, NULL, 0, &return_length) && return_length == 0)
+	{
+		NtClose (htoken);
+		return STATUS_UNSUCCESSFUL;
+	}
+
+	token_user = _r_mem_allocate (return_length);
+
+	if (!GetTokenInformation (htoken, TokenUser, token_user, return_length, &return_length))
+	{
+		_r_mem_free (token_user);
+		NtClose (htoken);
+		return STATUS_UNSUCCESSFUL;
+	}
+
+	cb_sid = sizeof (admins_sid);
+	win_error = ERROR_INVALID_SECURITY_DESCR;
+
+	if (CreateWellKnownSid (WinBuiltinAdministratorsSid, NULL, admins_sid, &cb_sid))
+	{
+		ZeroMemory (&explicit_access, sizeof (explicit_access));
+
+		explicit_access[0].grfAccessPermissions = GENERIC_ALL;
+		explicit_access[0].grfAccessMode = GRANT_ACCESS;
+		explicit_access[0].grfInheritance = SUB_CONTAINERS_AND_OBJECTS_INHERIT;
+		BuildTrusteeWithSidW (&explicit_access[0].Trustee, token_user->User.Sid);
+
+		explicit_access[1].grfAccessPermissions = GENERIC_ALL;
+		explicit_access[1].grfAccessMode = GRANT_ACCESS;
+		explicit_access[1].grfInheritance = SUB_CONTAINERS_AND_OBJECTS_INHERIT;
+		BuildTrusteeWithSidW (&explicit_access[1].Trustee, admins_sid);
+
+		if (SetEntriesInAclW (RTL_NUMBER_OF (explicit_access), explicit_access, NULL, &dacl) == ERROR_SUCCESS)
+		{
+			win_error = SetNamedSecurityInfoW (dir_path->buffer, SE_FILE_OBJECT, DACL_SECURITY_INFORMATION, NULL, NULL, dacl, NULL);
+
+			LocalFree (dacl);
+		}
+	}
+
+	_r_mem_free (token_user);
+	NtClose (htoken);
+
+	return NT_FROM_WIN32 (win_error);
+}
+
 NTSTATUS _r_update_downloadupdate (
 	_In_ PR_UPDATE_INFO update_info,
 	_Inout_ PR_UPDATE_COMPONENT update_component
@@ -2028,47 +2130,111 @@ NTSTATUS _r_update_downloadupdate (
 	R_DOWNLOAD_INFO download_info;
 	PR_STRING path;
 	HANDLE hfile;
+	BOOLEAN is_renamed;
 	NTSTATUS status;
 
 	path = _r_app_getcachedirectory (TRUE);
 
+	// hardening round 2 (F6/SEC-02): restrictive DACL on the cache dir
+	_r_update_hardencachedir (path);
+
+	// hardening round 2 (F3/FR-04): exclusive handle — a same-user attacker
+	// cannot open and swap the cache file during the download
 	status = _r_fs_createfile (
 		&hfile,
 		&update_component->cache_path->sr,
 		FILE_OVERWRITE_IF,
 		GENERIC_WRITE,
-		FILE_SHARE_READ | FILE_SHARE_WRITE,
+		0,
 		FILE_ATTRIBUTE_NORMAL | FILE_ATTRIBUTE_TEMPORARY,
 		0,
 		FALSE,
 		NULL
 	);
+
 	if (!NT_SUCCESS (status))
 		return status;
+
+	// hardening round 2 (F6/FR-07): FILE_OVERWRITE_IF may land on a planted
+	// reparse point (create follows parent traversal) — reject and remove
+	{
+		FILE_ATTRIBUTE_TAG_INFORMATION tag_info;
+		IO_STATUS_BLOCK isb_check;
+
+		if (NT_SUCCESS (NtQueryInformationFile (hfile, &isb_check, &tag_info, sizeof (tag_info), FileAttributeTagInformation)) &&
+			(tag_info.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT))
+		{
+			NtClose (hfile);
+
+			_r_fs_deletefile (&update_component->cache_path->sr, NULL);
+
+			return STATUS_REPARSE_POINT_NOT_RESOLVED;
+		}
+	}
+
 	_r_inet_initializedownload (&download_info, hfile, &_r_update_downloadcallback, update_info);
+
 	status = _r_inet_begindownload (update_info->hsession, &update_component->url->sr, &download_info);
-	NtClose (hfile); // required!
+
 	if (status != STATUS_SUCCESS)
+	{
+		NtClose (hfile); // required!
+
 		return status;
+	}
+
+	is_renamed = FALSE;
+
 	if (update_component->flags & PR_UPDATE_FLAG_FILE)
 	{
-		// copy required files
 		if (_r_fs_exists (&update_component->target_path->sr))
 			_r_fs_deletefile (&update_component->target_path->sr, NULL);
-		// move target files
+
+		// hardening round 2 (F3/FR-04): atomic rename through the held
+		// handle — no path re-open between download and landing; the legacy
+		// path-based move remains as fallback for systems that reject
+		// absolute rename paths
+		status = _r_fs_renamefilebyhandle (hfile, &update_component->target_path->sr);
+
+		is_renamed = NT_SUCCESS (status);
+
+		if (!is_renamed)
+			status = STATUS_SUCCESS; // degrade to the legacy move below
+	}
+
+	NtClose (hfile); // required!
+
+	if (!is_renamed && (update_component->flags & PR_UPDATE_FLAG_FILE))
+	{
+		// legacy fallback (pre-hardening behavior)
+		if (_r_fs_exists (&update_component->target_path->sr))
+			_r_fs_deletefile (&update_component->target_path->sr, NULL);
+
 		status = _r_fs_movefile (&update_component->cache_path->sr, &update_component->target_path->sr, FALSE);
+
 		if (!NT_SUCCESS (status))
 			_r_fs_copyfile (&update_component->cache_path->sr, &update_component->target_path->sr, FALSE);
-		// remove if it exists
+
 		if (_r_fs_exists (&update_component->cache_path->sr))
 			_r_fs_deletefile (&update_component->cache_path->sr, NULL);
+
+		if (NT_SUCCESS (status))
+		{
+			update_component->flags &= ~PR_UPDATE_FLAG_AVAILABLE;
+			_r_obj_movereference (&update_component->current_version, update_component->new_version);
+			update_component->new_version = NULL;
+		}
+	}
+	else if (is_renamed)
+	{
 		update_component->flags &= ~PR_UPDATE_FLAG_AVAILABLE;
 		_r_obj_movereference (&update_component->current_version, update_component->new_version);
 		update_component->new_version = NULL;
 	}
+
 	// remove cache directory if it is empty
 	_r_fs_deletedirectory (&path->sr, FALSE);
-	return STATUS_SUCCESS;
+	return status;
 }
 NTSTATUS NTAPI _r_update_downloadthread (
 	_In_ PVOID arglist
@@ -2745,7 +2911,14 @@ VOID _r_update_install (
 	if (!_r_fs_exists (&update_component->cache_path->sr))
 		return;
 
-	cmd_string = _r_format_string (L"\"%s\" /u /S /D=%s", update_component->cache_path->buffer, update_component->target_path->buffer);
+	// hardening round 2 (F8/FR-08): the NSIS /D flag consumes everything
+	// after it verbatim — a quote inside the target path would inject
+	// additional installer arguments into the elevated command line;
+	// refuse to pass /D when a quote is present
+	if (!wcschr (update_component->target_path->buffer, L'"'))
+		cmd_string = _r_format_string (L"\"%s\" /u /S /D=%s", update_component->cache_path->buffer, update_component->target_path->buffer);
+	else
+		cmd_string = _r_format_string (L"\"%s\" /u /S", update_component->cache_path->buffer);
 
 	status = _r_sys_runasadmin (update_component->cache_path->buffer, cmd_string->buffer, NULL);
 

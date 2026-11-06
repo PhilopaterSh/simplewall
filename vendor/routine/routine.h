@@ -2032,6 +2032,13 @@ NTSTATUS _r_fs_movefile (
 	_In_ BOOLEAN is_failifexists
 );
 
+// hardening round 2 (F3/FR-04): atomic rename through an already-held
+// handle — closes the download→move TOCTOU window (no path re-open)
+NTSTATUS _r_fs_renamefilebyhandle (
+	_In_ HANDLE hfile,
+	_In_ PR_STRINGREF target_path
+);
+
 _Success_ (NT_SUCCESS (return))
 NTSTATUS _r_fs_openfile (
 	_In_ PR_STRINGREF path,

@@ -2029,14 +2029,17 @@ VOID NTAPI _r_obj_swapreference (
 {
 	PVOID old_object;
 
+	// hardening round 2 (F8/FR-08): reference the new object before
+	// dereferencing the old one — a self-swap (old == new) previously
+	// dropped the refcount to zero and freed the object mid-call
+	if (new_object)
+		_r_obj_reference (new_object);
+
 	old_object = *object_body;
 	*object_body = new_object;
 
 	if (old_object)
 		_r_obj_dereference (old_object);
-
-	if (new_object)
-		new_object = _r_obj_reference (new_object);
 }
 
 //
@@ -3656,6 +3659,12 @@ NTSTATUS _r_fs_createfile (
 
 	create_option |= is_directory ? FILE_DIRECTORY_FILE : FILE_NON_DIRECTORY_FILE;
 
+	// hardening round 2 (F6/FR-07): do not follow reparse points when
+	// opening existing files — an attacker-writable directory can host a
+	// junction redirecting the open elsewhere
+	if (create_disposition == FILE_OPEN && !is_directory)
+		create_option |= FILE_OPEN_REPARSE_POINT;
+
 	status = NtCreateFile (
 		&hfile,
 		desired_access | SYNCHRONIZE | FILE_READ_ATTRIBUTES,
@@ -4744,6 +4753,45 @@ BOOLEAN _r_fs_isdirectory (
 		return TRUE;
 
 	return FALSE;
+}
+
+// hardening round 2 (F3/FR-04): atomic rename through an already-held
+// handle — closes the download→move TOCTOU window (no path re-open).
+// Falls back to STATUS_NOT_SUPPORTED on systems that reject absolute
+// rename paths; callers keep their legacy path-based move as fallback.
+NTSTATUS _r_fs_renamefilebyhandle (
+	_In_ HANDLE hfile,
+	_In_ PR_STRINGREF target_path
+)
+{
+	PFILE_RENAME_INFORMATION rename_info;
+	IO_STATUS_BLOCK isb;
+	UNICODE_STRING nt_path;
+	ULONG info_length;
+	NTSTATUS status;
+
+	status = _r_fs_dospathnametontpathname (target_path, &nt_path);
+
+	if (!NT_SUCCESS (status))
+		return status;
+
+	info_length = FIELD_OFFSET (FILE_RENAME_INFORMATION, FileName) + nt_path.Length;
+
+	rename_info = _r_mem_allocate (info_length);
+
+	rename_info->ReplaceIfExists = FALSE;
+	rename_info->RootDirectory = NULL;
+	rename_info->FileNameLength = nt_path.Length;
+
+	RtlCopyMemory (rename_info->FileName, nt_path.Buffer, nt_path.Length);
+
+	status = NtSetInformationFile (hfile, &isb, rename_info, info_length, FileRenameInformation);
+
+	_r_mem_free (rename_info);
+
+	RtlFreeUnicodeString (&nt_path);
+
+	return status;
 }
 
 _Success_ (NT_SUCCESS (return))
@@ -16521,6 +16569,9 @@ BOOLEAN _r_parseini (
 
 	_r_str_setlength (&sections_string->sr, return_length * sizeof (WCHAR));
 
+	// hardening round 2 (F8/FR-08): bounded value buffer — GetPrivateProfileSection
+	// truncates longer sections at this documented limit rather than growing
+	// unbounded; config values above 0x7FFF characters are not supported
 	allocated_length = 0x7FFF; // maximum length for GetPrivateProfileSection
 	values_string = _r_obj_createstring_ex (NULL, allocated_length * sizeof (WCHAR));
 
