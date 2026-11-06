@@ -2370,7 +2370,7 @@ VOID _r_obj_initializestringref_ex (
 
 BOOLEAN _r_obj_initializeunicodestring (
 	_Out_ PUNICODE_STRING string,
-	_In_opt_z_ LPWSTR buffer
+	_In_opt_z_ LPCWSTR buffer
 )
 {
 	ULONG length = 0;
@@ -2378,7 +2378,7 @@ BOOLEAN _r_obj_initializeunicodestring (
 	if (buffer)
 		length = (ULONG)_r_str_getlength (buffer) * sizeof (WCHAR);
 
-	return _r_obj_initializeunicodestring_ex (string, buffer, length, length + sizeof (UNICODE_NULL));
+	return _r_obj_initializeunicodestring_ex (string, (LPWSTR)buffer, length, length + sizeof (UNICODE_NULL)); // const-safe: callee reads only
 }
 
 BOOLEAN _r_obj_initializeunicodestring_ex (
@@ -4147,11 +4147,11 @@ NTSTATUS _r_fs_enumfiles (
 	{
 		status = _r_fs_openfile (
 			&hdirectory_new,
+			path,
 			GENERIC_READ | FILE_LIST_DIRECTORY,
 			FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
 			0,
-			TRUE,
-			path
+			TRUE
 		);
 
 		if (!NT_SUCCESS (status))
@@ -4791,11 +4791,11 @@ BOOLEAN _r_fs_isfileused (
 
 	status = _r_fs_openfile (
 		&hfile,
+		path,
 		GENERIC_WRITE | GENERIC_READ,
 		0,
 		FILE_SEQUENTIAL_ONLY,
-		FALSE,
-		path
+		FALSE
 	);
 
 	if (NT_SUCCESS (status))
@@ -5098,11 +5098,11 @@ NTSTATUS _r_fs_setattributes (
 	{
 		status = _r_fs_openfile (
 			&hfile_new,
+			path,
 			FILE_WRITE_ATTRIBUTES,
 			FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
 			FILE_OPEN_FOR_BACKUP_INTENT | FILE_OPEN_REPARSE_POINT,
-			FALSE,
-			path
+			FALSE
 		);
 
 		if (!NT_SUCCESS (status))
@@ -5683,7 +5683,7 @@ BOOLEAN _r_path_issecurelocation (
 
 _Success_ (NT_SUCCESS (return))
 NTSTATUS _r_path_makebackup (
-	_In_ PR_STRING path,
+	_In_ PR_STRINGREF path,
 	_In_ BOOLEAN is_removesourcefile
 )
 {
@@ -5695,7 +5695,7 @@ NTSTATUS _r_path_makebackup (
 	PR_STRING directory;
 	NTSTATUS status;
 
-	_r_obj_initializestringref2 (&directory_part, &path->sr);
+	_r_obj_initializestringref2 (&directory_part, path);
 
 	_r_path_getpathinfo (&directory_part, &directory_part, &basename_part);
 
@@ -5720,19 +5720,19 @@ NTSTATUS _r_path_makebackup (
 
 	if (is_removesourcefile)
 	{
-		status = _r_fs_movefile (&path->sr, &new_path->sr, FALSE);
+		status = _r_fs_movefile (path, &new_path->sr, FALSE);
 
 		if (!NT_SUCCESS (status))
 		{
-			status = _r_fs_copyfile (&path->sr, &new_path->sr, FALSE);
+			status = _r_fs_copyfile (path, &new_path->sr, FALSE);
 
 			if (NT_SUCCESS (status))
-				_r_fs_deletefile (&path->sr, NULL);
+				_r_fs_deletefile (path, NULL);
 		}
 	}
 	else
 	{
-		status = _r_fs_copyfile (&path->sr, &new_path->sr, FALSE);
+		status = _r_fs_copyfile (path, &new_path->sr, FALSE);
 	}
 
 	_r_obj_dereference (directory);
@@ -6403,11 +6403,11 @@ NTSTATUS _r_path_ntpathfromdos (
 
 	status = _r_fs_openfile (
 		&hfile,
+		path,
 		GENERIC_READ,
 		FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
 		FILE_OPEN_FOR_BACKUP_INTENT | FILE_OPEN_REPARSE_POINT,
-		attributes & FILE_ATTRIBUTE_DIRECTORY ? TRUE : FALSE,
-		path
+		attributes & FILE_ATTRIBUTE_DIRECTORY ? TRUE : FALSE
 	);
 
 	if (!NT_SUCCESS (status))
@@ -8772,7 +8772,7 @@ ULONG64 _r_str_versiontoulong64 (
 
 LONG _r_str_versioncompare (
 	_In_ PR_STRINGREF v1,
-	_In_ PR_STRINGREF v2
+	_In_ PCR_STRINGREF v2
 )
 {
 	ULONG64 value_v1;
@@ -11337,7 +11337,7 @@ PR_STRING _r_sys_querytaginformation (
 
 	if (_r_initonce_begin (&init_once))
 	{
-		status = _r_sys_loadlibrary2 (L"sechost.dll", 0, &hsechost); // win81+
+		status = _r_sys_loadlibrary2 (&hsechost, L"sechost.dll", 0); // win81+
 
 		if (NT_SUCCESS (status))
 		{
@@ -14966,7 +14966,7 @@ NTSTATUS _r_reg_enumvalues (
 			}
 			else if (buffer->Type == REG_EXPAND_SZ)
 			{
-				if (NT_SUCCESS (_r_str_environmentexpandstring (NULL, &sr, &string)))
+				if (NT_SUCCESS (_r_str_environmentexpandstring (&string, NULL, &sr)))
 					*out_value = string;
 			}
 			else if (buffer->Type == REG_SZ || buffer->Type == REG_MULTI_SZ)
@@ -18217,14 +18217,14 @@ VOID _r_menu_setitemtext (
 	_In_ HMENU hmenu,
 	_In_ UINT item_id,
 	_In_ BOOLEAN is_byposition,
-	_In_ LPWSTR string
+	_In_ LPCWSTR string
 )
 {
 	MENUITEMINFO mii = {0};
 
 	mii.cbSize = sizeof (mii);
 	mii.fMask = MIIM_STRING;
-	mii.dwTypeData = string;
+	mii.dwTypeData = (LPWSTR)string; // const-safe: MIIM_STRING is read-only here
 
 	SetMenuItemInfoW (hmenu, item_id, is_byposition, &mii);
 }
@@ -19639,7 +19639,7 @@ BOOLEAN _r_toolbar_setbutton (
 	_In_ HWND hwnd,
 	_In_opt_ INT ctrl_id,
 	_In_ UINT_PTR command_id,
-	_In_opt_ LPWSTR string,
+	_In_opt_ LPCWSTR string,
 	_In_opt_ INT style,
 	_In_opt_ INT state,
 	_In_ INT image_id
@@ -19653,7 +19653,7 @@ BOOLEAN _r_toolbar_setbutton (
 	{
 		tbi.dwMask |= TBIF_TEXT;
 
-		tbi.pszText = string;
+		tbi.pszText = (LPWSTR)string; // const-safe: TB_SETBUTTONINFO reads text here
 	}
 
 	if (style)
