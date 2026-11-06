@@ -51,7 +51,7 @@ ULONG NTAPI _r_app_exceptionfilter_callback (
 	else
 	{
 		if (status != STATUS_ACCESS_DENIED)
-			_r_log (LOG_LEVEL_ERROR, NULL, L"_r_fs_createfile", status, path->buffer);
+			_r_log (LOG_LEVEL_ERROR, NULL, L"_r_fs_createfile", path->buffer, status);
 		_r_fs_deletedirectory (&path->sr, FALSE); // remove if it is empty
 	}
 	_r_report_error (APP_EXCEPTION_TITLE, NULL, exception_ptr->ExceptionRecord->ExceptionCode, ET_NATIVE);
@@ -1218,7 +1218,7 @@ PR_STRING _r_config_getstringexpand_ex (
 	if (!value)
 		return NULL;
 
-	status = _r_str_environmentexpandstring (NULL, &value->sr, &string);
+	status = _r_str_environmentexpandstring (&string, NULL, &value->sr);
 
 	if (!NT_SUCCESS (status))
 		string = _r_obj_createstring2 (&value->sr);
@@ -2213,7 +2213,7 @@ NTSTATUS _r_update_downloadupdate (
 
 		_r_fs_setpos (hfile, 0);
 
-		status = _r_crypt_getfilehash (BCRYPT_SHA256_ALGORITHM, NULL, hfile, &hash_string);
+		status = _r_crypt_getfilehash (&hash_string, BCRYPT_SHA256_ALGORITHM, NULL, hfile);
 
 		if (!NT_SUCCESS (status))
 		{
@@ -3275,7 +3275,7 @@ VOID _r_log_v (
 	_r_str_printf_v (string, RTL_NUMBER_OF (string), format, arg_ptr);
 	va_end (arg_ptr);
 
-	_r_log (log_level, tray_guid, title, error_code, string);
+	_r_log (log_level, tray_guid, title, string, error_code);
 }
 
 LPCWSTR _r_log_leveltostring (
@@ -3866,7 +3866,7 @@ VOID _r_settings_createwindow (
 			if (!ptr_page->dlg_id)
 				continue;
 
-			status = _r_res_loadresource (_r_sys_getimagebase (), RT_DIALOG, MAKEINTRESOURCE (ptr_page->dlg_id), 0, &dlg_buffer);
+			status = _r_res_loadresource (&dlg_buffer, _r_sys_getimagebase (), RT_DIALOG, MAKEINTRESOURCE (ptr_page->dlg_id), 0);
 
 			if (!NT_SUCCESS (status))
 				continue;
@@ -5198,7 +5198,7 @@ VOID _r_theme_initialize_ex (
 	{
 		if (_r_sys_isosversiongreaterorequal (WINDOWS_10_RS5))
 		{
-			status = _r_sys_loadlibrary2 (L"uxtheme.dll", 0, &huxtheme);
+			status = _r_sys_loadlibrary2 (&huxtheme, L"uxtheme.dll", 0);
 
 			if (NT_SUCCESS (status))
 			{
