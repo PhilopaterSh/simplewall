@@ -1430,7 +1430,7 @@ BOOLEAN _app_preparserulestring (
 	}
 	else
 	{
-		_r_str_copystring (rule_string, RTL_NUMBER_OF (rule_string), rule);
+		_r_str_copystring_w (rule_string, RTL_NUMBER_OF (rule_string), rule); // hardening round 2: raw-string helper
 
 		status = ParseNetworkString (rule_string, types, NULL, NULL, NULL);
 

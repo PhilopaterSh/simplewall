@@ -1921,7 +1921,7 @@ VOID _app_command_logclear (
 	current_handle = _InterlockedCompareExchangePointer (&config.hlogfile, NULL, NULL);
 
 	if (current_handle)
-		_r_fs_getsize (NULL, current_handle, &file_size);
+		_r_fs_getsize (NULL, current_handle, (PLARGE_INTEGER)&file_size); // hardening round 2: v143 width cast
 
 	is_valid = (current_handle && file_size > 2) || (log_path && _r_fs_isexists (&log_path->sr));
 
@@ -2778,7 +2778,7 @@ VOID _app_command_purgeunused (
 
 	_r_queuedlock_acquireshared (&lock_apps);
 
-	while (_r_obj_enumhashtablepointer (apps_table, (PVOID_PTR)&ptr_app, &hash_code, &enum_key))
+	while (_r_obj_enumhashtablepointer (apps_table, (PVOID_PTR)&ptr_app, (PULONG_PTR)&hash_code, &enum_key)) // hardening round 2: v143 width cast
 	{
 		if (!_app_isappunused (ptr_app) || ptr_app->type == DATA_APP_SERVICE || ptr_app->type == DATA_APP_UWP)
 			continue;

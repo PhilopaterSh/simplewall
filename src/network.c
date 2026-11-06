@@ -680,7 +680,7 @@ ULONG _app_network_gethash (
 		state
 	);
 
-	return _r_str_gethash2 (network_string, TRUE);
+	return _r_str_gethash2_w (network_string, TRUE); // hardening round 2: raw-buffer hash helper
 }
 
 BOOLEAN _app_network_getpath (
@@ -880,7 +880,7 @@ VOID _app_network_printlistviewtable (
 	// add new connections into listview
 	_r_queuedlock_acquireshared (&network_context->lock_network);
 
-	while (_r_obj_enumhashtablepointer (network_context->network_ptr, (PVOID_PTR)&ptr_network, &network_hash, &enum_key))
+	while (_r_obj_enumhashtablepointer (network_context->network_ptr, (PVOID_PTR)&ptr_network, (PULONG_PTR)&network_hash, &enum_key)) // hardening round 2: v143 width cast
 	{
 		string = (PR_STRING)_r_obj_findhashtablepointer (network_context->checker_ptr, network_hash);
 

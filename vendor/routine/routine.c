@@ -7364,7 +7364,7 @@ _Success_ (NT_SUCCESS (return))
 // hardening round 2 (DEC-04): fork ABI contract - out-buffer comes first
 NTSTATUS _r_str_fromguid (
 	_Out_ PR_STRING_PTR out_buffer,
-	_In_ LPGUID guid,
+	_In_ LPCGUID guid, // hardening round 2: const (consumer passes const guids)
 	_In_ BOOLEAN is_uppercase
 )
 {
@@ -10147,10 +10147,11 @@ NTSTATUS _r_sys_compressbuffer (
 }
 
 _Success_ (NT_SUCCESS (return))
+// hardening round 2 (DEC-04): fork ABI contract - out-buffer comes first
 NTSTATUS _r_sys_decompressbuffer (
+	_Out_ PR_BYTE_PTR out_buffer,
 	_In_ USHORT format,
-	_In_ PR_BYTEREF buffer,
-	_Out_ PR_BYTE_PTR out_buffer
+	_In_ PR_BYTEREF buffer
 )
 {
 	PR_BYTE tmp_buffer;
@@ -13427,7 +13428,7 @@ INT_PTR _r_wnd_createmodalwindow (
 	INT_PTR result;
 	NTSTATUS status;
 
-	status = _r_res_loadresource (hinst, RT_DIALOG, name, 0, &buffer);
+	_r_res_loadresource (&buffer, hinst, RT_DIALOG, name, 0);
 
 	if (!NT_SUCCESS (status))
 		return 0;
@@ -13450,7 +13451,7 @@ HWND _r_wnd_createwindow (
 	HWND hwnd;
 	NTSTATUS status;
 
-	status = _r_res_loadresource (hinst, RT_DIALOG, name, 0, &buffer);
+	_r_res_loadresource (&buffer, hinst, RT_DIALOG, name, 0);
 
 	if (!NT_SUCCESS (status))
 		return NULL;
@@ -15698,11 +15699,12 @@ NTSTATUS _r_crypt_finalhashcontext (
 }
 
 _Success_ (NT_SUCCESS (return))
+// hardening round 2 (DEC-04): fork ABI contract - out-buffer comes first
 NTSTATUS _r_crypt_getfilehash (
+	_Out_ PR_STRING_PTR out_buffer,
 	_In_ LPCWSTR algorithm_id,
 	_In_opt_ PR_STRINGREF path,
-	_In_opt_ HANDLE hfile,
-	_Out_ PR_STRING_PTR out_buffer
+	_In_opt_ HANDLE hfile
 )
 {
 	R_CRYPT_CONTEXT hash_context;
@@ -15925,12 +15927,13 @@ ULONG_PTR _r_math_rounduptopoweroftwo (
 //
 
 _Success_ (NT_SUCCESS (return))
+// hardening round 2 (DEC-04): fork ABI contract - out-buffer comes first
 NTSTATUS _r_res_loadresource (
+	_Out_ PR_STORAGE out_buffer,
 	_In_ PVOID hinst,
 	_In_ LPCWSTR type,
 	_In_ LPCWSTR name,
-	_In_opt_ ULONG lang_id,
-	_Out_ PR_STORAGE out_buffer
+	_In_opt_ ULONG lang_id
 )
 {
 	PIMAGE_RESOURCE_DATA_ENTRY resource_data;
@@ -15993,7 +15996,7 @@ NTSTATUS _r_res_loadimage (
 	UINT width_src = 0;
 	NTSTATUS status;
 
-	status = _r_res_loadresource (hinst, type, name, 0, &buffer);
+	_r_res_loadresource (&buffer, hinst, type, name, 0);
 
 	if (!NT_SUCCESS (status))
 	{
@@ -16168,7 +16171,7 @@ NTSTATUS _r_res_loadstring (
 	ULONG string_num;
 	NTSTATUS status;
 
-	status = _r_res_loadresource (hinst, RT_STRING, MAKEINTRESOURCE ((LOWORD (string_id) >> 4) + 1), 0, &buffer);
+	_r_res_loadresource (&buffer, hinst, RT_STRING, MAKEINTRESOURCE ((LOWORD (string_id) >> 4) + 1), 0);
 
 	if (!NT_SUCCESS (status))
 	{

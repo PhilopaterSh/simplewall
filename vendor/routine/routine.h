@@ -1117,10 +1117,10 @@ VOID _r_obj_initializestringref_ex (
 
 FORCEINLINE VOID _r_obj_initializestringref (
 	_Out_ PR_STRINGREF string,
-	_In_ LPWSTR buffer
+	_In_ LPCWSTR buffer // hardening round 2: const (consumer passes literals)
 )
 {
-	_r_obj_initializestringref_ex (string, buffer, _r_str_getlength (buffer) * sizeof (WCHAR));
+	_r_obj_initializestringref_ex (string, (LPWSTR)buffer, _r_str_getlength (buffer) * sizeof (WCHAR));
 }
 
 FORCEINLINE VOID _r_obj_initializestringref2 (
@@ -3003,10 +3003,11 @@ NTSTATUS _r_sys_compressbuffer (
 );
 
 _Success_ (NT_SUCCESS (return))
+// hardening round 2 (DEC-04): fork ABI contract - out-buffer comes first
 NTSTATUS _r_sys_decompressbuffer (
+	_Out_ PR_BYTE_PTR out_buffer,
 	_In_ USHORT format,
-	_In_ PR_BYTEREF buffer,
-	_Out_ PR_BYTE_PTR out_buffer
+	_In_ PR_BYTEREF buffer
 );
 
 NTSTATUS _r_sys_doserrortontstatus (
@@ -4192,11 +4193,12 @@ NTSTATUS _r_crypt_finalhashcontext (
 );
 
 _Success_ (NT_SUCCESS (return))
+// hardening round 2 (DEC-04): fork ABI contract - out-buffer comes first
 NTSTATUS _r_crypt_getfilehash (
+	_Out_ PR_STRING_PTR out_buffer,
 	_In_ LPCWSTR algorithm_id,
 	_In_opt_ PR_STRINGREF path,
-	_In_opt_ HANDLE hfile,
-	_Out_ PR_STRING_PTR out_buffer
+	_In_opt_ HANDLE hfile
 );
 
 FORCEINLINE PR_BYTE _r_crypt_getivblock (
@@ -6170,7 +6172,7 @@ BOOLEAN _r_toolbar_setbutton (
 	_In_ HWND hwnd,
 	_In_opt_ INT ctrl_id,
 	_In_ UINT_PTR command_id,
-	_In_opt_ LPWSTR string,
+	_In_opt_ LPCWSTR string, // hardening round 2: const (consumer passes literals)
 	_In_opt_ INT style,
 	_In_opt_ INT state,
 	_In_ INT image
@@ -6931,4 +6933,32 @@ FORCEINLINE VOID _r_wnd_topzoder (
 )
 {
 	SetWindowPos (hwnd, is_topmost ? HWND_TOPMOST : HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+}
+
+
+// hardening round 2: convenience for raw-string call sites
+FORCEINLINE ULONG _r_str_gethash2_w (
+	_In_ LPCWSTR string,
+	_In_ BOOLEAN is_ignorecase
+)
+{
+	R_STRINGREF sr;
+
+	_r_obj_initializestringref (&sr, string);
+
+	return _r_str_gethash2 (&sr, is_ignorecase);
+}
+
+// hardening round 2: convenience for raw-string call sites
+FORCEINLINE VOID _r_str_copystring_w (
+	_Out_writes_z_ (buffer_length) LPWSTR buffer,
+	_In_ ULONG_PTR buffer_length,
+	_In_ LPCWSTR string
+)
+{
+	R_STRINGREF sr;
+
+	_r_obj_initializestringref (&sr, string);
+
+	_r_str_copystring (buffer, buffer_length, &sr);
 }

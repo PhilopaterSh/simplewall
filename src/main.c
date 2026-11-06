@@ -1935,7 +1935,7 @@ VOID _app_initialize (
 	NtCreateEvent (&config.hnotify_evt, EVENT_ALL_ACCESS, NULL, NotificationEvent, TRUE);
 
 	if (hwnd)
-		_r_sys_createthread (NULL, NtCurrentProcess (), &_app_package_threadproc, hwnd, &environment, L"ServicesMonitor");
+		_r_sys_createthread (NULL, NtCurrentProcess (), (PUSER_THREAD_START_ROUTINE)&_app_package_threadproc, hwnd, &environment, L"ServicesMonitor");
 }
 
 INT FirstDriveFromMask (

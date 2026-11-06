@@ -134,7 +134,7 @@ VOID _app_loginitfile (
 	BYTE bom[] = {0xFF, 0xFE};
 	LONG64 file_size;
 
-	_r_fs_getsize (NULL, hfile, &file_size);
+	_r_fs_getsize (NULL, hfile, (PLARGE_INTEGER)&file_size); // hardening round 2: v143 width cast
 
 	if (file_size == 0)
 	{
@@ -303,7 +303,7 @@ BOOLEAN _app_logislimitreached (
 	if (!limit)
 		return FALSE;
 
-	_r_fs_getsize (NULL, hfile, &file_size);
+	_r_fs_getsize (NULL, hfile, (PLARGE_INTEGER)&file_size); // hardening round 2: v143 width cast
 
 	return (file_size >= (_r_calc_kilobytes2bytes64 (limit)));
 }

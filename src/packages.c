@@ -537,7 +537,7 @@ VOID _app_package_getserviceslist (
 	{
 		service = &services[i];
 
-		if (_app_isappfound (_r_str_gethash2 (service->lpServiceName, TRUE)))
+		if (_app_isappfound (_r_str_gethash2_w (service->lpServiceName, TRUE)))
 			continue;
 
 		_r_str_printf (general_key, RTL_NUMBER_OF (general_key), L"SYSTEM\\CurrentControlSet\\Services\\%s", service->lpServiceName);
