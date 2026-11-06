@@ -1,0 +1,15 @@
+# Tasks: Round 2 — Routine Hardening & Secure Updater
+
+- [ ] T001 Vendor `routine/src` into `vendor/routine/`, update `simplewall.vcxproj` IncludePath, and align the two ABI shapes to the fork contract (`_r_sys_setprocessprivilege(hwnd,...)` 5-arg; `_r_fs_createfile(&handle,&path,...)`) (FR-09, DEC-01, DEC-04, NFR-03)
+- [ ] T002 Patch F1: delete the `SECURITY_FLAG_IGNORE_UNKNOWN_CA` retry in `_r_inet_openurl`; TLS secure failures abort and log (FR-01, SEC-01, OPS-01)
+- [ ] T003 Patch F4: registry probe-then-read becomes a bounded retry loop on `ResultLength` (the unbounded copy at routine.c:15157) (FR-05)
+- [ ] T004 Patch F5: reference the config object body while holding its protecting lock; close the find-then-add gap (rapp.c:1346-1366) (FR-06)
+- [ ] T005 Patch F6: `FILE_OPEN_REPARSE_POINT` + `GetFinalPathNameByHandle` verification on update-path opens + restrictive DACL on the cache dir (FR-07, SEC-02)
+- [ ] T006 Patch F3: exclusive handle through download+hash+rename; atomic `FileRenameInformation`; re-open by path only after integrity passes (FR-04)
+- [ ] T007 Patch LOWs: REG_SZ zero-length guard, swapreference order, quoted installer args, INI values bounded with documented limit (FR-08)
+- [ ] T008 Add `C_ASSERT` arity/type guards for the consumer-dependency API list, stated as the two fork call shapes (FR-10, DEC-04)
+- [ ] T009 Redesign the updater feed: fork releases origin pinned over HTTPS, manifest fetch fail-closed, upstream feed dropped (FR-02, DEC-03, NFR-01)
+- [ ] T010 Implement the verification core: CNG ECDSA P-256 import (P256_MAGIC blob), detached raw r||s verify on the precomputed SHA-256 digest, artifact sha256 check, monotonic version (FR-03, DEC-05, NFR-02)
+- [ ] T011 Build the bootstrap tooling: keygen (public key exported in the embedded blob format), manifest signer, self-test vectors (round-trip + tampered failure) (DATA-01, RSK-04, RSK-02)
+- [ ] T012 Wire the update flow fail-closed end-to-end with fail-visible logging on every failure path (OPS-01, SEC-01, NFR-01)
+- [ ] T013 Write `docs/specs/routine-hardening/verification.md`: MITM simulation, tampered artifact, junction test, rollback test, key generation/rotation runbook (RSK-02, RSK-04, RSK-05, DATA-01)
