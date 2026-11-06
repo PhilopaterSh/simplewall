@@ -2313,7 +2313,7 @@ VOID _app_command_delete (
 
 				enum_key = 0;
 
-				while (_r_obj_enumhashtable (apps_checker, NULL, &hash_code, &enum_key))
+				while (_r_obj_enumhashtable (apps_checker, NULL, (PULONG_PTR)&hash_code, &enum_key)) // hardening round 2: v143 width cast
 				{
 					_app_listview_updateitemby_param (hwnd, hash_code, TRUE);
 				}
