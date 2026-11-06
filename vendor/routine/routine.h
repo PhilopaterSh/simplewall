@@ -1159,7 +1159,7 @@ FORCEINLINE VOID _r_obj_initializestringrefempty (
 
 BOOLEAN _r_obj_initializeunicodestring (
 	_Out_ PUNICODE_STRING string,
-	_In_opt_z_ LPWSTR buffer
+	_In_opt_z_ LPCWSTR buffer // hardening round 2: const
 );
 
 BOOLEAN _r_obj_initializeunicodestring_ex (
@@ -1677,9 +1677,10 @@ FORCEINLINE ULONG _r_calc_countbits (
 	return count;
 }
 
+// hardening round 2 (DEC-04): fork ABI contract - out-buffer comes first
 FORCEINLINE VOID _r_calc_filetime2largeinteger (
-	_In_ PFILETIME file_time,
-	_Out_ PLARGE_INTEGER out_buffer
+	_Out_ PLARGE_INTEGER out_buffer,
+	_In_ PFILETIME file_time
 )
 {
 	out_buffer->LowPart = file_time->dwLowDateTime;
@@ -2220,8 +2221,9 @@ BOOLEAN _r_path_issecurelocation (
 );
 
 _Success_ (NT_SUCCESS (return))
+// hardening round 2 (DEC-04): fork ABI contract - takes a stringref
 NTSTATUS _r_path_makebackup (
-	_In_ PR_STRING path,
+	_In_ PR_STRINGREF path,
 	_In_ BOOLEAN is_removesourcefile
 );
 
@@ -2411,7 +2413,7 @@ _Success_ (NT_SUCCESS (return))
 // hardening round 2 (DEC-04): fork ABI contract - out-buffer comes first
 NTSTATUS _r_str_fromguid (
 	_Out_ PR_STRING_PTR out_buffer,
-	_In_ LPGUID guid,
+	_In_ LPCGUID guid, // hardening round 2: const
 	_In_ BOOLEAN is_uppercase
 );
 
@@ -2647,7 +2649,7 @@ ULONG64 _r_str_versiontoulong64 (
 
 LONG _r_str_versioncompare (
 	_In_ PR_STRINGREF v1,
-	_In_ PR_STRINGREF v2
+	_In_ PCR_STRINGREF v2 // hardening round 2: const
 );
 
 ULONG _r_str_x65599 (
@@ -2996,10 +2998,11 @@ NTSTATUS _r_sys_createprocess (
 );
 
 _Success_ (NT_SUCCESS (return))
+// hardening round 2 (DEC-04): fork ABI contract - out-buffer comes first
 NTSTATUS _r_sys_compressbuffer (
+	_Out_ PR_BYTE_PTR out_buffer,
 	_In_ USHORT format,
-	_In_ PR_BYTEREF buffer,
-	_Out_ PR_BYTE_PTR out_buffer
+	_In_ PR_BYTEREF buffer
 );
 
 _Success_ (NT_SUCCESS (return))
@@ -4047,7 +4050,7 @@ _Success_ (NT_SUCCESS (return))
 NTSTATUS _r_reg_openkey (
 	_Out_ PHANDLE out_buffer,
 	_In_opt_ HANDLE hroot,
-	_In_opt_ LPWSTR path,
+	_In_opt_ LPCWSTR path, // hardening round 2: const
 	_In_ ULONG flags,
 	_In_ ACCESS_MASK desired_access
 );
@@ -4278,12 +4281,14 @@ FORCEINLINE ULONG _r_math_hashinteger_ptr (
 //
 
 _Success_ (NT_SUCCESS (return))
+// hardening round 2 (DEC-04): fork ABI contract - out-buffer comes first;
+// name arrives as MAKEINTRESOURCE id or PR_STRING object (cast internally)
 NTSTATUS _r_res_loadresource (
+	_Out_ PR_STORAGE out_buffer,
 	_In_ PVOID hinst,
 	_In_ LPCWSTR type,
-	_In_ LPCWSTR name,
-	_In_opt_ ULONG lang_id,
-	_Out_ PR_STORAGE out_buffer
+	_In_opt_ PVOID name,
+	_In_opt_ ULONG lang_id
 );
 
 _Success_ (NT_SUCCESS (return))
@@ -5276,7 +5281,7 @@ VOID _r_menu_setitemtext (
 	_In_ HMENU hmenu,
 	_In_ UINT item_id,
 	_In_ BOOLEAN is_byposition,
-	_In_ LPWSTR string
+	_In_opt_ LPCWSTR string // hardening round 2: const
 );
 
 VOID _r_menu_setitemtextformat (

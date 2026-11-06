@@ -10097,10 +10097,11 @@ NTSTATUS _r_sys_createprocess (
 }
 
 _Success_ (NT_SUCCESS (return))
+// hardening round 2 (DEC-04): fork ABI contract - out-buffer comes first
 NTSTATUS _r_sys_compressbuffer (
+	_Out_ PR_BYTE_PTR out_buffer,
 	_In_ USHORT format,
-	_In_ PR_BYTEREF buffer,
-	_Out_ PR_BYTE_PTR out_buffer
+	_In_ PR_BYTEREF buffer
 )
 {
 	PR_BYTE tmp_buffer;
@@ -13428,7 +13429,7 @@ INT_PTR _r_wnd_createmodalwindow (
 	INT_PTR result;
 	NTSTATUS status;
 
-	_r_res_loadresource (&buffer, hinst, RT_DIALOG, name, 0);
+	_r_res_loadresource (&buffer, hinst, RT_DIALOG, (LPCWSTR)name, 0);
 
 	if (!NT_SUCCESS (status))
 		return 0;
@@ -13451,7 +13452,7 @@ HWND _r_wnd_createwindow (
 	HWND hwnd;
 	NTSTATUS status;
 
-	_r_res_loadresource (&buffer, hinst, RT_DIALOG, name, 0);
+	_r_res_loadresource (&buffer, hinst, RT_DIALOG, (LPCWSTR)name, 0);
 
 	if (!NT_SUCCESS (status))
 		return NULL;
@@ -14796,7 +14797,7 @@ NTSTATUS _r_reg_createkey (
 
 	hroot_handle = _r_reg_getroothandle (hroot);
 
-	_r_obj_initializeunicodestring (&us, path);
+	_r_obj_initializeunicodestring (&us, (LPWSTR)path); // hardening round 2: internal const cast
 
 	InitializeObjectAttributes (&oa, &us, OBJ_OPENIF | OBJ_CASE_INSENSITIVE, hroot_handle, NULL);
 
@@ -14822,7 +14823,7 @@ _Success_ (NT_SUCCESS (return))
 NTSTATUS _r_reg_openkey (
 	_Out_ PHANDLE out_buffer,
 	_In_opt_ HANDLE hroot,
-	_In_opt_ LPWSTR path,
+	_In_opt_ LPCWSTR path, // hardening round 2: const
 	_In_ ULONG flags,
 	_In_ ACCESS_MASK desired_access
 )
@@ -14836,7 +14837,7 @@ NTSTATUS _r_reg_openkey (
 	if (hroot)
 		hroot_handle = _r_reg_getroothandle (hroot);
 
-	_r_obj_initializeunicodestring (&us, path);
+	_r_obj_initializeunicodestring (&us, (LPWSTR)path); // hardening round 2: internal const cast
 
 	InitializeObjectAttributes (&oa, &us, OBJ_CASE_INSENSITIVE, hroot_handle, NULL);
 
@@ -15928,11 +15929,13 @@ ULONG_PTR _r_math_rounduptopoweroftwo (
 
 _Success_ (NT_SUCCESS (return))
 // hardening round 2 (DEC-04): fork ABI contract - out-buffer comes first
+// hardening round 2 (DEC-04): name arrives as MAKEINTRESOURCE id or
+// PR_STRING object from the consumer - cast internally as needed
 NTSTATUS _r_res_loadresource (
 	_Out_ PR_STORAGE out_buffer,
 	_In_ PVOID hinst,
 	_In_ LPCWSTR type,
-	_In_ LPCWSTR name,
+	_In_opt_ PVOID name,
 	_In_opt_ ULONG lang_id
 )
 {
@@ -15996,7 +15999,7 @@ NTSTATUS _r_res_loadimage (
 	UINT width_src = 0;
 	NTSTATUS status;
 
-	_r_res_loadresource (&buffer, hinst, type, name, 0);
+	_r_res_loadresource (&buffer, hinst, type, (LPCWSTR)name, 0);
 
 	if (!NT_SUCCESS (status))
 	{
@@ -17173,7 +17176,7 @@ VOID _r_xml_setattribute_boolean (
 	_In_ BOOLEAN value
 )
 {
-	_r_xml_setattribute (xml_library, name, value ? L"true" : L"false");
+	_r_xml_setattribute (xml_library, (LPCWSTR)name, value ? L"true" : L"false");
 }
 
 VOID _r_xml_setattribute_long (
@@ -17221,7 +17224,7 @@ VOID _r_xml_writestartelement (
 	_In_ LPCWSTR name
 )
 {
-	IXmlWriter_WriteStartElement (xml_library->writer, NULL, name, NULL);
+	IXmlWriter_WriteStartElement (xml_library->writer, NULL, (LPCWSTR)name, NULL);
 }
 
 VOID _r_xml_writeendelement (

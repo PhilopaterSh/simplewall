@@ -143,7 +143,7 @@ VOID _app_loginitfile (
 	}
 	else
 	{
-		_r_fs_setpos (hfile, file_size); // move to eof
+		_r_fs_setpos (hfile, (PLARGE_INTEGER)&file_size); // move to eof (hardening round 2: v143 pointer param)
 	}
 }
 
@@ -167,7 +167,7 @@ ULONG _app_getloghash (
 		_r_obj_getstring (ptr_log->local_addr_str)
 	);
 
-	return _r_str_gethash2 (buffer, TRUE);
+	return _r_str_gethash2_w (buffer, TRUE); // hardening round 2: raw-buffer hash helper
 }
 
 _Ret_maybenull_

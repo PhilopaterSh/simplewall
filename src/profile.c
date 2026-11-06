@@ -934,7 +934,7 @@ VOID _app_setruleiteminfo (
 	if (!include_apps)
 		return;
 
-	while (_r_obj_enumhashtable (ptr_rule->apps, NULL, &hash_code, &enum_key))
+	while (_r_obj_enumhashtable (ptr_rule->apps, NULL, (PULONG_PTR)&hash_code, &enum_key)) // hardening round 2: v143 width cast
 	{
 		if (hash_code != 0)
 			_app_listview_updateitemby_param (hwnd, hash_code, TRUE);
@@ -1191,7 +1191,7 @@ PR_STRING _app_rulesexpandapps (
 		}
 	}
 
-	while (_r_obj_enumhashtable (ptr_rule->apps, NULL, &hash_code, &enum_key))
+	while (_r_obj_enumhashtable (ptr_rule->apps, NULL, (PULONG_PTR)&hash_code, &enum_key)) // hardening round 2: v143 width cast
 	{
 		ptr_app = _app_getappitem (hash_code);
 

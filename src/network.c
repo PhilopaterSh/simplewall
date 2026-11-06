@@ -225,7 +225,7 @@ VOID _app_network_initialize (
 	// create network monitor thread
 	_r_sys_setenvironment (&environment, THREAD_PRIORITY_ABOVE_NORMAL, IoPriorityNormal, MEMORY_PRIORITY_NORMAL);
 
-	_r_sys_createthread (NULL, NtCurrentProcess (), &_app_network_threadproc, network_context, &environment, L"NetworkMonitor");
+	_r_sys_createthread (NULL, NtCurrentProcess (), (PUSER_THREAD_START_ROUTINE)&_app_network_threadproc, network_context, &environment, L"NetworkMonitor");
 }
 
 VOID _app_network_uninitialize (

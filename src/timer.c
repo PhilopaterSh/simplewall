@@ -58,7 +58,7 @@ VOID _app_timer_set (
 
 		_r_unixtime_to_filetime (&file_time, current_time + seconds);
 
-		_r_calc_filetime2largeinteger (&timestamp, (PLARGE_INTEGER)&file_time); // hardening round 2: v143 union cast
+		_r_calc_filetime2largeinteger (&timestamp, &file_time);
 
 		if (ptr_app->htimer)
 		{

@@ -1432,7 +1432,7 @@ BOOLEAN _wfp_createrulefilters (
 			{
 				enum_key = 0;
 
-				while (_r_obj_enumhashtable (ptr_rule->apps, NULL, &hash_code, &enum_key))
+				while (_r_obj_enumhashtable (ptr_rule->apps, NULL, (PULONG_PTR)&hash_code, &enum_key)) // hardening round 2: v143 width cast
 				{
 					if ((ptr_rule->is_fordriver || ptr_rule->is_forservice) && _app_issystemhash (hash_code))
 						continue;

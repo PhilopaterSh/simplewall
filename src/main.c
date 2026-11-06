@@ -1867,7 +1867,13 @@ VOID _app_initialize (
 
 	_app_profile_initialize ();
 
-	config.my_path = _r_obj_createstring2 (_r_sys_getimagepath ());
+	{
+		R_STRINGREF image_path_sr;
+
+		_r_obj_initializestringref (&image_path_sr, _r_sys_getimagepath ()); // hardening round 2: raw buffer wrap
+
+		config.my_path = _r_obj_createstring2 (&image_path_sr);
+	}
 
 	config.svchost_path = _r_obj_concatstringrefs (
 		2,
