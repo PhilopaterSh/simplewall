@@ -5,11 +5,12 @@
 
 // hardening round 1 (FR-09/SEC-06): the connection log carries per-
 // connection metadata (remote addresses/ports and process names); it is
-// readable only by the current user and administrators.
+// readable only by the current user and administrators. Note (routine
+// audit): _r_fs_createfile has no SECURITY_ATTRIBUTES parameter in any
+// known variant — its last argument is the allocation size — so the DACL
+// is applied immediately after creation via SetNamedSecurityInfoW.
 
-static BOOLEAN _app_log_getsecurityattributes (
-	_Out_ SECURITY_ATTRIBUTES *sa,
-	_Out_ PSECURITY_DESCRIPTOR *psd,
+static BOOLEAN _app_log_getdacl (
 	_Out_ PACL *ppacl
 )
 {
@@ -17,7 +18,6 @@ static BOOLEAN _app_log_getsecurityattributes (
 	EXPLICIT_ACCESSW explicit_access[2];
 	PTOKEN_USER token_user;
 	ULONG cb_sid, return_length;
-	PACL dacl;
 	HANDLE htoken;
 	BOOLEAN is_success = FALSE;
 
@@ -59,25 +59,8 @@ static BOOLEAN _app_log_getsecurityattributes (
 		explicit_access[1].grfInheritance = SUB_CONTAINERS_AND_OBJECTS_INHERIT;
 		BuildTrusteeWithSidW (&explicit_access[1].Trustee, admins_sid);
 
-		if (SetEntriesInAclW (RTL_NUMBER_OF (explicit_access), explicit_access, NULL, &dacl) == ERROR_SUCCESS)
-		{
-			*psd = _r_mem_allocate (sizeof (SECURITY_DESCRIPTOR));
-
-			if (InitializeSecurityDescriptor (*psd, SECURITY_DESCRIPTOR_REVISION) && SetSecurityDescriptorDacl (*psd, TRUE, dacl, FALSE))
-			{
-				sa->nLength = sizeof (SECURITY_ATTRIBUTES);
-				sa->bInheritHandle = FALSE;
-				sa->lpSecurityDescriptor = *psd;
-
-				*ppacl = dacl; // caller frees via LocalFree
-				is_success = TRUE;
-			}
-			else
-			{
-				LocalFree (dacl);
-				_r_mem_free (*psd);
-			}
-		}
+		if (SetEntriesInAclW (RTL_NUMBER_OF (explicit_access), explicit_access, NULL, ppacl) == ERROR_SUCCESS)
+			is_success = TRUE;
 	}
 
 	_r_mem_free (token_user);
@@ -90,10 +73,8 @@ VOID _app_loginit (
 	_In_ BOOLEAN is_install
 )
 {
-	SECURITY_ATTRIBUTES sa;
-	PSECURITY_ATTRIBUTES psa;
-	PSECURITY_DESCRIPTOR psd;
 	PACL dacl;
+	BOOLEAN has_dacl;
 	HANDLE current_handle, new_handle;
 	PR_STRING log_path;
 	NTSTATUS status;
@@ -112,19 +93,20 @@ VOID _app_loginit (
 	if (!log_path)
 		return;
 
-	// hardening round 1 (FR-09): restrict the log to user+admins; fall back
-	// to the default descriptor rather than disabling logging entirely
-	psa = _app_log_getsecurityattributes (&sa, &psd, &dacl) ? &sa : NULL;
+	// hardening round 1 (FR-09): build a user+admins DACL up front; fall
+	// back to the default descriptor rather than disabling logging entirely
+	has_dacl = _app_log_getdacl (&dacl);
 
-	status = _r_fs_createfile (&new_handle, &log_path->sr, FILE_OPEN_IF, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, FILE_ATTRIBUTE_NORMAL, 0, FALSE, psa);
+	status = _r_fs_createfile (&new_handle, &log_path->sr, FILE_OPEN_IF, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, FILE_ATTRIBUTE_NORMAL, 0, FALSE, NULL);
 
 	if (NT_SUCCESS (status))
 	{
-		if (psa)
+		if (has_dacl)
 		{
-			// hardening round 1 (FR-09): re-applied at every logging start
-			// (idempotent) so pre-existing files from older builds and any
-			// manual ACL damage get corrected; failures are logged
+			// hardening round 1 (FR-09): applied at every logging start
+			// (idempotent) so freshly created and pre-existing files from
+			// older builds all end up with the restrictive DACL; failures
+			// are logged
 			DWORD sa_error = SetNamedSecurityInfoW (log_path->buffer, SE_FILE_OBJECT, DACL_SECURITY_INFORMATION, NULL, NULL, dacl, NULL);
 
 			if (sa_error != ERROR_SUCCESS)
@@ -139,11 +121,8 @@ VOID _app_loginit (
 			NtClose (new_handle);
 	}
 
-	if (psa)
-	{
+	if (has_dacl)
 		LocalFree (dacl);
-		_r_mem_free (psd);
-	}
 
 	_r_obj_dereference (log_path);
 }

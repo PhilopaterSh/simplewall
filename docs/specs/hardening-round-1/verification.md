@@ -153,3 +153,38 @@ close, so a blocking misconfig cannot outlive the test):
 
 Note: the mapped repo is read-only by design — the app's profile, logs,
 and the FR-03 planted file all live inside the sandbox and die with it.
+
+## Support-library audit (routine, supply-chain, 2026-11-06)
+
+Requested by the fork owner ("could the library itself hide a bug like
+the ones we fixed?"). Full report lives in the session log; headline
+results against public `henrypp/routine@master`:
+
+- **3 HIGH** — all in the update/transport chain: (1) TLS CA validation
+  silently disabled on `ERROR_WINHTTP_SECURE_FAILURE` retry
+  (routine.c:14209); (2) updater trusts a server-sent `name=ver|url;`
+  line for BOTH version and download URL, no signature/hash/pinning, and
+  executes the downloaded installer elevated (rapp.c:2289, 2826); (3)
+  download→move TOCTOU in the user-writable cache dir (rapp.c:2098).
+- **3 MEDIUM** — registry query TOCTOU overflow (routine.c:15152), config
+  hashtable UAF race (rapp.c:1346 — same UAF class found in the app),
+  junction/reparse traversal in `_r_fs_createfile` (routine.c:3659).
+- **4 LOW** — REG_SZ zero-length underflow, `_r_obj_swapreference`
+  self-swap, unquoted installer args, INI truncation quirks.
+- Clean: `_r_str_*` bounded everywhere, logs never format user strings,
+  memory helpers zero+raise on OOM.
+
+**Impact on this round:**
+
+1. T012 corrected: `_r_fs_createfile` has no SECURITY_ATTRIBUTES
+   parameter in any variant — the 9th fork argument is the allocation
+   size. The `&sa` passed earlier would have been misinterpreted; DACL is
+   now applied solely via `SetNamedSecurityInfoW` right after creation.
+2. The fork already removed "Internal rules" from the updater (DEC-03
+   B+), but the app/language update components still ride the unaudited
+   transport — updater policy (disable in fork vs pin+verify) is a
+   pending owner decision.
+3. Build-time warning: public routine master is a DIFFERENT ABI for
+   `_r_sys_setprocessprivilege` and `_r_fs_createfile` — the build will
+   need a pinned+patched routine (vendored copy recommended), not
+   float-on-master.
