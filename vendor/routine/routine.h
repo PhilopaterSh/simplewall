@@ -296,7 +296,7 @@ FORCEINLINE ULONG_PTR _r_str_getlength (
 }
 
 FORCEINLINE ULONG_PTR _r_str_getlength2 (
-	_In_ PR_STRINGREF string
+	_In_ PCR_STRINGREF string // hardening round 2: const (reads only)
 )
 {
 	assert (!(string->length & 0x01));
@@ -2362,7 +2362,7 @@ VOID _r_str_copy (
 VOID _r_str_copystring (
 	_Out_writes_z_ (buffer_length) LPWSTR buffer,
 	_In_ _In_range_ (1, PR_SIZE_MAX_STRING_LENGTH) ULONG_PTR buffer_length,
-	_In_ PR_STRINGREF string
+	_In_ PCR_STRINGREF string // hardening round 2: const (consumer passes const stringrefs)
 );
 
 _Success_ (NT_SUCCESS (return))
@@ -2525,8 +2525,9 @@ VOID _r_str_replacechar (
 	_In_ WCHAR char_to
 );
 
+// hardening round 2: const (split is non-destructive on stringrefs)
 BOOLEAN _r_str_splitatchar (
-	_In_ PR_STRINGREF string,
+	_In_ PCR_STRINGREF string,
 	_In_ WCHAR separator,
 	_Out_ PR_STRINGREF first_part,
 	_Out_ PR_STRINGREF second_part
@@ -2566,7 +2567,7 @@ LONG64 _r_str_tolong64 (
 
 _Success_ (return != 0)
 ULONG _r_str_toulong (
-	_In_ PR_STRINGREF string
+	_In_ PCR_STRINGREF string // hardening round 2: const
 );
 
 _Success_ (return != 0)
@@ -6461,10 +6462,10 @@ EXTERN_C_END
 // hardening round 2 (DEC-04/FR-10): compile-time contract guards — the
 // fork calls these APIs with exactly these shapes; any signature drift in
 // the vendored library fails the build instead of corrupting arguments
-static const NTSTATUS (*_r_contract_fs_createfile) (PHANDLE, PR_STRINGREF, ULONG, ACCESS_MASK, ULONG, ULONG, ULONG, BOOLEAN, PLARGE_INTEGER) = _r_fs_createfile;
-static const NTSTATUS (*_r_contract_sys_setprocessprivilege) (HWND, HANDLE, PULONG, ULONG, BOOLEAN) = _r_sys_setprocessprivilege;
-static const NTSTATUS (*_r_contract_reg_queryvalue) (HANDLE, LPWSTR, PVOID, ULONG, PULONG, PULONG) = _r_reg_queryvalue;
-static const NTSTATUS (*_r_contract_fs_renamefilebyhandle) (HANDLE, PR_STRINGREF) = _r_fs_renamefilebyhandle;
+static NTSTATUS (*_r_contract_fs_createfile) (PHANDLE, PR_STRINGREF, ULONG, ACCESS_MASK, ULONG, ULONG, ULONG, BOOLEAN, PLARGE_INTEGER) = _r_fs_createfile;
+static NTSTATUS (*_r_contract_sys_setprocessprivilege) (HWND, HANDLE, PULONG, ULONG, BOOLEAN) = _r_sys_setprocessprivilege;
+static NTSTATUS (*_r_contract_reg_queryvalue) (HANDLE, LPWSTR, PVOID, ULONG, PULONG, PULONG) = _r_reg_queryvalue;
+static NTSTATUS (*_r_contract_fs_renamefilebyhandle) (HANDLE, PR_STRINGREF) = _r_fs_renamefilebyhandle;
 
 //
 // fork-ABI shim section (DEC-04)

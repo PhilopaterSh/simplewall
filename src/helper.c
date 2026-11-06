@@ -1256,7 +1256,7 @@ BOOLEAN _app_parsenetworkstring (
 	}
 	else
 	{
-		_r_str_copystring_w (rule_string, RTL_NUMBER_OF (rule_string), network_string); // hardening round 2: raw-string helper
+		_r_str_copystring (rule_string, RTL_NUMBER_OF (rule_string), network_string); // hardening round 2: vendor now takes const stringref
 
 		status = ParseNetworkString (rule_string, types, &ni, &port, &prefix_length);
 
@@ -1430,7 +1430,7 @@ BOOLEAN _app_preparserulestring (
 	}
 	else
 	{
-		_r_str_copystring_w (rule_string, RTL_NUMBER_OF (rule_string), rule); // hardening round 2: raw-string helper
+		_r_str_copystring (rule_string, RTL_NUMBER_OF (rule_string), rule); // hardening round 2: vendor takes const stringref
 
 		status = ParseNetworkString (rule_string, types, NULL, NULL, NULL);
 

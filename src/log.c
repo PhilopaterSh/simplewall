@@ -773,7 +773,7 @@ VOID CALLBACK _wfp_logcallback (
 
 	// get username information
 	if ((log->flags & FWPM_NET_EVENT_FLAG_USER_ID_SET) == FWPM_NET_EVENT_FLAG_USER_ID_SET && log->user_id)
-		_r_sys_getusername (&ptr_log->username, log->user_id, TRUE);
+		_r_sys_getusername (log->user_id, TRUE, &ptr_log->username); // hardening round 2: vendor master-order
 
 	// destination
 	if ((log->flags & FWPM_NET_EVENT_FLAG_IP_VERSION_SET) == FWPM_NET_EVENT_FLAG_IP_VERSION_SET)

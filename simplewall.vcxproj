@@ -376,8 +376,8 @@
     </ResourceCompile>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="..\routine\src\rapp.c" />
-    <ClCompile Include="..\routine\src\routine.c" />
+    <ClCompile Include="vendor\routine\rapp.c" />
+    <ClCompile Include="vendor\routine\routine.c" />
     <ClCompile Include="src\controls.c" />
     <ClCompile Include="src\db.c" />
     <ClCompile Include="src\editor.c" />

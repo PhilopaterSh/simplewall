@@ -7079,7 +7079,7 @@ VOID _r_str_copy (
 VOID _r_str_copystring (
 	_Out_writes_z_ (buffer_length) LPWSTR buffer,
 	_In_ _In_range_ (1, PR_SIZE_MAX_STRING_LENGTH) ULONG_PTR buffer_length,
-	_In_ PR_STRINGREF string
+	_In_ PCR_STRINGREF string
 )
 {
 	ULONG_PTR length;
@@ -7983,7 +7983,7 @@ VOID _r_str_replacechar (
 }
 
 BOOLEAN _r_str_splitatchar (
-	_In_ PR_STRINGREF string,
+	_In_ PCR_STRINGREF string,
 	_In_ WCHAR separator,
 	_Out_ PR_STRINGREF first_part,
 	_Out_ PR_STRINGREF second_part
@@ -8133,7 +8133,7 @@ LONG64 _r_str_tolong64 (
 
 _Success_ (return != 0)
 ULONG _r_str_toulong (
-	_In_ PR_STRINGREF string
+	_In_ PCR_STRINGREF string
 )
 {
 	LONG64 value;
