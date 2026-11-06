@@ -272,7 +272,7 @@ PR_STRING _r_format_unixtime (
 	FILETIME file_time;
 	PR_STRING string;
 
-	_r_unixtime_to_filetime (unixtime, &file_time);
+	_r_unixtime_to_filetime (&file_time), unixtime);
 
 	if (!flags)
 		flags = FDTF_DEFAULT;
@@ -3740,7 +3740,7 @@ NTSTATUS _r_fs_createhardlink (
 
 	RtlFreeUnicodeString (&nt_path);
 
-	status = _r_fs_openfile (existing_file_path, DELETE, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, 0, FALSE, &hfile);
+	_r_fs_openfile (&hfile, existing_file_path, DELETE, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, 0, FALSE);
 
 	if (!NT_SUCCESS (status))
 	{
@@ -3781,7 +3781,7 @@ NTSTATUS _r_fs_copyfile (
 	if (!NT_SUCCESS (status))
 		return status;
 
-	status = _r_fs_openfile (path_from, FILE_GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, 0, FALSE, &hfile_src);
+	_r_fs_openfile (&hfile_src, path_from, FILE_GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, 0, FALSE);
 
 	if (!NT_SUCCESS (status))
 		return status;
@@ -3930,7 +3930,7 @@ NTSTATUS _r_fs_deletefile (
 
 	if (path && !hfile)
 	{
-		status = _r_fs_openfile (path, DELETE, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, 0, FALSE, &hfile_new);
+		_r_fs_openfile (&hfile_new, path, DELETE, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, 0, FALSE);
 
 		if (!NT_SUCCESS (status))
 		{
@@ -4081,7 +4081,7 @@ NTSTATUS _r_fs_dospathnametontpathname (
 		// win10rs1+
 		if (_r_sys_isosversiongreaterorequal (WINDOWS_10_RS1) && NtCurrentPeb ()->IsLongPathAwareProcess) // RtlAreLongPathsEnabled ()
 		{
-			status = _r_sys_loadlibrary2 (L"ntdll.dll", 0, &hntdll);
+			_r_sys_loadlibrary2 (&hntdll), L"ntdll.dll", 0);
 
 			if (NT_SUCCESS (status))
 			{
@@ -4146,12 +4146,12 @@ NTSTATUS _r_fs_enumfiles (
 	if (!hdirectory)
 	{
 		status = _r_fs_openfile (
-			path,
+			&hdirectory_new,
 			GENERIC_READ | FILE_LIST_DIRECTORY,
 			FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
 			0,
 			TRUE,
-			&hdirectory_new
+			path
 		);
 
 		if (!NT_SUCCESS (status))
@@ -4383,7 +4383,7 @@ NTSTATUS _r_fs_getdiskinformation (
 
 	if (!hfile && path)
 	{
-		status = _r_fs_openfile (path, FILE_GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, 0, TRUE, &hfile_new);
+		_r_fs_openfile (&hfile_new, path, FILE_GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, 0, TRUE);
 
 		if (!NT_SUCCESS (status))
 			return status;
@@ -4490,7 +4490,7 @@ NTSTATUS _r_fs_getdiskspace (
 
 	if (!hfile && path)
 	{
-		status = _r_fs_openfile (path, FILE_GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, 0, TRUE, &hfile_new);
+		_r_fs_openfile (&hfile_new, path, FILE_GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, 0, TRUE);
 
 		if (!NT_SUCCESS (status))
 			return status;
@@ -4624,7 +4624,7 @@ NTSTATUS _r_fs_getsecurityinfo (
 
 	if (!hfile && path)
 	{
-		status = _r_fs_openfile (path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_DELETE, 0, FALSE, &hfile_new);
+		_r_fs_openfile (&hfile_new, path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_DELETE, 0, FALSE);
 
 		if (!NT_SUCCESS (status))
 			return status;
@@ -4689,7 +4689,7 @@ NTSTATUS _r_fs_getsize (
 
 	if (!hfile && path)
 	{
-		status = _r_fs_openfile (path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, 0, FALSE, &hfile_new);
+		_r_fs_openfile (&hfile_new, path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, 0, FALSE);
 
 		if (!NT_SUCCESS (status))
 			return status;
@@ -4790,12 +4790,12 @@ BOOLEAN _r_fs_isfileused (
 	NTSTATUS status;
 
 	status = _r_fs_openfile (
-		path,
+		&hfile,
 		GENERIC_WRITE | GENERIC_READ,
 		0,
 		FILE_SEQUENTIAL_ONLY,
 		FALSE,
-		&hfile
+		path
 	);
 
 	if (NT_SUCCESS (status))
@@ -4917,13 +4917,14 @@ CleanupExit:
 	return status;
 }
 _Success_ (NT_SUCCESS (return))
+// hardening round 2 (DEC-04): fork ABI contract - out-handle comes first
 NTSTATUS _r_fs_openfile (
+	_Out_ PHANDLE out_buffer,
 	_In_ PR_STRINGREF path,
 	_In_ ACCESS_MASK desired_access,
 	_In_opt_ ULONG share_access,
 	_In_opt_ ULONG open_options,
-	_In_ BOOLEAN is_directory,
-	_Out_ PHANDLE out_buffer
+	_In_ BOOLEAN is_directory
 )
 {
 	OBJECT_ATTRIBUTES oa = {0};
@@ -5096,12 +5097,12 @@ NTSTATUS _r_fs_setattributes (
 	if (path && !hfile)
 	{
 		status = _r_fs_openfile (
-			path,
+			&hfile_new,
 			FILE_WRITE_ATTRIBUTES,
 			FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
 			FILE_OPEN_FOR_BACKUP_INTENT | FILE_OPEN_REPARSE_POINT,
 			FALSE,
-			&hfile_new
+			path
 		);
 
 		if (!NT_SUCCESS (status))
@@ -5287,7 +5288,7 @@ PR_STRING _r_path_find (
 
 	if (path->buffer[0] == L'%')
 	{
-		status = _r_str_environmentexpandstring (NULL, path, &string);
+		_r_str_environmentexpandstring (&string), NULL, path);
 
 		if (!NT_SUCCESS (status))
 			return NULL;
@@ -5307,10 +5308,11 @@ PR_STRING _r_path_find (
 	return string;
 }
 
+// hardening round 2 (DEC-04): fork ABI contract - icon handle precedes the id
 BOOLEAN _r_path_geticon (
 	_In_ PR_STRINGREF path,
-	_Out_opt_ PLONG out_icon_id,
-	_Out_opt_ HICON_PTR out_hicon
+	_Out_opt_ HICON_PTR out_hicon,
+	_Out_opt_ PLONG out_icon_id
 )
 {
 	SHFILEINFO shfi = {0};
@@ -6180,7 +6182,7 @@ PR_STRING _r_path_resolvenetworkprefix (
 	ULONG_PTR prefix_length;
 	NTSTATUS status;
 
-	status = _r_reg_openkey (HKEY_LOCAL_MACHINE, L"System\\CurrentControlSet\\Control\\NetworkProvider\\Order", 0, KEY_READ, &hkey);
+	_r_reg_openkey (&hkey, HKEY_LOCAL_MACHINE, L"System\\CurrentControlSet\\Control\\NetworkProvider\\Order", 0, KEY_READ);
 
 	if (!NT_SUCCESS (status))
 		return NULL;
@@ -6204,7 +6206,7 @@ PR_STRING _r_path_resolvenetworkprefix (
 					&provider_part_sr
 				);
 
-				status = _r_reg_openkey (HKEY_LOCAL_MACHINE, service_key->buffer, 0, KEY_READ, &hsvckey);
+				_r_reg_openkey (&hsvckey, HKEY_LOCAL_MACHINE, service_key->buffer, 0, KEY_READ);
 
 				if (NT_SUCCESS (status))
 				{
@@ -6400,12 +6402,12 @@ NTSTATUS _r_path_ntpathfromdos (
 	_r_fs_getattributes (path, &attributes);
 
 	status = _r_fs_openfile (
-		path,
+		&hfile,
 		GENERIC_READ,
 		FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
 		FILE_OPEN_FOR_BACKUP_INTENT | FILE_OPEN_REPARSE_POINT,
 		attributes & FILE_ATTRIBUTE_DIRECTORY ? TRUE : FALSE,
-		&hfile
+		path
 	);
 
 	if (!NT_SUCCESS (status))
@@ -6487,7 +6489,7 @@ NTSTATUS _r_path_search (
 	else
 	{
 		// works as RtlGetSearchPath (win8+)
-		status = _r_str_environmentexpandstring (NULL, &env, &string);
+		_r_str_environmentexpandstring (&string), NULL, &env);
 
 		if (!NT_SUCCESS (status))
 		{
@@ -6671,7 +6673,7 @@ NTSTATUS _r_shell_openkey (
 	if (!NT_SUCCESS (status))
 	{
 		if (hwnd)
-			_r_show_errormessage (hwnd, L"Could not get object name!", status, NULL, ET_NATIVE);
+			_r_show_errormessage (hwnd, L"Could not get object name!", NULL, status, ET_NATIVE);
 
 		return status;
 	}
@@ -6681,7 +6683,7 @@ NTSTATUS _r_shell_openkey (
 	if (!NT_SUCCESS (status))
 	{
 		if (hwnd)
-			_r_show_errormessage (hwnd, L"Could not open key!", status, NULL, ET_NATIVE);
+			_r_show_errormessage (hwnd, L"Could not open key!", NULL, status, ET_NATIVE);
 
 		goto CleanupExit;
 	}
@@ -6737,13 +6739,13 @@ NTSTATUS _r_shell_openkey (
 		if (hwnd)
 		{
 			if (status != STATUS_SUCCESS && status != STATUS_CANCELLED)
-				_r_show_errormessage (hwnd, L"Could not create process!", status, NULL, ET_NATIVE);
+				_r_show_errormessage (hwnd, L"Could not create process!", NULL, status, ET_NATIVE);
 		}
 	}
 	else
 	{
 		if (hwnd)
-			_r_show_errormessage (hwnd, L"Could not set value!", status, NULL, ET_NATIVE);
+			_r_show_errormessage (hwnd, L"Could not set value!", NULL, status, ET_NATIVE);
 	}
 
 CleanupExit:
@@ -7091,10 +7093,11 @@ VOID _r_str_copystring (
 }
 
 _Success_ (NT_SUCCESS (return))
+// hardening round 2 (DEC-04): fork ABI contract - out-buffer comes first
 NTSTATUS _r_str_environmentexpandstring (
+	_Out_ PR_STRING_PTR out_buffer,
 	_In_opt_ PVOID environment,
-	_In_ PR_STRINGREF name,
-	_Out_ PR_STRING_PTR out_buffer
+	_In_ PR_STRINGREF name
 )
 {
 	UNICODE_STRING output_string;
@@ -7358,10 +7361,11 @@ PR_STRING _r_str_formatversion (
 }
 
 _Success_ (NT_SUCCESS (return))
+// hardening round 2 (DEC-04): fork ABI contract - out-buffer comes first
 NTSTATUS _r_str_fromguid (
+	_Out_ PR_STRING_PTR out_buffer,
 	_In_ LPGUID guid,
-	_In_ BOOLEAN is_uppercase,
-	_Out_ PR_STRING_PTR out_buffer
+	_In_ BOOLEAN is_uppercase
 )
 {
 	UNICODE_STRING us;
@@ -7515,15 +7519,12 @@ VOID _r_str_generaterandom (
 }
 
 ULONG _r_str_gethash (
-	_In_ LPWSTR string,
+	_In_ PCR_STRINGREF string,
 	_In_ BOOLEAN is_ignorecase
 )
 {
-	R_STRINGREF sr;
-
-	_r_obj_initializestringref (&sr, string);
-
-	return _r_str_gethash2 (&sr, is_ignorecase);
+	// hardening round 2: the param is a stringref - forward directly
+	return _r_str_gethash2 (string, is_ignorecase);
 }
 
 ULONG _r_str_gethash2 (
@@ -8881,7 +8882,7 @@ BOOLEAN _r_sys_iswine ()
 	PVOID hntdll;
 	NTSTATUS status;
 
-	status = _r_sys_loadlibrary2 (L"ntdll.dll", 0, &hntdll);
+	_r_sys_loadlibrary2 (&hntdll), L"ntdll.dll", 0);
 
 	if (!NT_SUCCESS (status))
 		return FALSE;
@@ -8975,7 +8976,7 @@ NTSTATUS _r_sys_getbinarytype (
 	HANDLE hfile;
 	NTSTATUS status;
 
-	status = _r_fs_openfile (path, FILE_READ_DATA | FILE_EXECUTE, FILE_SHARE_READ | FILE_SHARE_DELETE, 0, FALSE, &hfile);
+	_r_fs_openfile (&hfile, path, FILE_READ_DATA | FILE_EXECUTE, FILE_SHARE_READ | FILE_SHARE_DELETE, 0, FALSE);
 
 	if (!NT_SUCCESS (status))
 		return status;
@@ -9064,7 +9065,7 @@ NTSTATUS _r_sys_getcomputername (
 	HANDLE hkey;
 	NTSTATUS status;
 
-	status = _r_reg_openkey (HKEY_LOCAL_MACHINE, L"System\\CurrentControlSet\\Control\\ComputerName\\ActiveComputerName", 0, KEY_READ, &hkey);
+	_r_reg_openkey (&hkey, HKEY_LOCAL_MACHINE, L"System\\CurrentControlSet\\Control\\ComputerName\\ActiveComputerName", 0, KEY_READ);
 
 	if (NT_SUCCESS (status))
 	{
@@ -9586,7 +9587,7 @@ LONG _r_sys_getpackagepath (
 
 	if (_r_initonce_begin (&init_once))
 	{
-		status = _r_sys_loadlibrary2 (L"kernel32.dll", 0, &hkernel32);
+		_r_sys_loadlibrary2 (&hkernel32), L"kernel32.dll", 0);
 
 		if (NT_SUCCESS (status))
 		{
@@ -9630,9 +9631,10 @@ LONG _r_sys_getpackagepath (
 }
 
 _Success_ (NT_SUCCESS (return))
+// hardening round 2 (DEC-04): fork ABI contract - out-buffer comes first
 NTSTATUS _r_sys_getservicesid (
-	_In_ LPWSTR name,
-	_Out_ PR_BYTE_PTR out_buffer
+	_Out_ PR_BYTE_PTR out_buffer,
+	_In_ LPCWSTR name
 )
 {
 	UNICODE_STRING service_name;
@@ -9967,7 +9969,7 @@ BOOLEAN _r_sys_isprocessimmersive (
 
 	if (_r_initonce_begin (&init_once))
 	{
-		status = _r_sys_loadlibrary2 (L"user32.dll", 0, &huser32);
+		_r_sys_loadlibrary2 (&huser32), L"user32.dll", 0);
 
 		if (NT_SUCCESS (status))
 		{
@@ -10715,10 +10717,12 @@ NTSTATUS _r_sys_getprocessimagepath (
 }
 
 _Success_ (NT_SUCCESS (return))
+// hardening round 2 (DEC-04): fork ABI contract - out-buffer first, and
+// the first param is the process id (SystemProcessIdInformation)
 NTSTATUS _r_sys_getprocessimagepathbyid (
-	_In_ HANDLE hprocess_id,
-	_In_ BOOLEAN is_ntpathtodos,
-	_Out_ PR_STRING_PTR out_buffer
+	_Out_ PR_STRING_PTR out_buffer,
+	_In_ ULONG process_id,
+	_In_ BOOLEAN is_ntpathtodos
 )
 {
 	SYSTEM_PROCESS_ID_INFORMATION data = {0};
@@ -10726,7 +10730,7 @@ NTSTATUS _r_sys_getprocessimagepathbyid (
 	NTSTATUS status;
 
 	// On input, specify the PID and a buffer to hold the string.
-	data.ProcessId = hprocess_id;
+	data.ProcessId = process_id; // hardening round 2: param is the pid
 
 	data.ImageName.MaximumLength = 0x100;
 	data.ImageName.Buffer = _r_mem_allocate (data.ImageName.MaximumLength);
@@ -10863,9 +10867,10 @@ HICON _r_sys_loadsharedicon (
 }
 
 _Success_ (NT_SUCCESS (return))
+// hardening round 2 (DEC-04): fork ABI contract - out-buffer comes first
 NTSTATUS _r_sys_loadlibraryasresource (
-	_In_ PR_STRINGREF lib_name,
-	_Out_ PVOID_PTR out_buffer
+	_Out_ PVOID_PTR out_buffer,
+	_In_ PR_STRINGREF lib_name
 )
 {
 	LARGE_INTEGER offset = {0};
@@ -10890,7 +10895,7 @@ NTSTATUS _r_sys_loadlibraryasresource (
 			return status;
 	}
 
-	status = _r_fs_openfile (&path->sr, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_DELETE, 0, FALSE, &hfile);
+	_r_fs_openfile (&hfile, &path->sr, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_DELETE, 0, FALSE);
 
 	if (!NT_SUCCESS (status))
 		return status;
@@ -10963,7 +10968,7 @@ NTSTATUS _r_sys_loadlibrary (
 
 	if (flags & (LOAD_LIBRARY_AS_DATAFILE | LOAD_LIBRARY_AS_DATAFILE_EXCLUSIVE | LOAD_LIBRARY_AS_IMAGE_RESOURCE))
 	{
-		status = _r_sys_loadlibraryasresource (lib_name, &hmodule);
+		_r_sys_loadlibraryasresource (&hmodule, lib_name);
 	}
 	else
 	{
@@ -11029,7 +11034,7 @@ NTSTATUS _r_sys_loadlibrarytype (
 		}
 	}
 
-	status = _r_sys_loadlibraryasresource (&name, &hmodule);
+	_r_sys_loadlibraryasresource (&hmodule, &name);
 
 	if (NT_SUCCESS (status))
 	{
@@ -11044,10 +11049,11 @@ NTSTATUS _r_sys_loadlibrarytype (
 }
 
 _Success_ (NT_SUCCESS (return))
+// hardening round 2 (DEC-04): fork ABI contract - out-handle comes first
 NTSTATUS _r_sys_openprocess (
-	_In_opt_ HANDLE process_id,
-	_In_ ACCESS_MASK desired_access,
-	_Out_ PHANDLE out_buffer
+	_Out_ PHANDLE out_buffer,
+	_In_ ULONG process_id,
+	_In_ ACCESS_MASK desired_access
 )
 {
 	OBJECT_ATTRIBUTES oa = {0};
@@ -11057,7 +11063,7 @@ NTSTATUS _r_sys_openprocess (
 
 	InitializeObjectAttributes (&oa, NULL, 0, NULL, NULL);
 
-	client_id.UniqueProcess = process_id;
+	client_id.UniqueProcess = HandleToULong ((HANDLE)(ULONG_PTR)process_id); // hardening round 2: param is a pid
 
 	status = NtOpenProcess (&hprocess, desired_access, &oa, &client_id);
 
@@ -11315,7 +11321,7 @@ NTSTATUS _r_sys_createthread (
 
 _Ret_maybenull_
 PR_STRING _r_sys_querytaginformation (
-	_In_ HANDLE hprocess,
+	_In_ ULONG process_id,
 	_In_ LPCVOID tag
 )
 {
@@ -11344,7 +11350,7 @@ PR_STRING _r_sys_querytaginformation (
 	if (!_I_QueryTagInformation)
 		return NULL;
 
-	tag_query.InParams.dwPid = HandleToULong (hprocess);
+	tag_query.InParams.dwPid = process_id; // hardening round 2: param is the pid
 	tag_query.InParams.dwTag = PtrToUlong (tag);
 
 	_I_QueryTagInformation (NULL, TagInfoLevelNameFromTag, &tag_query);
@@ -11705,7 +11711,7 @@ NTSTATUS _r_sys_sleep (
 
 	if (_r_initonce_begin (&init_once))
 	{
-		status = _r_sys_loadlibrary2 (L"ntdll.dll", 0, &ntdll);
+		_r_sys_loadlibrary2 (&ntdll), L"ntdll.dll", 0);
 
 		if (NT_SUCCESS (status))
 		{
@@ -11814,9 +11820,10 @@ LONG64 _r_unixtime_from_systemtime (
 	return timestamp;
 }
 
+// hardening round 2 (DEC-04): fork ABI contract - out-buffer comes first
 VOID _r_unixtime_to_filetime (
-	_In_ LONG64 unixtime,
-	_Out_ PFILETIME file_time
+	_Out_ PFILETIME file_time,
+	_In_ LONG64 unixtime
 )
 {
 	LARGE_INTEGER time_value = {0};
@@ -11836,7 +11843,7 @@ VOID _r_unixtime_to_systemtime (
 	FILETIME file_time;
 	PLARGE_INTEGER li;
 
-	_r_unixtime_to_filetime (unixtime, &file_time);
+	_r_unixtime_to_filetime (&file_time), unixtime);
 
 	li = (PLARGE_INTEGER)&file_time;
 
@@ -11874,7 +11881,7 @@ BOOLEAN _r_dc_adjustwindowrect (
 	// initialize library calls
 	if (_r_initonce_begin (&init_once))
 	{
-		status = _r_sys_loadlibrary2 (L"user32.dll", 0, &huser32);
+		_r_sys_loadlibrary2 (&huser32), L"user32.dll", 0);
 
 		if (NT_SUCCESS (status))
 		{
@@ -12316,7 +12323,7 @@ LONG _r_dc_getdpivalue (
 	// initialize library calls
 	if (_r_initonce_begin (&init_once))
 	{
-		status = _r_sys_loadlibrary2 (L"shcore.dll", 0, &hshcore);
+		_r_sys_loadlibrary2 (&hshcore), L"shcore.dll", 0);
 
 		if (NT_SUCCESS (status))
 		{
@@ -12326,7 +12333,7 @@ LONG _r_dc_getdpivalue (
 			_r_sys_freelibrary (hshcore);
 		}
 
-		status = _r_sys_loadlibrary2 (L"user32.dll", 0, &huser32);
+		_r_sys_loadlibrary2 (&huser32), L"user32.dll", 0);
 
 		if (NT_SUCCESS (status))
 		{
@@ -12458,7 +12465,7 @@ LONG _r_dc_getsystemmetrics (
 	// initialize library calls
 	if (_r_initonce_begin (&init_once))
 	{
-		status = _r_sys_loadlibrary2 (L"user32.dll", 0, &huser32);
+		_r_sys_loadlibrary2 (&huser32), L"user32.dll", 0);
 
 		if (NT_SUCCESS (status))
 		{
@@ -12495,7 +12502,7 @@ BOOLEAN _r_dc_getsystemparametersinfo (
 	// initialize library calls
 	if (_r_initonce_begin (&init_once))
 	{
-		status = _r_sys_loadlibrary2 (L"user32.dll", 0, &huser32);
+		_r_sys_loadlibrary2 (&huser32), L"user32.dll", 0);
 
 		if (NT_SUCCESS (status))
 		{
@@ -12591,7 +12598,7 @@ HTHEME _r_dc_openthemedata (
 	// initialize library calls
 	if (_r_initonce_begin (&init_once))
 	{
-		status = _r_sys_loadlibrary2 (L"uxtheme.dll", 0, &huxtheme);
+		_r_sys_loadlibrary2 (&huxtheme), L"uxtheme.dll", 0);
 
 		if (NT_SUCCESS (status))
 		{
@@ -12727,9 +12734,10 @@ HRESULT _r_filedialog_setfilter (
 	return IFileDialog_SetFileTypes (file_dialog->ifd, count, filters);
 }
 
+// hardening round 2 (DEC-04): fork ABI contract - takes a stringref
 VOID _r_filedialog_setpath (
 	_Inout_ PR_FILE_DIALOG file_dialog,
-	_In_ LPWSTR path
+	_In_ PR_STRINGREF path
 )
 {
 	IShellItem* isi = NULL;
@@ -13517,7 +13525,7 @@ BOOLEAN _r_wnd_isdarkmodeenabled ()
 
 	// "ShouldAppsUseDarkMode" is incorrect started from 1903+, use this instead!
 	// https://github.com/ysc3839/win32-darkmode/issues/3
-	status = _r_reg_openkey (HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize", 0, KEY_READ, &hkey);
+	_r_reg_openkey (&hkey, HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize", 0, KEY_READ);
 
 	if (NT_SUCCESS (status))
 	{
@@ -13546,7 +13554,7 @@ BOOLEAN _r_wnd_isfocusassist ()
 
 	if (_r_initonce_begin (&init_once))
 	{
-		status = _r_sys_loadlibrary2 (L"ntdll.dll", 0, &hntdll);
+		_r_sys_loadlibrary2 (&hntdll), L"ntdll.dll", 0);
 
 		if (NT_SUCCESS (status))
 		{
@@ -14695,7 +14703,7 @@ HANDLE _r_reg_getroothandle (
 	if (_r_initonce_begin (&init_once))
 	{
 		// HKEY_CLASSES_ROOT
-		status = _r_reg_openkey (NULL, L"\\Registry\\Machine\\Software\\CLASSES", 0, MAXIMUM_ALLOWED, &hkeyhkcr);
+		_r_reg_openkey (&hkeyhkcr, NULL, L"\\Registry\\Machine\\Software\\CLASSES", 0, MAXIMUM_ALLOWED);
 
 		if (!NT_SUCCESS (status))
 			RtlRaiseStatus (status);
@@ -14707,25 +14715,25 @@ HANDLE _r_reg_getroothandle (
 			RtlRaiseStatus (status);
 
 		// HKEY_LOCAL_MACHINE
-		status = _r_reg_openkey (NULL, L"\\Registry\\Machine", 0, MAXIMUM_ALLOWED, &hkeyhklm);
+		_r_reg_openkey (&hkeyhklm, NULL, L"\\Registry\\Machine", 0, MAXIMUM_ALLOWED);
 
 		if (!NT_SUCCESS (status))
 			RtlRaiseStatus (status);
 
 		// HKEY_USERS
-		status = _r_reg_openkey (NULL, L"\\Registry\\User", 0, MAXIMUM_ALLOWED, &hkeyhku);
+		_r_reg_openkey (&hkeyhku, NULL, L"\\Registry\\User", 0, MAXIMUM_ALLOWED);
 
 		if (!NT_SUCCESS (status))
 			RtlRaiseStatus (status);
 
 		// HKEY_CURRENT_CONFIG
-		status = _r_reg_openkey (NULL, L"\\Registry\\Machine\\System\\CurrentControlSet\\Hardware Profiles\\Current", 0, MAXIMUM_ALLOWED, &hkeyhcc);
+		_r_reg_openkey (&hkeyhcc, NULL, L"\\Registry\\Machine\\System\\CurrentControlSet\\Hardware Profiles\\Current", 0, MAXIMUM_ALLOWED);
 
 		if (!NT_SUCCESS (status))
 			RtlRaiseStatus (status);
 
 		// HKEY_DYN_DATA
-		//status = _r_reg_openkey (NULL, L"\\Registry\\DynData", 0, MAXIMUM_ALLOWED, &hkeydd);
+		_r_reg_openkey (&hkeydd, NULL, L"\\Registry\\DynData", 0, MAXIMUM_ALLOWED);
 		//
 		//if (!NT_SUCCESS (status))
 		//	RtlRaiseStatus (status); // have STATUS_OBJECT_NAME_NOT_FOUND
@@ -14809,12 +14817,13 @@ NTSTATUS _r_reg_createkey (
 }
 
 _Success_ (NT_SUCCESS (return))
+// hardening round 2 (DEC-04): fork ABI contract - out-handle comes first
 NTSTATUS _r_reg_openkey (
+	_Out_ PHANDLE out_buffer,
 	_In_opt_ HANDLE hroot,
 	_In_opt_ LPWSTR path,
 	_In_ ULONG flags,
-	_In_ ACCESS_MASK desired_access,
-	_Out_ PHANDLE out_buffer
+	_In_ ACCESS_MASK desired_access
 )
 {
 	OBJECT_ATTRIBUTES oa = {0};
@@ -15148,7 +15157,7 @@ NTSTATUS _r_reg_querystring (
 	{
 		if (type == REG_EXPAND_SZ)
 		{
-			status = _r_str_environmentexpandstring (NULL, &string->sr, &expanded_string);
+			_r_str_environmentexpandstring (&expanded_string), NULL, &string->sr);
 
 			if (NT_SUCCESS (status))
 				_r_obj_movereference (&string, expanded_string);
@@ -15709,7 +15718,7 @@ NTSTATUS _r_crypt_getfilehash (
 
 	if (path && !hfile)
 	{
-		status = _r_fs_openfile (path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_DELETE, 0, FALSE, &hfile_new);
+		_r_fs_openfile (&hfile_new, path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_DELETE, 0, FALSE);
 
 		if (!NT_SUCCESS (status))
 		{
@@ -16220,7 +16229,7 @@ PR_STRING _r_res_loadindirectstring (
 		if (!path_string)
 			return NULL;
 
-		status = _r_sys_loadlibraryasresource (&path_string->sr, &hlibrary);
+		_r_sys_loadlibraryasresource (&hlibrary, &path_string->sr);
 
 		if (NT_SUCCESS (status))
 		{
@@ -16328,7 +16337,7 @@ BOOL _r_res_verqueryvalue (
 
 	if (_r_initonce_begin (&init_once))
 	{
-		status = _r_sys_loadlibrary2 (L"version.dll", 0, &hversion);
+		_r_sys_loadlibrary2 (&hversion), L"version.dll", 0);
 
 		if (NT_SUCCESS (status))
 		{
@@ -16574,9 +16583,10 @@ HRESULT _r_imagelist_getsize (
 }
 
 _Success_ (SUCCEEDED (return))
+// hardening round 2 (DEC-04): fork ABI contract - out-buffer comes first
 HRESULT _r_imagelist_getsystem (
-	_In_ LONG icons_size,
-	_Out_ HIMAGELIST_PTR out_buffer
+	_Out_ HIMAGELIST_PTR out_buffer,
+	_In_ LONG icons_size
 )
 {
 	HIMAGELIST himg = NULL;
@@ -18875,7 +18885,7 @@ VOID _r_listview_savetofile (
 	);
 	if (!NT_SUCCESS (status))
 	{
-		_r_show_errormessage (hwnd, L"Cannot create file!", status, path->buffer, ET_NATIVE);
+		_r_show_errormessage (hwnd, L"Cannot create file!", path->buffer, status, ET_NATIVE);
 		return;
 	}
 	_r_obj_initializestringbuilder (&sb, 512);

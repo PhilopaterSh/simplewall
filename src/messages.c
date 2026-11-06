@@ -786,7 +786,7 @@ VOID _app_message_contextmenu (
 		}
 	}
 
-	_r_menu_popup (hmenu, hwnd, NULL, (LPARAM)lpnmlv->iSubItem);
+	_r_menu_popup (hmenu, hwnd, NULL, (BOOLEAN)lpnmlv->iSubItem); // hardening round 2: v143 narrowing cast
 
 	if (localized_string)
 		_r_obj_dereference (localized_string);

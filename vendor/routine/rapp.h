@@ -574,8 +574,8 @@ VOID _r_log (
 	_In_ R_LOG_LEVEL log_level,
 	_In_opt_ LPCGUID tray_guid,
 	_In_ LPCWSTR title,
-	_In_ LONG error_code,
-	_In_opt_ LPCWSTR description
+	_In_opt_ LPCWSTR description,
+	_In_ LONG error_code
 );
 
 VOID _r_log_v (
@@ -621,8 +621,8 @@ BOOLEAN _r_show_confirmmessage (
 NTSTATUS _r_show_errormessage (
 	_In_opt_ HWND hwnd,
 	_In_opt_ LPCWSTR title,
-	_In_ LONG error_code,
 	_In_opt_ LPCWSTR description,
+	_In_ LONG error_code,
 	_In_ R_ERROR_TYPE type
 );
 

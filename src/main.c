@@ -1748,7 +1748,7 @@ VOID _app_tabs_init (
 
 		if (tab_context->listview_id >= IDC_APPS_PROFILE && tab_context->listview_id <= IDC_RULES_CUSTOM)
 		{
-			_r_listview_setstyle (hwnd, tab_context->listview_id, style | LVS_EX_CHECKBOXES, TRUE); // with checkboxes
+			_r_listview_setstyle (hwnd, tab_context->listview_id, (ULONG)(style | LVS_EX_CHECKBOXES), TRUE); // with checkboxes
 
 			if (tab_context->listview_id >= IDC_APPS_PROFILE && tab_context->listview_id <= IDC_APPS_UWP)
 			{
@@ -1770,7 +1770,7 @@ VOID _app_tabs_init (
 		}
 		else if (tab_context->listview_id == IDC_NETWORK)
 		{
-			_r_listview_setstyle (hwnd, tab_context->listview_id, style, TRUE);
+			_r_listview_setstyle (hwnd, tab_context->listview_id, (ULONG)style, TRUE);
 
 			_r_listview_addcolumn (hwnd, tab_context->listview_id, 0, L"", -20, LVCFMT_LEFT);
 			_r_listview_addcolumn (hwnd, tab_context->listview_id, 1, L"", -10, LVCFMT_LEFT);
@@ -1791,7 +1791,7 @@ VOID _app_tabs_init (
 		}
 		else if (tab_context->listview_id == IDC_LOG)
 		{
-			_r_listview_setstyle (hwnd, tab_context->listview_id, style, TRUE);
+			_r_listview_setstyle (hwnd, tab_context->listview_id, (ULONG)style, TRUE);
 
 			_r_listview_addcolumn (hwnd, tab_context->listview_id, 0, L"", -10, LVCFMT_LEFT);
 			_r_listview_addcolumn (hwnd, tab_context->listview_id, 1, L"", -10, LVCFMT_LEFT);

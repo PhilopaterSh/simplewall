@@ -1975,7 +1975,7 @@ NTSTATUS _r_autorun_enable (
 	HANDLE hkey;
 	NTSTATUS status;
 
-	status = _r_reg_openkey (HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Run", 0, KEY_WRITE, &hkey);
+	_r_reg_openkey (&hkey, HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Run", 0, KEY_WRITE);
 
 	if (!NT_SUCCESS (status))
 		return status;
@@ -2010,7 +2010,7 @@ NTSTATUS _r_autorun_enable (
 	if (hwnd)
 	{
 		if (!NT_SUCCESS (status))
-			_r_show_errormessage (hwnd, L"Could not configure autorun!", status, NULL, ET_NATIVE);
+			_r_show_errormessage (hwnd, L"Could not configure autorun!", NULL, status, ET_NATIVE);
 	}
 
 	return status;
@@ -2025,7 +2025,7 @@ BOOLEAN _r_autorun_isenabled ()
 	BOOLEAN is_enabled = FALSE;
 	NTSTATUS status;
 
-	status = _r_reg_openkey (HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Run", 0, KEY_READ, &hkey);
+	_r_reg_openkey (&hkey, HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Run", 0, KEY_READ);
 
 	if (NT_SUCCESS (status))
 	{
@@ -2751,7 +2751,7 @@ BOOLEAN _r_update_check (
 	if (!update_info->hsession)
 	{
 		if (hparent)
-			_r_show_errormessage (hparent, L"Internet session create failure!", NtLastError (), NULL, ET_WINHTTP);
+			_r_show_errormessage (hparent, L"Internet session create failure!", NULL, NtLastError (), ET_WINHTTP);
 
 		return FALSE;
 	}
@@ -2763,7 +2763,7 @@ BOOLEAN _r_update_check (
 	if (!NT_SUCCESS (status))
 	{
 		if (hparent)
-			_r_show_errormessage (hparent, L"Could not create thread!", status, NULL, ET_NATIVE);
+			_r_show_errormessage (hparent, L"Could not create thread!", NULL, status, ET_NATIVE);
 
 		return FALSE;
 	}
@@ -2863,7 +2863,7 @@ HRESULT CALLBACK _r_update_pagecallback (
 				}
 				else
 				{
-					_r_show_errormessage (hwnd, L"Could not create thread!", status, NULL, ET_NATIVE);
+					_r_show_errormessage (hwnd, L"Could not create thread!", NULL, status, ET_NATIVE);
 				}
 			}
 			else if (wparam == IDOK)
@@ -3121,7 +3121,7 @@ VOID _r_update_install (
 	status = _r_sys_runasadmin (update_component->cache_path->buffer, cmd_string->buffer, NULL);
 
 	if (status != STATUS_SUCCESS)
-		_r_show_errormessage (hwnd, L"Could not install update!", status, update_component->cache_path->buffer, ET_NATIVE);
+		_r_show_errormessage (hwnd, L"Could not install update!", update_component->cache_path->buffer, status, ET_NATIVE);
 
 	_r_obj_dereference (cmd_string);
 }
@@ -3187,8 +3187,8 @@ VOID _r_log (
 	_In_ R_LOG_LEVEL log_level,
 	_In_opt_ LPCGUID tray_guid,
 	_In_ LPCWSTR title,
-	_In_ LONG error_code,
-	_In_opt_ LPCWSTR description
+	_In_opt_ LPCWSTR description,
+	_In_ LONG error_code
 )
 {
 	PR_STRING error_string;
@@ -3363,7 +3363,7 @@ VOID _r_report_error (
 #if defined(APP_CONSOLE)
 	_r_console_writestringformat (L"EXCEPTION: %s (%d, 0x%08" TEXT (PRIX32) L")!\r\n", string, status, status);
 #else
-	_r_show_errormessage (NULL, title, status, string, type);
+	_r_show_errormessage (NULL, title, string, status, type);
 #endif // APP_CONSOLE
 }
 
@@ -3492,8 +3492,8 @@ BOOLEAN _r_show_confirmmessage (
 NTSTATUS _r_show_errormessage (
 	_In_opt_ HWND hwnd,
 	_In_opt_ LPCWSTR title,
-	_In_ LONG error_code,
 	_In_opt_ LPCWSTR description,
+	_In_ LONG error_code,
 	_In_ R_ERROR_TYPE type
 )
 {
@@ -4812,7 +4812,7 @@ CleanupExit:
 		ITaskService_Release (task_service);
 
 	if (hwnd && FAILED (status))
-		_r_show_errormessage (hwnd, L"Could not configure task scheduler!", status, NULL, ET_WINDOWS);
+		_r_show_errormessage (hwnd, L"Could not configure task scheduler!", NULL, status, ET_WINDOWS);
 
 	return status;
 }

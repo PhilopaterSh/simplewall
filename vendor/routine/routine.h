@@ -5,6 +5,15 @@
 
 #pragma once
 
+// hardening round 2: consumer needs Vista+ declarations (CryptCATAdmin*2,
+// IN6_IS_ADDR_ULA) - must be set before any windows header is pulled in
+#ifndef _WIN32_WINNT
+#define _WIN32_WINNT 0x0A00
+#endif
+#ifndef WINVER
+#define WINVER 0x0A00
+#endif
+
 // fork-ABI shim (DEC-04): raise the NTDDI/WIN32_WINNT floor before any windows.h
 // include so the Win8+ SDK declarations the consumer's src relies on
 // (CryptCATAdmin*2 family in mscat.h, fwpmu helpers, etc.) are always visible,
@@ -2066,13 +2075,14 @@ NTSTATUS _r_fs_renamefilebyhandle (
 );
 
 _Success_ (NT_SUCCESS (return))
+// hardening round 2 (DEC-04): fork ABI contract - out-handle comes first
 NTSTATUS _r_fs_openfile (
+	_Out_ PHANDLE out_buffer,
 	_In_ PR_STRINGREF path,
 	_In_ ACCESS_MASK desired_access,
 	_In_opt_ ULONG share_access,
 	_In_opt_ ULONG open_options,
-	_In_ BOOLEAN is_directory,
-	_Out_ PHANDLE out_buffer
+	_In_ BOOLEAN is_directory
 );
 
 _Success_ (NT_SUCCESS (return))
@@ -2145,10 +2155,11 @@ PR_STRING _r_path_find (
 	_In_ PR_STRINGREF path
 );
 
+// hardening round 2 (DEC-04): fork ABI contract - icon handle precedes the id
 BOOLEAN _r_path_geticon (
 	_In_ PR_STRINGREF path,
-	_Out_opt_ PLONG out_icon_id,
-	_Out_opt_ HICON_PTR out_hicon
+	_Out_opt_ HICON_PTR out_hicon,
+	_Out_opt_ PLONG out_icon_id
 );
 
 _Ret_maybenull_
@@ -2353,10 +2364,11 @@ VOID _r_str_copystring (
 );
 
 _Success_ (NT_SUCCESS (return))
+// hardening round 2 (DEC-04): fork ABI contract - out-buffer comes first
 NTSTATUS _r_str_environmentexpandstring (
+	_Out_ PR_STRING_PTR out_buffer,
 	_In_opt_ PVOID environment,
-	_In_ PR_STRINGREF name,
-	_Out_ PR_STRING_PTR out_buffer
+	_In_ PR_STRINGREF name
 );
 
 PR_STRING _r_str_environmentunexpandstring (
@@ -2396,10 +2408,11 @@ PR_STRING _r_str_formatversion (
 );
 
 _Success_ (NT_SUCCESS (return))
+// hardening round 2 (DEC-04): fork ABI contract - out-buffer comes first
 NTSTATUS _r_str_fromguid (
+	_Out_ PR_STRING_PTR out_buffer,
 	_In_ LPGUID guid,
-	_In_ BOOLEAN is_uppercase,
-	_Out_ PR_STRING_PTR out_buffer
+	_In_ BOOLEAN is_uppercase
 );
 
 PR_STRING _r_str_fromhex (
@@ -2427,8 +2440,9 @@ VOID _r_str_generaterandom (
 	_In_ BOOLEAN is_uppercase
 );
 
+// hardening round 2 (DEC-04): fork ABI contract - takes a stringref
 ULONG _r_str_gethash (
-	_In_ LPWSTR string,
+	_In_ PCR_STRINGREF string,
 	_In_ BOOLEAN is_ignorecase
 );
 
@@ -2944,9 +2958,10 @@ LONG _r_sys_getpackagepath (
 );
 
 _Success_ (NT_SUCCESS (return))
+// hardening round 2 (DEC-04): fork ABI contract - out-buffer comes first
 NTSTATUS _r_sys_getservicesid (
-	_In_ LPWSTR name,
-	_Out_ PR_BYTE_PTR out_buffer
+	_Out_ PR_BYTE_PTR out_buffer,
+	_In_ LPCWSTR name
 );
 
 _Success_ (return)
@@ -3026,10 +3041,12 @@ NTSTATUS _r_sys_getprocessimagepath (
 );
 
 _Success_ (NT_SUCCESS (return))
+// hardening round 2 (DEC-04): fork ABI contract - out-buffer first, and
+// the first param is the process id (SystemProcessIdInformation)
 NTSTATUS _r_sys_getprocessimagepathbyid (
-	_In_ HANDLE hprocess_id,
-	_In_ BOOLEAN is_ntpathtodos,
-	_Out_ PR_STRING_PTR out_buffer
+	_Out_ PR_STRING_PTR out_buffer,
+	_In_ ULONG process_id,
+	_In_ BOOLEAN is_ntpathtodos
 );
 
 _Success_ (SUCCEEDED (return))
@@ -3048,9 +3065,10 @@ HICON _r_sys_loadsharedicon (
 );
 
 _Success_ (NT_SUCCESS (return))
+// hardening round 2 (DEC-04): fork ABI contract - out-buffer comes first
 NTSTATUS _r_sys_loadlibraryasresource (
-	_In_ PR_STRINGREF lib_name,
-	_Out_ PVOID_PTR out_buffer
+	_Out_ PVOID_PTR out_buffer,
+	_In_ PR_STRINGREF lib_name
 );
 
 _Success_ (NT_SUCCESS (return))
@@ -3067,10 +3085,11 @@ NTSTATUS _r_sys_loadlibrarytype (
 );
 
 _Success_ (NT_SUCCESS (return))
+// hardening round 2 (DEC-04): fork ABI contract - out-handle comes first
 NTSTATUS _r_sys_openprocess (
-	_In_opt_ HANDLE process_id,
-	_In_ ACCESS_MASK desired_access,
-	_Out_ PHANDLE out_buffer
+	_Out_ PHANDLE out_buffer,
+	_In_ ULONG process_id,
+	_In_ ACCESS_MASK desired_access
 );
 
 _Success_ (NT_SUCCESS (return))
@@ -3124,8 +3143,10 @@ NTSTATUS _r_sys_createthread (
 );
 
 _Ret_maybenull_
+// hardening round 2 (DEC-04): fork ABI contract - first param is the
+// process id (the implementation converts it to dwPid internally)
 PR_STRING _r_sys_querytaginformation (
-	_In_ HANDLE hprocess,
+	_In_ ULONG process_id,
 	_In_ LPCVOID tag
 );
 
@@ -3267,10 +3288,11 @@ FORCEINLINE BOOLEAN _r_sys_isosversionlowerorequal (
 }
 
 _Success_ (NT_SUCCESS (return))
+// hardening round 2 (DEC-04): fork ABI contract - out-buffer comes first
 FORCEINLINE NTSTATUS _r_sys_loadlibrary2 (
+	_Out_ PVOID_PTR out_buffer,
 	_In_ LPWSTR lib_name,
-	_In_opt_ ULONG lib_flags,
-	_Out_ PVOID_PTR out_buffer
+	_In_opt_ ULONG lib_flags
 )
 {
 	R_STRINGREF sr;
@@ -3318,9 +3340,10 @@ LONG64 _r_unixtime_from_systemtime (
 	_In_ const LPSYSTEMTIME system_time
 );
 
+// hardening round 2 (DEC-04): fork ABI contract - out-buffer comes first
 VOID _r_unixtime_to_filetime (
-	_In_ LONG64 unixtime,
-	_Out_ PFILETIME file_time
+	_Out_ PFILETIME file_time,
+	_In_ LONG64 unixtime
 );
 
 VOID _r_unixtime_to_systemtime (
@@ -3543,9 +3566,10 @@ HRESULT _r_filedialog_setfilter (
 	_In_ ULONG count
 );
 
+// hardening round 2 (DEC-04): fork ABI contract - takes a stringref
 VOID _r_filedialog_setpath (
 	_Inout_ PR_FILE_DIALOG file_dialog,
-	_In_ LPWSTR path
+	_In_ PR_STRINGREF path
 );
 
 //
@@ -4018,12 +4042,13 @@ NTSTATUS _r_reg_createkey (
 );
 
 _Success_ (NT_SUCCESS (return))
+// hardening round 2 (DEC-04): fork ABI contract - out-handle comes first
 NTSTATUS _r_reg_openkey (
+	_Out_ PHANDLE out_buffer,
 	_In_opt_ HANDLE hroot,
 	_In_opt_ LPWSTR path,
 	_In_ ULONG flags,
-	_In_ ACCESS_MASK desired_access,
-	_Out_ PHANDLE out_buffer
+	_In_ ACCESS_MASK desired_access
 );
 
 _Success_ (NT_SUCCESS (return))
@@ -4377,9 +4402,10 @@ HRESULT _r_imagelist_getsize (
 );
 
 _Success_ (SUCCEEDED (return))
+// hardening round 2 (DEC-04): fork ABI contract - out-buffer comes first
 HRESULT _r_imagelist_getsystem (
-	_In_ LONG icons_size,
-	_Out_ HIMAGELIST_PTR out_buffer
+	_Out_ HIMAGELIST_PTR out_buffer,
+	_In_ LONG icons_size
 );
 
 // fork-ABI shim (DEC-04): newer-routine shape — the consumer passes separate

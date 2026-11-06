@@ -521,7 +521,7 @@ NTSTATUS udp_stats_start (
 
 	_r_sys_setenvironment (&environment, THREAD_PRIORITY_ABOVE_NORMAL, IoPriorityHigh, MEMORY_PRIORITY_NORMAL);
 
-	status = _r_sys_createthread (&stats->hthread, NtCurrentProcess (), &udp_thread, stats, &environment, L"UdpMonitoring");
+	status = _r_sys_createthread (&stats->hthread, NtCurrentProcess (), (PUSER_THREAD_START_ROUTINE)&udp_thread, stats, &environment, L"UdpMonitoring"); // hardening round 2: v143 calling-convention cast
 
 	if (!NT_SUCCESS (status))
 		goto fail;
