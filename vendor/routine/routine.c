@@ -272,7 +272,7 @@ PR_STRING _r_format_unixtime (
 	FILETIME file_time;
 	PR_STRING string;
 
-	_r_unixtime_to_filetime (&file_time), unixtime);
+	_r_unixtime_to_filetime (&file_time, unixtime);
 
 	if (!flags)
 		flags = FDTF_DEFAULT;
@@ -4081,7 +4081,7 @@ NTSTATUS _r_fs_dospathnametontpathname (
 		// win10rs1+
 		if (_r_sys_isosversiongreaterorequal (WINDOWS_10_RS1) && NtCurrentPeb ()->IsLongPathAwareProcess) // RtlAreLongPathsEnabled ()
 		{
-			_r_sys_loadlibrary2 (&hntdll), L"ntdll.dll", 0);
+			_r_sys_loadlibrary2 (&hntdll, L"ntdll.dll", 0);
 
 			if (NT_SUCCESS (status))
 			{
@@ -5288,7 +5288,7 @@ PR_STRING _r_path_find (
 
 	if (path->buffer[0] == L'%')
 	{
-		_r_str_environmentexpandstring (&string), NULL, path);
+		_r_str_environmentexpandstring (&string, NULL, path);
 
 		if (!NT_SUCCESS (status))
 			return NULL;
@@ -6489,7 +6489,7 @@ NTSTATUS _r_path_search (
 	else
 	{
 		// works as RtlGetSearchPath (win8+)
-		_r_str_environmentexpandstring (&string), NULL, &env);
+		_r_str_environmentexpandstring (&string, NULL, &env);
 
 		if (!NT_SUCCESS (status))
 		{
@@ -8882,7 +8882,7 @@ BOOLEAN _r_sys_iswine ()
 	PVOID hntdll;
 	NTSTATUS status;
 
-	_r_sys_loadlibrary2 (&hntdll), L"ntdll.dll", 0);
+	_r_sys_loadlibrary2 (&hntdll, L"ntdll.dll", 0);
 
 	if (!NT_SUCCESS (status))
 		return FALSE;
@@ -9587,7 +9587,7 @@ LONG _r_sys_getpackagepath (
 
 	if (_r_initonce_begin (&init_once))
 	{
-		_r_sys_loadlibrary2 (&hkernel32), L"kernel32.dll", 0);
+		_r_sys_loadlibrary2 (&hkernel32, L"kernel32.dll", 0);
 
 		if (NT_SUCCESS (status))
 		{
@@ -9969,7 +9969,7 @@ BOOLEAN _r_sys_isprocessimmersive (
 
 	if (_r_initonce_begin (&init_once))
 	{
-		_r_sys_loadlibrary2 (&huser32), L"user32.dll", 0);
+		_r_sys_loadlibrary2 (&huser32, L"user32.dll", 0);
 
 		if (NT_SUCCESS (status))
 		{
@@ -11845,7 +11845,7 @@ VOID _r_unixtime_to_systemtime (
 	FILETIME file_time;
 	PLARGE_INTEGER li;
 
-	_r_unixtime_to_filetime (&file_time), unixtime);
+	_r_unixtime_to_filetime (&file_time, unixtime);
 
 	li = (PLARGE_INTEGER)&file_time;
 
@@ -11883,7 +11883,7 @@ BOOLEAN _r_dc_adjustwindowrect (
 	// initialize library calls
 	if (_r_initonce_begin (&init_once))
 	{
-		_r_sys_loadlibrary2 (&huser32), L"user32.dll", 0);
+		_r_sys_loadlibrary2 (&huser32, L"user32.dll", 0);
 
 		if (NT_SUCCESS (status))
 		{
@@ -12325,7 +12325,7 @@ LONG _r_dc_getdpivalue (
 	// initialize library calls
 	if (_r_initonce_begin (&init_once))
 	{
-		_r_sys_loadlibrary2 (&hshcore), L"shcore.dll", 0);
+		_r_sys_loadlibrary2 (&hshcore, L"shcore.dll", 0);
 
 		if (NT_SUCCESS (status))
 		{
@@ -12335,7 +12335,7 @@ LONG _r_dc_getdpivalue (
 			_r_sys_freelibrary (hshcore);
 		}
 
-		_r_sys_loadlibrary2 (&huser32), L"user32.dll", 0);
+		_r_sys_loadlibrary2 (&huser32, L"user32.dll", 0);
 
 		if (NT_SUCCESS (status))
 		{
@@ -12467,7 +12467,7 @@ LONG _r_dc_getsystemmetrics (
 	// initialize library calls
 	if (_r_initonce_begin (&init_once))
 	{
-		_r_sys_loadlibrary2 (&huser32), L"user32.dll", 0);
+		_r_sys_loadlibrary2 (&huser32, L"user32.dll", 0);
 
 		if (NT_SUCCESS (status))
 		{
@@ -12504,7 +12504,7 @@ BOOLEAN _r_dc_getsystemparametersinfo (
 	// initialize library calls
 	if (_r_initonce_begin (&init_once))
 	{
-		_r_sys_loadlibrary2 (&huser32), L"user32.dll", 0);
+		_r_sys_loadlibrary2 (&huser32, L"user32.dll", 0);
 
 		if (NT_SUCCESS (status))
 		{
@@ -12600,7 +12600,7 @@ HTHEME _r_dc_openthemedata (
 	// initialize library calls
 	if (_r_initonce_begin (&init_once))
 	{
-		_r_sys_loadlibrary2 (&huxtheme), L"uxtheme.dll", 0);
+		_r_sys_loadlibrary2 (&huxtheme, L"uxtheme.dll", 0);
 
 		if (NT_SUCCESS (status))
 		{
@@ -13556,7 +13556,7 @@ BOOLEAN _r_wnd_isfocusassist ()
 
 	if (_r_initonce_begin (&init_once))
 	{
-		_r_sys_loadlibrary2 (&hntdll), L"ntdll.dll", 0);
+		_r_sys_loadlibrary2 (&hntdll, L"ntdll.dll", 0);
 
 		if (NT_SUCCESS (status))
 		{
@@ -14697,8 +14697,10 @@ HANDLE _r_reg_getroothandle (
 	static HANDLE hkeyhkcr = NULL;
 	static HANDLE hkeyhkcu = NULL;
 	static HANDLE hkeyhklm = NULL;
+	static HANDLE hkeyhklm = NULL;
 	static HANDLE hkeyhku = NULL;
 	static HANDLE hkeyhcc = NULL;
+	static HANDLE hkeydd = NULL;
 
 	NTSTATUS status;
 
@@ -15159,7 +15161,7 @@ NTSTATUS _r_reg_querystring (
 	{
 		if (type == REG_EXPAND_SZ)
 		{
-			_r_str_environmentexpandstring (&expanded_string), NULL, &string->sr);
+			_r_str_environmentexpandstring (&expanded_string, NULL, &string->sr);
 
 			if (NT_SUCCESS (status))
 				_r_obj_movereference (&string, expanded_string);
@@ -16343,7 +16345,7 @@ BOOL _r_res_verqueryvalue (
 
 	if (_r_initonce_begin (&init_once))
 	{
-		_r_sys_loadlibrary2 (&hversion), L"version.dll", 0);
+		_r_sys_loadlibrary2 (&hversion, L"version.dll", 0);
 
 		if (NT_SUCCESS (status))
 		{
