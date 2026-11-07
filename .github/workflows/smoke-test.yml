@@ -55,7 +55,7 @@ jobs:
         run: |
           msbuild tools\preflight.vcxproj -p:Configuration=Release -p:Platform=x64 -p:PlatformToolset=v143 -p:WindowsTargetPlatformVersion=10.0 -p:TreatWarningAsError=false -m -nologo -v:m
           msbuild tools\dnsrig.vcxproj -p:Configuration=Release -p:Platform=x64 -p:PlatformToolset=v143 -p:WindowsTargetPlatformVersion=10.0 -p:TreatWarningAsError=false -m -nologo -v:m
-          msbuild toolseedserver.vcxproj -p:Configuration=Release -p:Platform=x64 -p:PlatformToolset=v143 -p:WindowsTargetPlatformVersion=10.0 -p:TreatWarningAsError=false -m -nologo -v:m
+          msbuild toolseedserver.vcxproj -p:Configuration=Release -p:Platform=x64 -p:PlatformToolset=v143 -p:WindowsTargetPlatformVersion=10.0 -p:TreatWarningAsError=false -m -nologo -v:m
 
       - name: Verify exe exists
         shell: pwsh
