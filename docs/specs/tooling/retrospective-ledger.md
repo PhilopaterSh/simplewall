@@ -40,6 +40,9 @@
 | 17 | 2026-11-07 | C preflight DEC-11 strict reader | imports.json provenance note | 334-char note with — escapes exceeded the reader subset — fail-closed as designed | REAL — note shortened to ASCII 162; lesson: ground-truth notes stay ASCII + short | session T009 verification |
 | 18 | 2026-11-07 | C preflight fail-closed | locked exe (0xC0000043 sharing violation) | parallel session held the binary mid-build — tool refused instead of reading a torn file | REAL — transient; stable-copy retry passed 9/9 | session T009 verification |
 
+| 19 | 2026-11-07 | check-chain-artifacts.py (roadmap item 1, "best buy") | all 4 chains | tooling handoff.md was an unfilled template + tooling/composite had NO verification.md — exactly as the cross-exam predicted | REAL — all three artifacts written the same commit; gate now 4/4 PASS exit 0 | first run of the checker |
+| 20 | 2026-11-07 | AGENTS.md rewrite (cross-exam blind-spot #3) | the workflow documentation itself | CLAUDE/GROK pointed agents at upstream song lyrics — every agent's canonical instructions were junk | REAL — replaced with the actual EGM procedure + standing rules; pointer files now resolve to real instructions | commit of record |
+
 ## Standing rule adopted from this ledger (empirical-arbiter-first, roadmap item 1)
 
 > Any BLOCKING finding about observable behavior must attach a reproduction
