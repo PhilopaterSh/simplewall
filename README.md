@@ -32,7 +32,7 @@ verified by fresh-context code reviews, and the first interactive build validate
 | | |
 | --- | --- |
 | Binary | `bin/64/simplewall.exe` (~1.0 MB) |
-| SHA256 | `2cf8f0c9d75e5c82bfcb48ef2c4b72d0960b86444101f4857f4cac2f97c83c44` |
+| SHA256 | per-commit — authoritative hashes ship in each **release manifest** (the tree moves fast; trust the signed manifest, not this file) |
 | Built with | MSVC 14.44 (v143), Windows SDK 10.0.26100 |
 | CI | smoke-test workflow on every push (build + launch + 20s lifetime check) |
 | Audited | 2026-11-07 — independent fresh-context reviews (vendor + src + design-gate seam) + cppcheck (0 findings) |
