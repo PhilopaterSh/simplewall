@@ -3,7 +3,7 @@
   "source": "henrypp/simplewall official v.3.8.7 portable (simplewall-3.8.7-bin.7z)",
   "sha256_of_archive": "9f5bd16936decf1ace052a0120452cdeef004d5f6563f99bef180e7ae874e2a3",
   "captured": "2026-11-07",
-  "note": "RSK-01 incident 2026-11-07: WS2_32.dll was added citing 482893bc, but CI + a clean tree build produce 24 DLLs - the 25-DLL reading came from an UNCOMMITTED local build in the parallel checkout. Restored to the committed-tree truth (24). Re-apply with the cited diff only when the udpstats enhancement lands as a commit (gate will FAIL with EXTRA WS2_32.dll - that is the trigger)."
+  "note": "RSK-01 incident 2026-11-07: WS2_32.dll was added citing 482893bc, but a clean CI-style build of the committed tree produces 24 DLLs - the 25-DLL reading came from an UNCOMMITTED local build in the parallel checkout. Restored to the committed-tree truth (24). Re-apply with the cited diff only when the udpstats enhancement lands as a commit (gate FAIL with EXTRA WS2_32.dll = trigger)."
  },
  "dlls": [
   "KERNEL32.dll",

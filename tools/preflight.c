@@ -657,7 +657,7 @@ static BOOLEAN gt_parse_string_array (GT_PARSER *gp, WCHAR *arr, ULONG arr_width
 static BOOLEAN gt_parse_provenance (GT_PARSER *gp, GT_DATA *out)
 {
 	WCHAR key[64];
-	WCHAR value[256];
+	WCHAR value[512]; // matches the largest member buffer (prov_note[512]) - a 256 temp tripped "string too long" on legitimate provenance notes (CI run 42380633221)
 
 	out->has_provenance = TRUE;
 
