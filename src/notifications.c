@@ -3,6 +3,269 @@
 
 #include "global.h"
 
+#include "composite_publisher.h" // composite Phase 1 (T003 tier3/T004)
+#include "composite_state.h" // composite Phase 1 (T003 gate/T005 durations/T006 single-flight)
+
+#include "composite.h"
+
+// composite T003 (FR-02): user-space connection matcher — mirrors the
+// conditions _wfp_createrulefilter would deploy for a rule part, so a
+// "covered" verdict means the connection's fate is already governed by
+// explicit policy (permit OR block) and prompting would be noise.
+static BOOLEAN _app_notify_matchipv6prefix (
+	_In_ const FWP_V6_ADDR_AND_MASK *mask,
+	_In_ const IN6_ADDR *addr
+)
+{
+	UINT8 full_bytes, rem_bits, rem_mask;
+
+	if (mask->prefixLength > 128)
+		return FALSE;
+
+	full_bytes = (UINT8)(mask->prefixLength / 8);
+	rem_bits = (UINT8)(mask->prefixLength % 8);
+
+	if (full_bytes && memcmp (addr->u.Byte, mask->addr, full_bytes) != 0)
+		return FALSE;
+
+	if (rem_bits)
+	{
+		rem_mask = (UINT8)(0xFF << (8 - rem_bits));
+
+		if ((addr->u.Byte[full_bytes] & rem_mask) != (mask->addr[full_bytes] & rem_mask))
+			return FALSE;
+	}
+
+	return TRUE;
+}
+
+// match one rule part ("1.2.3.4", "1.2.3.0/24", "1.2.3.4:80", "80",
+// "1000-2000") against a log item address+port on the WFP-observed side
+static BOOLEAN _app_notify_matchaddresspart (
+	_In_ PCR_STRINGREF part,
+	_In_ ADDRESS_FAMILY af,
+	_In_ const IN_ADDR *addr4,
+	_In_ const IN6_ADDR *addr6,
+	_In_ UINT16 port
+)
+{
+	ITEM_ADDRESS address;
+	ULONG log_addr4, range_low, range_high;
+	INT cmp;
+
+	if (!_app_parserulestring (part, &address))
+		return FALSE; // unparsable parts never deployed a WFP condition either
+
+	if (address.type == DATA_TYPE_PORT)
+	{
+		if (address.is_range)
+			return (port >= address.range.valueLow.uint16 && port <= address.range.valueHigh.uint16);
+
+		return (address.port == port);
+	}
+	else if (address.type == DATA_TYPE_IP)
+	{
+		// a part may carry a port too ("1.2.3.4:80")
+		if (address.port && address.port != port)
+			return FALSE;
+
+		if (address.is_range)
+		{
+			if (address.format == NET_ADDRESS_IPV4)
+			{
+				if (af != AF_INET || !addr4)
+					return FALSE;
+
+				// rule ranges are host byte order; the log address is
+				// stored network byte order (log.c byteswaps on ingest)
+				log_addr4 = _r_byteswap_ulong (addr4->S_un.S_addr);
+
+				range_low = address.range.valueLow.uint32;
+				range_high = address.range.valueHigh.uint32;
+
+				if (range_low > range_high)
+				{
+					range_low = address.range.valueHigh.uint32;
+					range_high = address.range.valueLow.uint32;
+				}
+
+				return (log_addr4 >= range_low && log_addr4 <= range_high);
+			}
+			else if (address.format == NET_ADDRESS_IPV6)
+			{
+				if (af != AF_INET6 || !addr6)
+					return FALSE;
+
+				cmp = memcmp (addr6->u.Byte, address.range.valueLow.byteArray16, FWP_V6_ADDR_SIZE);
+
+				if (cmp < 0)
+					return FALSE;
+
+				cmp = memcmp (addr6->u.Byte, address.range.valueHigh.byteArray16, FWP_V6_ADDR_SIZE);
+
+				return (cmp <= 0);
+			}
+
+			return FALSE;
+		}
+
+		if (address.format == NET_ADDRESS_IPV4)
+		{
+			if (af != AF_INET || !addr4)
+				return FALSE;
+
+			// addr4.addr/addr4.mask are host byte order (same convention
+			// the WFP condition uses); a zero mask matches everything,
+			// exactly like the deployed condition would
+			log_addr4 = _r_byteswap_ulong (addr4->S_un.S_addr);
+
+			return ((log_addr4 & address.addr4.mask) == (address.addr4.addr & address.addr4.mask));
+		}
+		else if (address.format == NET_ADDRESS_IPV6)
+		{
+			if (af != AF_INET6 || !addr6)
+				return FALSE;
+
+			return _app_notify_matchipv6prefix (&address.addr6, addr6);
+		}
+	}
+
+	return FALSE;
+}
+
+static BOOLEAN _app_notify_matchrulestring (
+	_In_opt_ PCR_STRINGREF rule_string,
+	_In_ ADDRESS_FAMILY af,
+	_In_ const IN_ADDR *addr4,
+	_In_ const IN6_ADDR *addr6,
+	_In_ UINT16 port
+)
+{
+	R_STRINGREF part, remaining;
+
+	// note: _r_obj_isstringempty2 dereferences its argument — check for
+	// NULL first (an absent rule side deploys no condition, matches all)
+	if (!rule_string || _r_obj_isstringempty2 (rule_string))
+		return TRUE; // empty rule string deploys no condition (matches all)
+
+	remaining = *rule_string;
+
+	while (remaining.length != 0)
+	{
+		_r_str_splitatchar (&remaining, DIVIDER_RULE[0], &part, &remaining);
+
+		if (part.length != 0)
+		{
+			if (_app_notify_matchaddresspart (&part, af, addr4, addr6, port))
+				return TRUE;
+		}
+
+		if (remaining.length == 0)
+			break;
+	}
+
+	return FALSE;
+}
+
+// T003 tier1+2: TRUE when an enabled rule (user/system/blocklist/config —
+// pack rules arrive through the same rules_list categories) already
+// governs this exact connection
+static BOOLEAN _app_notify_havematchingrule (
+	_In_ PITEM_LOG ptr_log
+)
+{
+	PITEM_RULE ptr_rule;
+	BOOLEAN is_matched = FALSE;
+
+	_r_queuedlock_acquireshared (&lock_rules);
+
+	for (ULONG_PTR i = 0; i < _r_obj_getlistsize (rules_list); i++)
+	{
+		ptr_rule = (PITEM_RULE)_r_obj_getlistitem (rules_list, i);
+
+		if (!ptr_rule || !ptr_rule->is_enabled)
+			continue;
+
+		// driver/service rules only ever apply to the system hashes
+		if ((ptr_rule->is_fordriver || ptr_rule->is_forservice) && !_app_issystemhash (ptr_log->app_hash))
+			continue;
+
+		// app scoping: empty apps = global rule, otherwise the log's app
+		// must be a member (same check _wfp_createrulefilters applies)
+		if (!_r_obj_isempty (ptr_rule->apps) && !_r_obj_findhashtable (ptr_rule->apps, ptr_log->app_hash))
+			continue;
+
+		if (ptr_rule->direction != FWP_DIRECTION_MAX && ptr_rule->direction != ptr_log->direction)
+			continue;
+
+		if (ptr_rule->protocol && ptr_rule->protocol != ptr_log->protocol)
+			continue;
+
+		if (ptr_rule->af != AF_UNSPEC && ptr_rule->af != ptr_log->af)
+			continue;
+
+		if (!_app_notify_matchrulestring (
+				_r_obj_isstringempty (ptr_rule->rule_remote) ? NULL : &ptr_rule->rule_remote->sr,
+				ptr_log->af,
+				&ptr_log->remote_addr,
+				&ptr_log->remote_addr6,
+				ptr_log->remote_port
+			))
+			continue;
+
+		if (!_app_notify_matchrulestring (
+				_r_obj_isstringempty (ptr_rule->rule_local) ? NULL : &ptr_rule->rule_local->sr,
+				ptr_log->af,
+				&ptr_log->local_addr,
+				&ptr_log->local_addr6,
+				ptr_log->local_port
+			))
+			continue;
+
+		is_matched = TRUE; // permit or block — the connection is governed
+		break;
+	}
+
+	_r_queuedlock_releaseshared (&lock_rules);
+
+	return is_matched;
+}
+
+// composite T003 (FR-02): tier resolution — TRUE when the connection is
+// already covered and must not prompt
+static BOOLEAN _app_notify_istierscovered (
+	_In_ PITEM_LOG ptr_log,
+	_In_ PITEM_APP ptr_app
+)
+{
+	PR_STRING path;
+
+	// tier1: the app itself is enabled (permanent or temporary permit)
+	if (ptr_app->is_enabled)
+		return TRUE;
+
+	// tier1+2: an enabled rule (existing, wildcard or pack category)
+	// already covers the connection
+	if (_app_notify_havematchingrule (ptr_log))
+		return TRUE;
+
+	// tier3: a trusted publisher anchor covers the binary (fast path:
+	// already-materialized; full check verifies the signer per
+	// path+mtime and lazily materializes a new path on anchor match)
+	path = ptr_app->real_path ? ptr_app->real_path : ptr_app->original_path;
+
+	if (!_r_obj_isstringempty (path) && path->buffer)
+	{
+		if (_app_publisher_ismaterialized (path->buffer))
+			return TRUE;
+
+		if (_app_publisher_istiercovered (ptr_app))
+			return TRUE;
+	}
+
+	return FALSE;
+}
+
 _Ret_maybenull_
 HWND _app_notify_getwindow (
 	_In_opt_ PITEM_LOG ptr_log
@@ -60,9 +323,11 @@ BOOLEAN _app_notify_command (
 )
 {
 	PITEM_APP ptr_app;
+	PITEM_LOG ptr_log;
 	PR_LIST rules;
 	HWND hmain;
 	ULONG app_hash;
+	BOOLEAN is_session;
 
 	app_hash = _app_notify_getapp_id (hwnd);
 	ptr_app = _app_getappitem (app_hash);
@@ -72,14 +337,42 @@ BOOLEAN _app_notify_command (
 
 	hmain = _r_app_gethwnd ();
 
+	// composite T005: fetch the prompt's connection context BEFORE the
+	// notification object is freed — a "once" decision deploys an
+	// exact-tuple filter from it
+	ptr_log = _app_notify_getobject (app_hash);
+
 	_app_notify_freeobject (hwnd, ptr_app);
 
 	rules = _r_obj_createlist (0x02, NULL);
 
-	if (button_id == IDC_ALLOW_BTN || button_id == IDC_BLOCK_BTN)
+	// composite T005 (FR-04/DATA-01): once/until-restart decisions live in
+	// session state only (composite_state.c) — they never set is_enabled,
+	// never enter rules_list and never reach profile.xml; WFP is touched
+	// only through composite-owned filters that die with the session
+	is_session = (seconds == STATE_SECONDS_ONCE || seconds == STATE_SECONDS_UNTILRESTART);
+
+	if (is_session && (button_id == IDC_ALLOW_BTN || button_id == IDC_BLOCK_BTN))
+	{
+		_app_state_decide (
+			ptr_app,
+			(BOOLEAN)(button_id == IDC_BLOCK_BTN),
+			(BOOLEAN)(seconds == STATE_SECONDS_ONCE),
+			ptr_log,
+			hmain
+		);
+	}
+	else if (button_id == IDC_ALLOW_BTN || button_id == IDC_BLOCK_BTN)
 	{
 		ptr_app->is_enabled = (button_id == IDC_ALLOW_BTN);
 		ptr_app->is_silent = (button_id == IDC_BLOCK_BTN);
+
+		// composite T005: an "always" decision supersedes any session
+		// decision for this app — a leftover session permit must not
+		// silently override a permanent block (and vice versa); it also
+		// releases the app's held-pending connections (T006 batch review)
+		_app_state_revokeapp (app_hash);
+		_app_state_releasepending (app_hash);
 
 		if (ptr_app->is_enabled && seconds > 0)
 		{
@@ -113,7 +406,12 @@ BOOLEAN _app_notify_command (
 	_r_obj_dereference (ptr_app);
 	_r_obj_dereference (rules);
 
-	_app_profile_save (hwnd);
+	// composite T005: session decisions never touch profile.xml (DATA-01)
+	if (!is_session)
+		_app_profile_save (hwnd);
+
+	if (ptr_log)
+		_r_obj_dereference (ptr_log);
 
 	return TRUE;
 }
@@ -125,6 +423,7 @@ BOOLEAN _app_notify_addobject (
 )
 {
 	LONG64 current_time, notification_timeout;
+	HWND hmain;
 
 	notification_timeout = _r_config_getlong64 (L"NotificationsTimeout", NOTIFY_TIMEOUT_DEFAULT, NULL);
 	current_time = _r_unixtime_now ();
@@ -132,6 +431,51 @@ BOOLEAN _app_notify_addobject (
 	// check for last display time
 	if (notification_timeout > 0 && ((current_time - ptr_app->last_notify) <= notification_timeout))
 		return FALSE;
+
+	// composite T003 (FR-02): auto-tiers — before ANY prompt, resolve
+	// whether current policy already covers this connection (an enabled
+	// app, an enabled/wildcard/pack rule, or an already-materialized
+	// trusted publisher); only genuinely novel connections prompt
+	if (_r_config_getboolean (COMPOSITE_CONFIG_TIERS, TRUE, NULL))
+	{
+		if (_app_notify_istierscovered (ptr_log, ptr_app))
+			return FALSE;
+	}
+
+	// composite T006 (FR-05): single-flight — at most ONE prompt visible;
+	// concurrent novel connections take the hard default (the default-deny
+	// filters at FWW_LOWEST already block; deliberately NOTHING is done to
+	// WFP here) and are counted for batch review. The file/UI log already
+	// fired for this event (log.c gate), which is the batch-review record.
+	if (_r_config_getboolean (COMPOSITE_CONFIG_SINGLEFLIGHT, TRUE, NULL))
+	{
+		if ((HWND)_InterlockedCompareExchangePointer ((volatile PVOID_PTR)&config.hnotification, NULL, NULL))
+		{
+			_app_state_holdpending (ptr_log->app_hash);
+
+			// best-effort throttled tray tooltip refresh with the
+			// held-pending count (the tooltip builder is shared with the
+			// status bar; _wfp_getinstalltype is an RPC, so no more than
+			// once per second from this event-driven path)
+			{
+				static volatile LONG hold_refresh_tick;
+				ULONG tick = GetTickCount ();
+				ULONG last_tick = (ULONG)_InterlockedCompareExchange (&hold_refresh_tick, 0, 0);
+
+				if (last_tick == 0 || (tick - last_tick) >= 1000)
+				{
+					_InterlockedExchange (&hold_refresh_tick, (LONG)tick);
+
+					hmain = _r_app_gethwnd ();
+
+					if (hmain)
+						_app_settrayicon (hmain, _wfp_getinstalltype ());
+				}
+			}
+
+			return FALSE;
+		}
+	}
 
 	ptr_app->last_notify = current_time;
 
@@ -446,6 +790,92 @@ VOID _app_notify_queueinfo (
 	context->base_address = _r_obj_reference (ptr_log);
 
 	_r_workqueue_queueitem (&resolve_notify_queue, &_app_queue_notifyinformation, context);
+}
+
+// composite T005 (FR-04): once / until-restart session durations for
+// prompt decisions; opened under the popup's safety timer (BCN_DROPDOWN
+// gates on _r_ctrl_isenabled — same contract as the timers menu); the
+// active session decision is check-marked
+static VOID _app_notify_generatedurationsmenu (
+	_In_ HMENU hsubmenu,
+	_In_ ULONG app_hash,
+	_In_ BOOLEAN is_block
+)
+{
+	PR_STRING string;
+	UINT once_id, until_id, active_id;
+	BOOLEAN is_active_block, is_active_once;
+
+	once_id = is_block ? IDX_BLOCK_ONCE : IDX_ALLOW_ONCE;
+	until_id = is_block ? IDX_BLOCK_UNTILRESTART : IDX_ALLOW_UNTILRESTART;
+
+	string = _r_locale_getstring_ex (IDS_DECISION_ONCE);
+
+	if (!string)
+		string = _r_obj_createstring (L"Once");
+
+	_r_menu_additem (hsubmenu, once_id, string->buffer);
+
+	_r_obj_dereference (string);
+
+	string = _r_locale_getstring_ex (IDS_DECISION_UNTIL_RESTART);
+
+	if (!string)
+		string = _r_obj_createstring (L"Until restart");
+
+	_r_menu_additem (hsubmenu, until_id, string->buffer);
+
+	_r_obj_dereference (string);
+
+	if (_app_state_getdecision (app_hash, &is_active_block, &is_active_once) && is_active_block == is_block)
+	{
+		active_id = is_active_once ? once_id : until_id;
+
+		_r_menu_checkitem (hsubmenu, active_id, active_id, MF_BYCOMMAND, active_id);
+	}
+}
+
+// composite T004/T005: the Allow split-dropdown — upstream temporary
+// timers, the session durations, and (only when the binary is
+// signature-verified and NOT self-signed, DEC-05) "Always for publisher"
+static VOID _app_notify_generateallowmenu (
+	_In_ HMENU hsubmenu,
+	_In_ ULONG app_hash
+)
+{
+	PR_STRING string;
+
+	// temporary allows (existing upstream menu)
+	_app_generate_timerscontrol (hsubmenu, app_hash);
+
+	_r_menu_addseparator (hsubmenu);
+
+	_app_notify_generatedurationsmenu (hsubmenu, app_hash, FALSE);
+
+	// composite T004: publisher binding (FR-03/SEC-02/DEC-05)
+	if (_app_publisher_isavailable (app_hash))
+	{
+		_r_menu_addseparator (hsubmenu);
+
+		string = _r_locale_getstring_ex (IDS_DECISION_PUBLISHER);
+
+		if (!string)
+			string = _r_obj_createstring (L"Always for publisher");
+
+		_r_menu_additem (hsubmenu, IDX_PUBLISHER, string->buffer);
+
+		_r_obj_dereference (string);
+	}
+}
+
+// composite T005: the Block split-dropdown — session durations only
+// (upstream has no timed blocks; the main button click stays "always")
+static VOID _app_notify_generateblockmenu (
+	_In_ HMENU hsubmenu,
+	_In_ ULONG app_hash
+)
+{
+	_app_notify_generatedurationsmenu (hsubmenu, app_hash, TRUE);
 }
 
 // hardening round 1 (FR-05/SEC-04/DEC-05): terminating another user's
@@ -1074,7 +1504,7 @@ INT_PTR CALLBACK NotificationProc (
 					if (!context || !_r_ctrl_isenabled (hwnd, (INT)(INT_PTR)nmlp->idFrom))
 						break;
 
-					if (nmlp->idFrom != IDC_ALLOW_BTN && nmlp->idFrom != IDC_RULES_BTN)
+					if (nmlp->idFrom != IDC_ALLOW_BTN && nmlp->idFrom != IDC_RULES_BTN && nmlp->idFrom != IDC_BLOCK_BTN)
 						break;
 
 					ptr_log = _app_notify_getobject (context->app_hash);
@@ -1090,7 +1520,15 @@ INT_PTR CALLBACK NotificationProc (
 					}
 					else if (nmlp->idFrom == IDC_ALLOW_BTN)
 					{
-						_app_generate_timerscontrol (hsubmenu, context->app_hash);
+						// composite T004/T005: timers + session durations +
+						// "Always for publisher" (available only when the
+						// binary is signature-verified and not self-signed)
+						_app_notify_generateallowmenu (hsubmenu, context->app_hash);
+					}
+					else if (nmlp->idFrom == IDC_BLOCK_BTN)
+					{
+						// composite T005: session durations for block decisions
+						_app_notify_generateblockmenu (hsubmenu, context->app_hash);
 					}
 
 					if (GetClientRect (nmlp->hwndFrom, &rect))
@@ -1314,6 +1752,53 @@ INT_PTR CALLBACK NotificationProc (
 				timer_idx = (ULONG_PTR)(ctrl_id - IDX_TIMER);
 
 				_app_notify_command (hwnd, IDC_ALLOW_BTN, timer_array[timer_idx]);
+
+				return FALSE;
+			}
+			else if (ctrl_id >= IDX_ALLOW_ONCE && ctrl_id <= IDX_BLOCK_UNTILRESTART)
+			{
+				// composite T005 (FR-04/DATA-01): once / until-restart
+				// session decisions — gated on the owning button's safety timer
+				INT duration_btn;
+				LONG64 duration_seconds;
+
+				duration_btn = (ctrl_id == IDX_ALLOW_ONCE || ctrl_id == IDX_ALLOW_UNTILRESTART) ? IDC_ALLOW_BTN : IDC_BLOCK_BTN;
+
+				if (!_r_ctrl_isenabled (hwnd, duration_btn))
+					return FALSE;
+
+				duration_seconds = (ctrl_id == IDX_ALLOW_ONCE || ctrl_id == IDX_BLOCK_ONCE) ? STATE_SECONDS_ONCE : STATE_SECONDS_UNTILRESTART;
+
+				_app_notify_command (hwnd, duration_btn, duration_seconds);
+
+				return FALSE;
+			}
+			else if (ctrl_id == IDX_PUBLISHER)
+			{
+				// composite T004 (FR-03/SEC-02/DEC-05): "Always for publisher" —
+				// store the signer-hash anchor + materialize per-path PERMIT
+				// filters; gated on the Allow safety timer like every decision
+				PITEM_APP ptr_app;
+				ULONG app_hash;
+
+				if (_r_ctrl_isenabled (hwnd, IDC_ALLOW_BTN))
+				{
+					app_hash = _app_notify_getapp_id (hwnd);
+
+					ptr_app = _app_getappitem (app_hash);
+
+					if (ptr_app)
+					{
+						_app_publisher_bind (hwnd, ptr_app);
+
+						// the binding covers the app's held-pending connections
+						_app_state_releasepending (app_hash);
+
+						_app_notify_freeobject (hwnd, ptr_app);
+
+						_r_obj_dereference (ptr_app);
+					}
+				}
 
 				return FALSE;
 			}

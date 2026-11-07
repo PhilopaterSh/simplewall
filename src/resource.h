@@ -312,6 +312,13 @@
 #define IDX_RULES_SPECIAL 1400
 #define IDX_COLUMN 1500
 
+// composite Phase 1 (T004/T005): prompt menu ids
+#define IDX_PUBLISHER 1600
+#define IDX_ALLOW_ONCE 1610
+#define IDX_ALLOW_UNTILRESTART 1611
+#define IDX_BLOCK_ONCE 1612
+#define IDX_BLOCK_UNTILRESTART 1613
+
 // Strings
 #define IDS_TITLE_EXCLUDE 1
 #define IDS_FILE 2
@@ -601,6 +608,11 @@
 #define IDS_UDP_ACCOUNTING 286
 #define IDS_UDP_UNAVAILABLE 287
 #define IDS_UDP_PENDING 288
+
+// composite Phase 1 (T004/T005): prompt decision menu strings
+#define IDS_DECISION_ONCE 289
+#define IDS_DECISION_UNTIL_RESTART 290
+#define IDS_DECISION_PUBLISHER 291
 
 // RC data
 #define IDR_PROFILE_INTERNAL 1

@@ -48,3 +48,25 @@ live requirement signal). Items marked [fixed] are already handled in this fork.
   update feed (Phase 1) exist precisely to make this class of confusion harmless.
 - Upstream contribution candidate: #2167 fix as an upstream-clean PR (DEC-09
   reputation path; needs porting back to the pristine tree).
+
+## P1 — composite T003-T006 follow-ups (from the 2026-11-07 goldfish review)
+
+1. **UI-hang risk (S4, real):** `_app_state_deploy/revoke` and
+   `_app_publisher_revokepath` hold module-exclusive locks across
+   `_wfp_destroyfilters_array`, which SendMessages to the toolbar/statusbar —
+   a UI thread blocked on the same lock while the holder messages it = hang.
+   Fix: snapshot GUIDs under the lock, destroy outside it, or defer to
+   wfp_queue. Do before Phase 1 release.
+2. **Held-pending counter coherence (S3):** counter not released on
+   Esc-close/editor-dismiss/app-delete/timer-expiry — tray can show stale
+   "N held". Release on prompt destroy + revokeapp.
+3. **Header/doc mismatch (S5):** composite_state.h "once without context
+   falls back to app-wide" is wrong — the code refuses to deploy (correct,
+   safe). Fix the doc. Undocumented edge: TpAllocTimer failure leaves a
+   2-minute-bounded permit with no timer.
+4. Dual-feed double-count: one block can be counted by both the WFP feed
+   and the 5157 feed — dedup pass when batch review (T007-era) lands.
+5. Session filters vanish on BFE service restart until next rule-apply
+   (non-persistent by design, FR-04) — document in user docs.
+6. Publisher validation revocation: drop-out on revoked certs requires
+   IsOCSPEnabled (default off) — document.
