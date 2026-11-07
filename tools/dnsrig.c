@@ -407,7 +407,7 @@ RIG_MAPPING* _rig_find_mapping (
 {
 	for (ULONG i = 0; i < rig->count; i++)
 	{
-		if (_r_str_compare (qname, rig->mappings[i].name->buffer, TRUE) == 0)
+		if (_wcsicmp (qname, rig->mappings[i].name->buffer) == 0)
 			return &rig->mappings[i];
 	}
 
