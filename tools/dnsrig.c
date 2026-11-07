@@ -183,6 +183,8 @@ typedef struct _RIG_SELFTEST_CONTEXT
 	SOCKET sock;
 	HANDLE stop_event;
 	RIG_CONFIG rig;
+	volatile LONG queries_seen; // r4 diagnostics: server-side visibility (CI run 42382080671)
+	volatile LONG replies_sent;
 } RIG_SELFTEST_CONTEXT;
 
 //
@@ -817,8 +819,13 @@ DWORD WINAPI _rig_selftest_thread (
 		// notes are dropped in the self-test pump (python pump ignores them)
 		_rig_handle_query (&ctx->rig, data, length, reply, sizeof (reply), &reply_length, note, RTL_NUMBER_OF (note));
 
+		InterlockedIncrement (&ctx->queries_seen);
+
 		if (reply_length)
+		{
 			sendto (ctx->sock, (PCHAR)reply, (INT)reply_length, 0, (PSOCKADDR)&from, from_length);
+			InterlockedIncrement (&ctx->replies_sent);
+		}
 	}
 
 	return 0;
@@ -1040,12 +1047,13 @@ INT _rig_selftest ()
 	// (1) mapped name answered (python qid 0x1234)
 	query_length = _rig_build_query (query, sizeof (query), 0x1234, "rig.test", FALSE);
 
+	rcode = 0xFFFF; // r4: never print stack garbage as a verdict (CI run 42382080671)
 	if (query_length > 0 && _rig_selftest_query (srv_port, query, query_length, 0x1234, &rcode))
 		mapped_ok = (rcode == RIG_RCODE_NOERROR);
 	else
 		mapped_ok = FALSE;
 
-	tool_out_format (L"%s: mapped name answered (rcode=%u)\n", mapped_ok ? L"PASS" : L"FAIL", (ULONG)rcode);
+	tool_out_format (L"%s: mapped name answered (rcode=%u) [server saw %lu q / %lu replies]\n", mapped_ok ? L"PASS" : L"FAIL", (ULONG)rcode, (ULONG)ctx.queries_seen, (ULONG)ctx.replies_sent);
 
 	// (2) unknown name NXDOMAIN (python qid 0x1234)
 	query_length = _rig_build_query (query, sizeof (query), 0x1234, "unknown.test", FALSE);
