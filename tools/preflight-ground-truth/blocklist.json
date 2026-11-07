@@ -1,0 +1,9 @@
+{
+ "provenance": {
+  "source": "henrypp/simplewall official v.3.8.7 portable (simplewall-3.8.7-bin.7z)",
+  "sha256_of_archive": "9f5bd16936decf1ace052a0120452cdeef004d5f6563f99bef180e7ae874e2a3",
+  "captured": "2026-11-07",
+  "note": "count from the fork exe embedded RCDATA (SWC1) \u2014 1496 items verified 2026-11-07; upstream-controlled value: update ONLY with a cited diff (RSK-01)"
+ },
+ "count": 1496
+}
