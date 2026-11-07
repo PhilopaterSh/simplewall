@@ -3,7 +3,7 @@
   "source": "henrypp/simplewall official v.3.8.7 portable (simplewall-3.8.7-bin.7z)",
   "sha256_of_archive": "9f5bd16936decf1ace052a0120452cdeef004d5f6563f99bef180e7ae874e2a3",
   "captured": "2026-11-07",
-  "note": "parity baseline from the verified A/B comparison (docs/specs/tooling/design.md DEC-02)"
+  "note": "RSK-01 cited-diff 2026-11-07: WS2_32.dll via commit 482893bc (upstream #2143 traffic feature; src/udpstats.c first winsock consumer). Full citation in the ledger."
  },
  "dlls": [
   "KERNEL32.dll",
@@ -29,6 +29,7 @@
   "dwmapi.dll",
   "MSIMG32.dll",
   "fwpuclnt.dll",
-  "WINMM.dll"
+  "WINMM.dll",
+  "WS2_32.dll"
  ]
 }

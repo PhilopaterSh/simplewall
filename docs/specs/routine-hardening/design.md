@@ -174,9 +174,11 @@ Intended observable outcomes:
 - DEC-05: canonical detached signature form — `manifest.sig` is a raw
   64-byte ECDSA P-256 signature (r||s) over the exact bytes of
   `manifest.json`; the public key is embedded as a
-  `BCRYPT_ECDSA_PUBLIC_P256_MAGIC` blob (little-endian X/Y) and verify
+  `BCRYPT_ECDSA_PUBLIC_P256_MAGIC` blob (BIG-endian X/Y verbatim —
+  corrected by the r4 header; CNG ECDSA is big-endian for blob and
+  signature, proven by tools/cng-signature-bench.py) and verify
   takes the precomputed SHA-256 digest of the manifest bytes (no DER, no
-  prehash flag). RSK-04's test vectors pin this normalization.
+  prehash flag). RSK-04's test vectors (the bench) pin this normalization.
 
 ## Risks and open questions
 
