@@ -56,7 +56,7 @@
 //
 // Build (DEC-10): tools/dnsrig.vcxproj -> bin\64\dnsrig.exe; Console
 // subsystem, APP_CONSOLE bootstrap, wmain entry; console output goes ONLY
-// through _r_console_writestringformat (routine) — never printf.
+// through tool_out_format (routine) — never printf.
 //
 
 #include "routine.h"
@@ -66,7 +66,74 @@
 #include <stdio.h>
 #include <wchar.h>
 
+#include <stdarg.h>
+#include <wchar.h>
+
 #pragma comment(lib, "ws2_32.lib")
+
+//
+// CI/pipes: the routine console writer (WriteConsoleW on the PEB stdout
+// handle) silently no-ops on non-console handles - mirror preflight's
+// out_write: real console gets WriteConsoleW; pipe/file gets UTF-8
+// WriteFile (process-audit lesson: invisible CI output = undiagnosable
+// failures; run 42381287177 failed blind).
+//
+static VOID out_write (LPCWSTR string, ULONG_PTR length)
+{
+	HANDLE hconsole;
+	ULONG mode;
+	ULONG chars = (ULONG)(length / sizeof (WCHAR));
+	BOOL console_written = FALSE;
+
+	hconsole = NtCurrentPeb ()->ProcessParameters->StandardOutput;
+
+	if (hconsole && hconsole != INVALID_HANDLE_VALUE)
+	{
+		console_written = (GetConsoleMode (hconsole, &mode) != FALSE) &&
+			(WriteConsoleW (hconsole, string, chars, NULL, NULL) != FALSE) &&
+			(WriteConsoleW (hconsole, L"\r\n", 2, NULL, NULL) != FALSE);
+	}
+
+	if (console_written)
+		return;
+
+	{
+		PCHAR buffer;
+		INT buffer_length;
+		DWORD written = 0;
+		static const CHAR newline[] = "\n";
+
+		if (!hconsole || hconsole == INVALID_HANDLE_VALUE)
+			hconsole = GetStdHandle (STD_OUTPUT_HANDLE);
+
+		buffer_length = WideCharToMultiByte (CP_UTF8, 0, string, (INT)chars, NULL, 0, NULL, NULL);
+
+		if (buffer_length > 0)
+		{
+			buffer = (PCHAR)_r_mem_allocate ((SIZE_T)buffer_length);
+
+			if (WideCharToMultiByte (CP_UTF8, 0, string, (INT)chars, buffer, buffer_length, NULL, NULL) > 0)
+				WriteFile (hconsole, buffer, (DWORD)buffer_length, &written, NULL);
+
+			_r_mem_free (buffer);
+		}
+
+		WriteFile (hconsole, newline, (DWORD)(RTL_NUMBER_OF (newline) - 1), &written, NULL);
+	}
+}
+
+static VOID tool_out_format (LPCWSTR format, ...)
+{
+	WCHAR buffer[2048];
+	va_list args;
+
+	va_start (args, format);
+	_vsnwprintf_s (buffer, RTL_NUMBER_OF (buffer), _TRUNCATE, format, args);
+	buffer[RTL_NUMBER_OF (buffer) - 1] = UNICODE_NULL;
+	va_end (args);
+
+	out_write (buffer, wcslen (buffer) * sizeof (WCHAR));
+}
 
 //
 // DNS wire constants
@@ -464,7 +531,7 @@ INT _rig_serve (
 
 	if (inet_pton (AF_INET, bind_a, &local.sin_addr) != 1)
 	{
-		_r_console_writestringformat (L"FAIL: invalid bind address: %s\n", bind_addr);
+		tool_out_format (L"FAIL: invalid bind address: %s\n", bind_addr);
 		return 1;
 	}
 
@@ -475,13 +542,13 @@ INT _rig_serve (
 
 	if (sock == INVALID_SOCKET)
 	{
-		_r_console_writestringformat (L"FAIL: cannot create UDP socket (wsa error %lu)\n", (ULONG)WSAGetLastError ());
+		tool_out_format (L"FAIL: cannot create UDP socket (wsa error %lu)\n", (ULONG)WSAGetLastError ());
 		return 1;
 	}
 
 	if (bind (sock, (PSOCKADDR)&local, sizeof (local)) == SOCKET_ERROR)
 	{
-		_r_console_writestringformat (L"FAIL: cannot bind udp/%s:%u (wsa error %lu)\n", bind_addr, (ULONG)port, (ULONG)WSAGetLastError ());
+		tool_out_format (L"FAIL: cannot bind udp/%s:%u (wsa error %lu)\n", bind_addr, (ULONG)port, (ULONG)WSAGetLastError ());
 		closesocket (sock);
 		return 1;
 	}
@@ -512,7 +579,7 @@ INT _rig_serve (
 		pos += (ULONG)written;
 	}
 
-	_r_console_writestringformat (L"dnsrig listening on udp/%s:%u — mappings: %s default: nxdomain\n", bind_addr, (ULONG)port, mappings_text);
+	tool_out_format (L"dnsrig listening on udp/%s:%u — mappings: %s default: nxdomain\n", bind_addr, (ULONG)port, mappings_text);
 
 	for (;;)
 	{
@@ -535,7 +602,7 @@ INT _rig_serve (
 
 		_rig_wide_from_ansi (peer_a, peer, RTL_NUMBER_OF (peer));
 
-		_r_console_writestringformat (L"query from %s: %s\n", peer, note);
+		tool_out_format (L"query from %s: %s\n", peer, note);
 
 		if (reply_length)
 			sendto (sock, (PCHAR)reply, (INT)reply_length, 0, (PSOCKADDR)&from, from_length);
@@ -567,7 +634,7 @@ BOOLEAN _rig_load_config (
 
 	if (!long_port || long_port > 65535)
 	{
-		_r_console_writestringformat (L"FAIL: invalid [rig] port: %s\n", port_text);
+		tool_out_format (L"FAIL: invalid [rig] port: %s\n", port_text);
 		return FALSE;
 	}
 
@@ -603,7 +670,7 @@ BOOLEAN _rig_load_config (
 		if (capacity >= RIG_SECTION_CAPACITY_MAX)
 		{
 			_r_mem_free (section);
-			_r_console_writestringformat (L"FAIL: [mappings] section too large (config: %s)\n", path);
+			tool_out_format (L"FAIL: [mappings] section too large (config: %s)\n", path);
 			return FALSE;
 		}
 
@@ -624,7 +691,7 @@ BOOLEAN _rig_load_config (
 		{
 			// python configparser raises ParsingError on malformed lines;
 			// the C rig fails closed instead of serving a partial rig
-			_r_console_writestringformat (L"FAIL: malformed [mappings] line: '%s' (config: %s)\n", line, path);
+			tool_out_format (L"FAIL: malformed [mappings] line: '%s' (config: %s)\n", line, path);
 			_r_mem_free (section);
 			return FALSE;
 		}
@@ -649,7 +716,7 @@ BOOLEAN _rig_load_config (
 
 		if (!*name || !*value)
 		{
-			_r_console_writestringformat (L"FAIL: empty [mappings] name or value (config: %s)\n", path);
+			tool_out_format (L"FAIL: empty [mappings] name or value (config: %s)\n", path);
 			_r_mem_free (section);
 			return FALSE;
 		}
@@ -661,7 +728,7 @@ BOOLEAN _rig_load_config (
 
 		if (inet_pton (AF_INET, value_a, &addr) != 1)
 		{
-			_r_console_writestringformat (L"FAIL: invalid mapping value for '%s': '%s' (config: %s)\n", name, value, path);
+			tool_out_format (L"FAIL: invalid mapping value for '%s': '%s' (config: %s)\n", name, value, path);
 			_r_mem_free (section);
 			return FALSE; // fail-closed: python crashed here on the first query instead
 		}
@@ -900,7 +967,7 @@ INT _rig_selftest ()
 
 	if (WSAStartup (MAKEWORD (2, 2), &wsa) != 0)
 	{
-		_r_console_writestringformat (L"FAIL: WSAStartup failed (wsa error %lu)\n", (ULONG)WSAGetLastError ());
+		tool_out_format (L"FAIL: WSAStartup failed (wsa error %lu)\n", (ULONG)WSAGetLastError ());
 		return 1;
 	}
 
@@ -922,7 +989,7 @@ INT _rig_selftest ()
 
 	if (ctx.sock == INVALID_SOCKET)
 	{
-		_r_console_writestringformat (L"FAIL: cannot create self-test socket (wsa error %lu)\n", (ULONG)WSAGetLastError ());
+		tool_out_format (L"FAIL: cannot create self-test socket (wsa error %lu)\n", (ULONG)WSAGetLastError ());
 		_r_obj_dereference (ctx.rig.mappings[0].name);
 		_r_obj_dereference (ctx.rig.mappings[0].value);
 		_r_mem_free (ctx.rig.mappings);
@@ -938,7 +1005,7 @@ INT _rig_selftest ()
 	if (bind (ctx.sock, (PSOCKADDR)&local, sizeof (local)) == SOCKET_ERROR ||
 		getsockname (ctx.sock, (PSOCKADDR)&actual, &actual_length) == SOCKET_ERROR)
 	{
-		_r_console_writestringformat (L"FAIL: cannot bind self-test socket (wsa error %lu)\n", (ULONG)WSAGetLastError ());
+		tool_out_format (L"FAIL: cannot bind self-test socket (wsa error %lu)\n", (ULONG)WSAGetLastError ());
 		closesocket (ctx.sock);
 		_r_obj_dereference (ctx.rig.mappings[0].name);
 		_r_obj_dereference (ctx.rig.mappings[0].value);
@@ -957,7 +1024,7 @@ INT _rig_selftest ()
 
 	if (!thread || !stop_event)
 	{
-		_r_console_writestringformat (L"FAIL: cannot start self-test server thread\n");
+		tool_out_format (L"FAIL: cannot start self-test server thread\n");
 
 		if (stop_event)
 			CloseHandle (stop_event);
@@ -978,7 +1045,7 @@ INT _rig_selftest ()
 	else
 		mapped_ok = FALSE;
 
-	_r_console_writestringformat (L"%s: mapped name answered (rcode=%u)\n", mapped_ok ? L"PASS" : L"FAIL", (ULONG)rcode);
+	tool_out_format (L"%s: mapped name answered (rcode=%u)\n", mapped_ok ? L"PASS" : L"FAIL", (ULONG)rcode);
 
 	// (2) unknown name NXDOMAIN (python qid 0x1234)
 	query_length = _rig_build_query (query, sizeof (query), 0x1234, "unknown.test", FALSE);
@@ -988,7 +1055,7 @@ INT _rig_selftest ()
 	else
 		nxdomain_ok = FALSE;
 
-	_r_console_writestringformat (L"%s: unknown name NXDOMAIN (rcode=%u)\n", nxdomain_ok ? L"PASS" : L"FAIL", (ULONG)rcode);
+	tool_out_format (L"%s: unknown name NXDOMAIN (rcode=%u)\n", nxdomain_ok ? L"PASS" : L"FAIL", (ULONG)rcode);
 
 	// (3) EDNS0/OPT tolerated (python qid 0x4321)
 	query_length = _rig_build_query (query, sizeof (query), 0x4321, "rig.test", TRUE);
@@ -998,7 +1065,7 @@ INT _rig_selftest ()
 	else
 		opt_ok = FALSE;
 
-	_r_console_writestringformat (L"%s: EDNS0/OPT tolerated\n", opt_ok ? L"PASS" : L"FAIL");
+	tool_out_format (L"%s: EDNS0/OPT tolerated\n", opt_ok ? L"PASS" : L"FAIL");
 
 	// teardown (python finally: stop.set(); join; close)
 	SetEvent (stop_event);
@@ -1012,7 +1079,7 @@ INT _rig_selftest ()
 	_r_obj_dereference (ctx.rig.mappings[0].value);
 	_r_mem_free (ctx.rig.mappings);
 
-	_r_console_writestringformat (L"dnsrig self-test: %s\n", (mapped_ok && nxdomain_ok && opt_ok) ? L"PASS" : L"FAIL");
+	tool_out_format (L"dnsrig self-test: %s\n", (mapped_ok && nxdomain_ok && opt_ok) ? L"PASS" : L"FAIL");
 
 	WSACleanup ();
 
@@ -1056,7 +1123,7 @@ INT wmain (
 		if (config_value)
 			_r_obj_dereference (config_value);
 
-		_r_console_writestringformat (L"usage: dnsrig --config <ini> | --self-test\n");
+		tool_out_format (L"usage: dnsrig --config <ini> | --self-test\n");
 		return 2;
 	}
 
@@ -1064,7 +1131,7 @@ INT wmain (
 	// directory — resolve against the caller's cwd first (fail-closed).
 	if (!GetFullPathNameW (config_value->buffer, (DWORD)RTL_NUMBER_OF (config_path), config_path, NULL))
 	{
-		_r_console_writestringformat (L"FAIL: config not found: %s\n", config_value->buffer);
+		tool_out_format (L"FAIL: config not found: %s\n", config_value->buffer);
 		_r_obj_dereference (config_value);
 		return 1;
 	}
@@ -1073,7 +1140,7 @@ INT wmain (
 
 	if (GetFileAttributesW (config_path) == INVALID_FILE_ATTRIBUTES)
 	{
-		_r_console_writestringformat (L"FAIL: config not found: %s\n", config_path);
+		tool_out_format (L"FAIL: config not found: %s\n", config_path);
 		return 1;
 	}
 
@@ -1085,7 +1152,7 @@ INT wmain (
 
 	if (WSAStartup (MAKEWORD (2, 2), &wsa) != 0)
 	{
-		_r_console_writestringformat (L"FAIL: WSAStartup failed (wsa error %lu)\n", (ULONG)WSAGetLastError ());
+		tool_out_format (L"FAIL: WSAStartup failed (wsa error %lu)\n", (ULONG)WSAGetLastError ());
 		return 1;
 	}
 

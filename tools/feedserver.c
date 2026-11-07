@@ -59,7 +59,7 @@
 // Build (DEC-10): tools/feedserver.vcxproj -> bin\64\feedserver.exe;
 // Console subsystem, APP_CONSOLE bootstrap, wmain entry; SECURITY_WIN32
 // is defined in the vcxproj BEFORE the sspi headers; console output goes
-// ONLY through _r_console_writestringformat (routine) — never printf.
+// ONLY through tool_out_format (routine) — never printf.
 //
 
 #include "routine.h"
@@ -74,7 +74,74 @@
 #include <stdio.h>
 #include <wchar.h>
 
+#include <stdarg.h>
+#include <wchar.h>
+
 #pragma comment(lib, "ws2_32.lib")
+
+//
+// CI/pipes: the routine console writer (WriteConsoleW on the PEB stdout
+// handle) silently no-ops on non-console handles - mirror preflight's
+// out_write: real console gets WriteConsoleW; pipe/file gets UTF-8
+// WriteFile (process-audit lesson: invisible CI output = undiagnosable
+// failures; run 42381287177 failed blind).
+//
+static VOID out_write (LPCWSTR string, ULONG_PTR length)
+{
+	HANDLE hconsole;
+	ULONG mode;
+	ULONG chars = (ULONG)(length / sizeof (WCHAR));
+	BOOL console_written = FALSE;
+
+	hconsole = NtCurrentPeb ()->ProcessParameters->StandardOutput;
+
+	if (hconsole && hconsole != INVALID_HANDLE_VALUE)
+	{
+		console_written = (GetConsoleMode (hconsole, &mode) != FALSE) &&
+			(WriteConsoleW (hconsole, string, chars, NULL, NULL) != FALSE) &&
+			(WriteConsoleW (hconsole, L"\r\n", 2, NULL, NULL) != FALSE);
+	}
+
+	if (console_written)
+		return;
+
+	{
+		PCHAR buffer;
+		INT buffer_length;
+		DWORD written = 0;
+		static const CHAR newline[] = "\n";
+
+		if (!hconsole || hconsole == INVALID_HANDLE_VALUE)
+			hconsole = GetStdHandle (STD_OUTPUT_HANDLE);
+
+		buffer_length = WideCharToMultiByte (CP_UTF8, 0, string, (INT)chars, NULL, 0, NULL, NULL);
+
+		if (buffer_length > 0)
+		{
+			buffer = (PCHAR)_r_mem_allocate ((SIZE_T)buffer_length);
+
+			if (WideCharToMultiByte (CP_UTF8, 0, string, (INT)chars, buffer, buffer_length, NULL, NULL) > 0)
+				WriteFile (hconsole, buffer, (DWORD)buffer_length, &written, NULL);
+
+			_r_mem_free (buffer);
+		}
+
+		WriteFile (hconsole, newline, (DWORD)(RTL_NUMBER_OF (newline) - 1), &written, NULL);
+	}
+}
+
+static VOID tool_out_format (LPCWSTR format, ...)
+{
+	WCHAR buffer[2048];
+	va_list args;
+
+	va_start (args, format);
+	_vsnwprintf_s (buffer, RTL_NUMBER_OF (buffer), _TRUNCATE, format, args);
+	buffer[RTL_NUMBER_OF (buffer) - 1] = UNICODE_NULL;
+	va_end (args);
+
+	out_write (buffer, wcslen (buffer) * sizeof (WCHAR));
+}
 #pragma comment(lib, "secur32.lib")
 #pragma comment(lib, "crypt32.lib")
 #pragma comment(lib, "ncrypt.lib")
@@ -348,7 +415,7 @@ SECURITY_STATUS _fs_handshake (
 			continue;
 		}
 
-		_r_console_writestringformat (L"feedserver: AcceptSecurityContext failed: 0x%08X (input bytes at call: %lu)\n", (ULONG)status, pre_call_bytes);
+		tool_out_format (L"feedserver: AcceptSecurityContext failed: 0x%08X (input bytes at call: %lu)\n", (ULONG)status, pre_call_bytes);
 
 		return status; // hard handshake failure
 	}
@@ -848,7 +915,7 @@ VOID _fs_handle_connection (
 		if (!inet_ntop (AF_INET, &peer->sin_addr, peer_a, RTL_NUMBER_OF (peer_a)))
 			strcpy_s (peer_a, sizeof (peer_a), "?");
 
-		_r_console_writestringformat (L"feedserver: handshake failed from %S: 0x%08X\n", peer_a, (ULONG)status);
+		tool_out_format (L"feedserver: handshake failed from %S: 0x%08X\n", peer_a, (ULONG)status);
 
 		if (conn.have_ctx)
 			DeleteSecurityContext (&conn.ctx);
@@ -980,14 +1047,14 @@ VOID _fs_handle_connection (
 			(unsigned)st.wDay, months[st.wMonth - 1], (unsigned)st.wYear,
 			(unsigned)st.wHour, (unsigned)st.wMinute, (unsigned)st.wSecond);
 
-		_r_console_writestringformat (L"%s - - [%s] \"%s\" %u -\n", peer_w, date, request_w, status_code);
+		tool_out_format (L"%s - - [%s] \"%s\" %u -\n", peer_w, date, request_w, status_code);
 	}
 	else
 	{
 		if (!inet_ntop (AF_INET, &peer->sin_addr, peer_a, RTL_NUMBER_OF (peer_a)))
 			strcpy_s (peer_a, sizeof (peer_a), "?");
 
-		_r_console_writestringformat (L"feedserver: request read failed from %S (tls state 0x%08X)\n", peer_a, (ULONG)status);
+		tool_out_format (L"feedserver: request read failed from %S (tls state 0x%08X)\n", peer_a, (ULONG)status);
 	}
 
 	if (conn.have_ctx)
@@ -1016,7 +1083,7 @@ BOOLEAN _fs_load_certificate (
 
 	if (!blob_data)
 	{
-		_r_console_writestringformat (L"FAIL: cannot read PFX file: %s\n", pfx_path);
+		tool_out_format (L"FAIL: cannot read PFX file: %s\n", pfx_path);
 		return FALSE;
 	}
 
@@ -1031,7 +1098,7 @@ BOOLEAN _fs_load_certificate (
 
 	if (!store)
 	{
-		_r_console_writestringformat (L"FAIL: cannot import PFX '%s' (wrong password or corrupt file; error 0x%08X)\n", pfx_path, (ULONG)GetLastError ());
+		tool_out_format (L"FAIL: cannot import PFX '%s' (wrong password or corrupt file; error 0x%08X)\n", pfx_path, (ULONG)GetLastError ());
 		_r_mem_free (blob_data);
 		return FALSE;
 	}
@@ -1040,7 +1107,7 @@ BOOLEAN _fs_load_certificate (
 
 	if (!cert)
 	{
-		_r_console_writestringformat (L"FAIL: no certificate in PFX '%s'\n", pfx_path);
+		tool_out_format (L"FAIL: no certificate in PFX '%s'\n", pfx_path);
 		CertCloseStore (store, 0);
 		_r_mem_free (blob_data);
 		return FALSE;
@@ -1062,7 +1129,7 @@ BOOLEAN _fs_load_certificate (
 
 	if (!CryptAcquireCertificatePrivateKey (cert, CRYPT_ACQUIRE_ONLY_NCRYPT_KEY_FLAG, NULL, &key_handle, &key_spec, &free_key))
 	{
-		_r_console_writestringformat (L"FAIL: the PFX private key is not usable (error 0x%08X)\n", (ULONG)GetLastError ());
+		tool_out_format (L"FAIL: the PFX private key is not usable (error 0x%08X)\n", (ULONG)GetLastError ());
 		CertFreeCertificateContext (cert);
 		CertCloseStore (store, 0);
 		_r_mem_free (blob_data);
@@ -1075,7 +1142,7 @@ BOOLEAN _fs_load_certificate (
 
 	if (!srv->cert)
 	{
-		_r_console_writestringformat (L"FAIL: cannot keep the PFX certificate context\n");
+		tool_out_format (L"FAIL: cannot keep the PFX certificate context\n");
 		return FALSE;
 	}
 
@@ -1102,7 +1169,7 @@ BOOLEAN _fs_load_certificate (
 
 	if (status != SEC_E_OK)
 	{
-		_r_console_writestringformat (L"FAIL: AcquireCredentialsHandle failed: 0x%08X\n", (ULONG)status);
+		tool_out_format (L"FAIL: AcquireCredentialsHandle failed: 0x%08X\n", (ULONG)status);
 		return FALSE;
 	}
 
@@ -1156,7 +1223,7 @@ INT wmain (
 
 		if (!port || port > 65535)
 		{
-			_r_console_writestringformat (L"FAIL: invalid port: %s\n", port_value->buffer);
+			tool_out_format (L"FAIL: invalid port: %s\n", port_value->buffer);
 			return 1;
 		}
 	}
@@ -1164,14 +1231,14 @@ INT wmain (
 	// resolve the root to an absolute path (python: os.path.abspath)
 	if (!GetFullPathNameW (root_value->buffer, (DWORD)RTL_NUMBER_OF (root), root, NULL))
 	{
-		_r_console_writestringformat (L"FAIL: feed root missing: %s\n", root_value->buffer);
+		tool_out_format (L"FAIL: feed root missing: %s\n", root_value->buffer);
 		return 1;
 	}
 
 	// fail-closed checks (python main() order, SEC-02/AS13)
 	if (GetFileAttributesW (root) == INVALID_FILE_ATTRIBUTES || !_fs_is_directory (root))
 	{
-		_r_console_writestringformat (L"FAIL: feed root missing: %s\n", root);
+		tool_out_format (L"FAIL: feed root missing: %s\n", root);
 		return 1;
 	}
 
@@ -1181,7 +1248,7 @@ INT wmain (
 
 	if (!_fs_is_file (check_path))
 	{
-		_r_console_writestringformat (L"FAIL: feed root lacks VERSION — the harness is meaningless without the feed pair (fail-closed)\n");
+		tool_out_format (L"FAIL: feed root lacks VERSION — the harness is meaningless without the feed pair (fail-closed)\n");
 		return 1;
 	}
 
@@ -1189,19 +1256,19 @@ INT wmain (
 
 	if (!_fs_is_file (check_path))
 	{
-		_r_console_writestringformat (L"FAIL: feed root lacks VERSION.sig — the harness is meaningless without the feed pair (fail-closed)\n");
+		tool_out_format (L"FAIL: feed root lacks VERSION.sig — the harness is meaningless without the feed pair (fail-closed)\n");
 		return 1;
 	}
 
 	if (!_fs_is_file (pfx_value->buffer))
 	{
-		_r_console_writestringformat (L"FAIL: TLS file missing: %s\n", pfx_value->buffer);
+		tool_out_format (L"FAIL: TLS file missing: %s\n", pfx_value->buffer);
 		return 1;
 	}
 
 	if (WSAStartup (MAKEWORD (2, 2), &wsa) != 0)
 	{
-		_r_console_writestringformat (L"FAIL: WSAStartup failed (wsa error %lu)\n", (ULONG)WSAGetLastError ());
+		tool_out_format (L"FAIL: WSAStartup failed (wsa error %lu)\n", (ULONG)WSAGetLastError ());
 		return 1;
 	}
 
@@ -1221,7 +1288,7 @@ INT wmain (
 
 		if (inet_pton (AF_INET, bind_a, &local.sin_addr) != 1)
 		{
-			_r_console_writestringformat (L"FAIL: invalid bind address: %s\n", bind_value->buffer);
+			tool_out_format (L"FAIL: invalid bind address: %s\n", bind_value->buffer);
 			WSACleanup ();
 			return 1;
 		}
@@ -1230,7 +1297,7 @@ INT wmain (
 	{
 		if (inet_pton (AF_INET, "127.0.0.1", &local.sin_addr) != 1)
 		{
-			_r_console_writestringformat (L"FAIL: cannot parse the default bind address\n");
+			tool_out_format (L"FAIL: cannot parse the default bind address\n");
 			WSACleanup ();
 			return 1;
 		}
@@ -1243,7 +1310,7 @@ INT wmain (
 
 	if (lsock == INVALID_SOCKET)
 	{
-		_r_console_writestringformat (L"FAIL: cannot create the listen socket (wsa error %lu)\n", (ULONG)WSAGetLastError ());
+		tool_out_format (L"FAIL: cannot create the listen socket (wsa error %lu)\n", (ULONG)WSAGetLastError ());
 		WSACleanup ();
 		return 1;
 	}
@@ -1253,7 +1320,7 @@ INT wmain (
 
 	if (bind (lsock, (PSOCKADDR)&local, sizeof (local)) == SOCKET_ERROR)
 	{
-		_r_console_writestringformat (L"FAIL: cannot bind https://%s:%u (wsa error %lu)\n", bind_value ? bind_value->buffer : L"127.0.0.1", port, (ULONG)WSAGetLastError ());
+		tool_out_format (L"FAIL: cannot bind https://%s:%u (wsa error %lu)\n", bind_value ? bind_value->buffer : L"127.0.0.1", port, (ULONG)WSAGetLastError ());
 		closesocket (lsock);
 		WSACleanup ();
 		return 1;
@@ -1261,13 +1328,13 @@ INT wmain (
 
 	if (listen (lsock, FEED_BACKLOG) == SOCKET_ERROR)
 	{
-		_r_console_writestringformat (L"FAIL: cannot listen (wsa error %lu)\n", (ULONG)WSAGetLastError ());
+		tool_out_format (L"FAIL: cannot listen (wsa error %lu)\n", (ULONG)WSAGetLastError ());
 		closesocket (lsock);
 		WSACleanup ();
 		return 1;
 	}
 
-	_r_console_writestringformat (L"feedserver: https://%s:%u root=%s (Ctrl+C to stop)\n",
+	tool_out_format (L"feedserver: https://%s:%u root=%s (Ctrl+C to stop)\n",
 		bind_value && !_r_obj_isstringempty2 (&bind_value->sr) ? bind_value->buffer : L"127.0.0.1",
 		port, srv.root);
 
@@ -1295,6 +1362,6 @@ INT wmain (
 	return 0;
 
 usage:
-	_r_console_writestringformat (L"usage: feedserver --root <feed-dir> --pfx <file.pfx> --password <pass> [--port 443] [--bind 127.0.0.1]\n");
+	tool_out_format (L"usage: feedserver --root <feed-dir> --pfx <file.pfx> --password <pass> [--port 443] [--bind 127.0.0.1]\n");
 	return 2; // argparse-style usage error (python ap.error exit code)
 }
