@@ -275,6 +275,7 @@ RIG_QNAME_RESULT _rig_parse_qname (
 
 		if (label_len == 0)
 		{
+			qname[idx] = UNICODE_NULL; // r4: terminate the assembled name - without this the caller compared past the end (CI run 42387239405: qname picked up a stale WCHAR, note showed 'rig.test<U+2776>')
 			*offset = off + 1;
 			return RigQnameOk;
 		}
