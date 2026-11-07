@@ -14466,6 +14466,7 @@ VOID _r_inet_initializedownload (
 )
 {
 	download_info->is_savetofile = (hfile != NULL);
+	download_info->is_bytes = FALSE;
 
 	if (download_info->is_savetofile)
 	{
@@ -14521,6 +14522,32 @@ NTSTATUS _r_inet_begindownload (
 			if (!NT_SUCCESS (status))
 				break;
 		}
+		else if (download_info->is_bytes)
+		{
+			// hardening round 2: raw-byte accumulation — the signed feed and
+			// its detached signature must survive the download bit-exact;
+			// the multibyte2unicode path is codepage-dependent and lossy for
+			// binary payloads (undefined ACP bytes are unrecoverable)
+			if (!download_info->bytes)
+			{
+				download_info->bytes = _r_obj_createbyte_ex (NULL, max (total_length, allocated_length));
+			}
+
+			if (total_readed > download_info->bytes->length)
+			{
+				PR_BYTE new_bytes;
+
+				new_bytes = _r_obj_createbyte_ex (NULL, download_info->bytes->length * 2);
+
+				RtlCopyMemory (new_bytes->buffer, download_info->bytes->buffer, total_readed - readed_length);
+
+				_r_obj_dereference (download_info->bytes);
+
+				download_info->bytes = new_bytes;
+			}
+
+			RtlCopyMemory (PTR_ADD_OFFSET (download_info->bytes->buffer, total_readed - readed_length), content_bytes->buffer, readed_length);
+		}
 		else
 		{
 			status = _r_str_multibyte2unicode (&content_bytes->sr, &string);
@@ -14552,13 +14579,37 @@ NTSTATUS _r_inet_begindownload (
 	{
 		if (status == STATUS_SUCCESS)
 		{
-			download_info->string = _r_obj_finalstringbuilder (&sb);
+			if (download_info->is_bytes)
+			{
+				// shrink-to-fit: downstream length checks (e.g. the 64-byte
+				// signature) rely on length being the exact payload size
+				PR_BYTE final_bytes;
+
+				final_bytes = _r_obj_createbyte_ex (NULL, total_readed);
+
+				RtlCopyMemory (final_bytes->buffer, download_info->bytes->buffer, total_readed);
+
+				_r_obj_dereference (download_info->bytes);
+
+				download_info->bytes = final_bytes;
+			}
+			else
+			{
+				download_info->string = _r_obj_finalstringbuilder (&sb);
+			}
 		}
 		else
 		{
-			_r_obj_deletestringbuilder (&sb);
+			if (download_info->is_bytes)
+			{
+				SAFE_DELETE_REFERENCE (download_info->bytes);
+			}
+			else
+			{
+				_r_obj_deletestringbuilder (&sb);
 
-			download_info->string = NULL;
+				download_info->string = NULL;
+			}
 		}
 	}
 
