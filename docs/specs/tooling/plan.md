@@ -72,3 +72,56 @@ attribution + provenance headers (DEC-01, DEC-06, NFR-01):
 - RSK-03: CI python drift — carried; runner python pinned; ≥3.9 APIs.
 - RSK-04: ground-truth integrity — carried; change control + pinned
   JSON SHA256; residual risk stated in design (no cryptographic root).
+
+## C unification approach (r3 — DEC-08/09/10)
+
+Two research agents mapped the reuse surface; every C tool REUSES the
+vendored library instead of reimplementing (owner directive: build on
+what exists, in the program's language):
+
+- Vendor change first (T008, 2 lines): `_r_update_verifysignature`
+  loses `static` in vendor/routine/rapp.c and gains its declaration in
+  vendor/routine/rapp.h — preflight then calls the PRODUCTION verifier
+  (DEC-09) via `_r_update_setpublickey (UPDATE_PUBLIC_KEY,
+  RTL_NUMBER_OF (UPDATE_PUBLIC_KEY))` (the exact src/main.c:1840 call
+  shape) against the repo feed pair read with `_r_fs_readbytes`.
+- `tools/preflight.vcxproj` + `tools/preflight.c` (T009): console
+  bootstrap `_r_app_initialize(NULL)` under APP_CONSOLE; checks via
+  routine APIs — `_r_res_queryversionstring(path)` (d), imports walk
+  (native, ~60 lines), DllCharacteristics read (native), RCDATA via
+  `_r_sys_loadlibrary(LOAD_LIBRARY_AS_IMAGE_RESOURCE | AS_DATA_FILE)` →
+  `_r_res_loadresource` → `_r_sys_decompressbuffer` (LZNT1→XPRESS
+  order) → `_r_xml_*` count (e), embedded-key scan (b1), Authenticode
+  via the src/helper.c:703-956 CryptCATAdmin+WinVerifyTrust pattern
+  (a), feed verification via the production verifier (b-feed, DEC-09);
+  ground truth = the same tools/preflight-ground-truth/*.json data
+  files (single source of parity constants, format UNCHANGED per
+  DEC-11 — read by a minimal-JSON-subset reader: flat keys, string
+  arrays, one integer, fail-closed outside the subset per SEC-02,
+  provenance fields equality-checked); `--ci` profile parity with
+  python (incl. AS5 SKIP labels and --json machine output).
+  VENDOR-LANE NOTE (RSK-05): T008 is a minimal 2-line export diff,
+  sequenced against the vendor-lane session state at build time —
+  the tools lane never refactors vendor code; tools adapt to vendor.
+- `tools/dnsrig.vcxproj` + `tools/dnsrig.c` (T010): raw winsock2 UDP/53
+  (no socket code exists in routine — confirmed gap), minimal wire
+  format, NXDOMAIN default, OPT tolerance, TCP unbound, per-query
+  `_r_console_writestringformat` logs, `-selftest` loopback mode;
+  ini via GetPrivateProfileString (house style, rapp.c:1954).
+- `tools/feedserver.vcxproj` + `tools/feedserver.c` (T011): schannel
+  server (secur32+schannel+crypt32, SECURITY_WIN32 defined before
+  sspi headers — no in-tree precedent, agent-confirmed gap), minimal
+  HTTP/1.1 GET, no listing, fail-closed on missing feed pair.
+- Build (all tools, DEC-10): per-tool vcxproj — SubSystem=Console,
+  APP_CONSOLE define, wmain, CharacterSet=Unicode, IncludePath +
+  vendor\routine\, OutDir=$(SolutionDir)bin\$(PlatformArchitecture)\,
+  GenerateManifest=false, /DEPENDENTLOADFLAG:0x800 /BREPRO, NO
+  CppWinRT/NuGet imports (src\uwp.cpp is the only winrt consumer —
+  agents confirmed tools never compile it); pragmas for the extra
+  libs in each tool's own .c (house style: main.h:13-22 precedent).
+- CI (T012): one additional msbuild invocation per tool vcxproj
+  (v143 override, same style as smoke-test.yml:30) replacing the
+  python preflight/self-test steps once the C tools pass; artifacts
+  gain the tool exes' hashes.
+- Verification (T013): AS1-AS9 re-executed through the C tools
+  (NFR-03), then the python versions are retired (DEC-08).

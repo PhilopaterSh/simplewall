@@ -552,6 +552,13 @@ VOID _r_update_setpublickey (
 	_In_ ULONG length
 );
 
+// tooling round r3 (DEC-09): production feed-signature verifier, exported
+// for tools/release-preflight (same code path as the app's update check)
+NTSTATUS _r_update_verifysignature (
+	_In_ PR_BYTEREF data_bytes,
+	_In_ PR_BYTE sig_bytes
+);
+
 VOID _r_update_applyconfig ();
 
 VOID _r_update_install (

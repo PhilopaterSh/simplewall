@@ -2390,7 +2390,9 @@ VOID _r_update_setpublickey (
 
 // verify: ECDSA P-256 detached signature (raw 64-byte r||s, IEEE P1363)
 // over the exact data bytes, against the embedded public key
-static NTSTATUS _r_update_verifysignature (
+// tooling round r3 (DEC-09): exported un-static so the preflight tool
+// exercises the REAL production verifier (logic unchanged)
+NTSTATUS _r_update_verifysignature (
 	_In_ PR_BYTEREF data_bytes,
 	_In_ PR_BYTE sig_bytes
 )

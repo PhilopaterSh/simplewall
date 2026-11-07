@@ -1,176 +1,84 @@
-```
-[Куплет 1]
-Я не звезда
-И никогда не говорил что пиздат
-Мой рэп никогда не будет издан
-Но это не мешает
-Вертеть на залупе весь ваш бизнес
-И вашу реп игру я в роток бодрю
-Ведь в репе как в политике
-Левым и правым тут нехуя делить
-У нас один враг и это капитализм
-Или для доступности назовём
-Лакеев капитала - жидами
-Свою совесть эти парни полностью продали
-И не даром в Германии приятно картавят
-И имеют горбатые носы
-Рэп войска блять, эти жидки строго с улицы
-Хотя голубцы в эмиграции
-Ничем не лучше, чем голубцы местные
-Певцы, которые примерили
-Накладные носы и пейсы
-И в камеру трясут капустой
-Как негритосы складывают пальцы
-Гангстеры они все не подъебаться
-Или батловые МС блять
-И те, и эти, все на пафосе
-Выясняют чей рэп опасней для ума детей
-А по сути просто захотели рубануть прайсик
-Их привлекает рэп, как блядей бордель
-Как капу картель, как борцов партер
-Как масонов мастерок по торговле мацой
-Много в рэпе мастеров
-Я бы устроил массовой террор
-И разбил еблецо монтировкой
-Каждому торговцу еблом
-Но больше не скажу им ни слова
-Ведь я тут теневой игрок
-И замаскирован в ноль под маской
-Зови меня Фантомасом, братка
-Пидорас ебаный
+# AGENTS.md — simplewall hardened fork: repository-wide agent instructions
 
-[Припев]
-Мне говорили
-Не говори ни слова
-О жидах и пидорасах
-Неси в массы добро
-И тебе браток воздастся
-Но чувак, я злобный тролль
-И мне хуй класть на вас всех
+> This file replaced upstream's placeholder content (inherited commit
+> `8f625967`). It is the canonical workflow for EVERY AI agent (and human)
+> working in this repository. The pointer files (CLAUDE.md, GROK.md)
+> reference this file.
 
-[Куплет 2]
-Мне не надо писать диссов
-Никто не задиссит вас лучше чем вы сами
-Носатые эмси, передавайте привет тётушке Саре
-И дедушке Мойше и может они вам доставят
-Прайс на раскрутку и вы как Миша Крупин
-Станете дико тру, шлифанёте Титомира залупу
-И кинете пять городов
-И прокачается под ваш рэп Александр Гордон
-Или как Шокк, например
-В песнях будете банчить наркотой
-Разевая ебач, про то, какой вы крутой
-Или как Оксимирон умный типа
-Как Вассерман Анатолий
-Хотя каждый второй из вас Семен, да и только
-Стиль убогий, рифмы хуета, но зато
-Умело шлифуете шляпу жида
-Или даже так, как Виктор Гевиксман
-Захотел популярности и запел за жизнь, блять, вообще
-Я к жидам отношусь положительно
-Пархачи, вы так смешите меня
-Что не надо никакой анаши
-Я врубаю ваши треки и заебись ржу
-Вы понтуетесь жутко, как заб джуда
-Хотя по жизни мальчуганы зашуганные
-В песнях сутенёры, у вас перстни и шубы
-Но это всё наёб, как и ваши еврейские шутки
-Которые зовёте панчлайнами, блять
-Чувак, закрывай меня, мне больше не нужны тут слова, бля
+## What this fork is
 
-[Припев]
-Мне говорили
-Не говори ни слова
-О жидах и пидорасах
-Неси в массы добро
-И тебе браток воздастся
-Но чувак, я злобный тролль
-И мне хуй класть на вас всех
+Security-hardened, self-verified fork of henrypp/simplewall (GPL-3.0 WFP
+firewall), built on the latest upstream master plus: two hardening rounds,
+a signed ECDSA P-256 update feed, a composite Phase-1 skeleton, and a
+gated C tool suite (release-preflight / dnsrig / feedserver). All work is
+governed by the **goldfish-gate EGM workflow** defined below. The gate
+tool lives at github.com/PhilopaterSh/goldfish-gate (installed via pip).
 
-[Куплет 3]
-Я не карманник
-Но мой напарник макар греет карман
-Идём брать банк
-Со мной братка Иван
-Мы бравая команда и взяли банков не мало
-Хотя это дело крупняк не предвещало
-Как видится сейчас мы ошибались
-Правда всё начиналось стандартно
-Значит заходим
-Это ограбление, суки на пол
-Вот сумка, туда складывай нал
-Базарю кассирше, ты чё блатная?
-Тут должна быть тишина
-Эй, в зале шпана, от кого слово услышу
-Пристрелю нахуй
-Обсосы, драл я вас в анал, Иван
-Давай их в подсобку и кассирше кляп в рот засунь
-Не забудь, она с нами и дай мне сотик
-Отзвонюсь, чтоб высадили нас на колёса
-Смотри, там мусора возле окон уже
-Скажи им, кто выебнётся положим каждого
-Типа у нас заложники
-И мол пиздец мы заварили кашу
-Хотя вот я уже машину вижу
-Браток наш подъезжает, эй, давай родная
-На выход с вещами
-И тут я такой на улицу, с подругой значит
-У неё ствол у виска, мусарам ору
-Сейчас на тот свет ей будет вписка
-А ну все стволы, блять, побросали быстро
-И пока мы с ней в машину залезали
-Ваня с бабосами подсуетил сзади
-И вот мы уже катим, а за нами мигалки
-На ленинском мост, эстакаду перегородили падлы
-Но если мы тут ляжем, значит такова карма
-А пока ни слова, братва, пусть говорят стволы за нас
-Давай, блядь, лучше устроим мусорским ад
+## The EGM cycle — MANDATORY for every feature/fix
 
-Пусть молчат люди, пусть говорят стволы
-Не говори ни слова, брат, не говори
-Пусть молчат люди, пусть говорят стволы
-Не говори ни слова, брат, не говори
-Пусть молчат люди, пусть говорят стволы
-Не говори ни слова, брат, не говори
+1. **Elephant drafts** `docs/specs/<chain>/design.md` (revision header).
+2. **Fresh-context goldfish review** — a NEW agent with zero conversation
+   history returns VERDICT APPROVE / APPROVE-WITH-CHANGES / BLOCK.
+3. **Owner approval recorded verbatim** (Arabic quote + date) in the
+   design header. No implementation before it exists.
+4. **spec.md / plan.md / tasks.md generated** from the approved design.
+5. **Mechanical gate MUST exit 0** before any implementation commit:
+   `goldfish check design.md spec.md plan.md tasks.md`
+   (run inside the chain directory; CI runs it too — see smoke-test.yml).
+6. **Implement only chain tasks**, in task order, then re-run the gate.
+7. **PR → CI green (build + launch + preflight + gate) → merge.**
 
-[Куплет 4]
-А под сиденьем у меня Калашников полковник
-У меня талант людей превращать в покойников
-Высовываю в окно его, взгляни дружок на белый свет
-Очередью даю, а серые встречают смерть, ё
-Бля, стрельба на ходу по мусорам
-Что может быть прекрасней с утра
-Особенно когда сумку денег украл
-Хотя ты знаешь, брат, ведь по нам тоже стреляют
-Смотри, вон кассирше башню продырявили
-Так открой дверку, блять, скинь трупак
-Но всё, вроде прорвались, а я не верил
-Думал нам труба
-Ну так как будем делить бабосы, друган?
-Шофёр просит долю не малую
-Его первая рука
-Давай во дворик вон зарули, разберёмся там
-Сколько говоришь тебе отдать?
-Ох, ебать как наглеет извозчик
-В результате его еблет напоминает борщ
-Целая обойма туда выпущена, ведь я шеф повар
-Свинцом фарширую мозги
-Не говори ни слова, брат, не говори
-И он не скажет, уже откинул коньки
-И все люди такие мудаки когда дело касается бабок
-Правда Иван?
-Но мой братка молча направляет на меня дуло ствола
-И делает в грудак два выстрела
-Я как Клинт Иствуд быстро хуячу в ответ
-И последняя мысль мелькает в голове
-Это заебись ведь что я замолчу навсегда
-И всё случилось вот так, два пулевых в грудак
-И я погиб от руки брата
+## Standing rules (each earned by a recorded incident — see the ledger)
 
-Пусть молчат люди, пусть говорят стволы
-Не говори ни слова, брат, не говори
-Пусть молчат люди, пусть говорят стволы
-Не говори ни слова, брат, не говори
-Пусть молчат люди, пусть говорят стволы
-Не говори ни слова, брат, не говори, е, ЛП 2009
-```
+- **Empirical-arbiter-first**: any BLOCKING finding about observable
+  behavior must attach a reproduction (bench/script/command output) at
+  review time; otherwise it is labeled `hypothesis — non-gating`.
+  Precedent: a wrong BLOCKING ("CNG wants little-endian") came within one
+  accepted review of ratifying a regression; the bench refuted it in
+  seconds (tools/cng-signature-bench.py — exit 0 REQUIRED before any
+  feed/signature change ships).
+- **Owner adversarial question per round**: the owner's unsolicited
+  challenge is a formal detection mechanism (it caught the one gate
+  bypass and spawned the entire supply-chain round). Log it in
+  docs/specs/tooling/retrospective-ledger.md when it fires.
+- **Never trust docs/memory for API byte-order or ABI claims** — prove
+  against the real API (bench or test) before coding.
+- **Lanes**: one worktree per lane; NEVER commit across lanes; the
+  tools lane never refactors vendor/ — tools adapt to vendor, never the
+  reverse; vendor changes are minimal diffs acked against the vendor
+  lane's live state (measure mtime + git log before racing).
+- **Amendment propagation**: when a revision header CORRECTS an earlier
+  statement, grep the body for the superseded term and rewrite it in the
+  same revision (incident: DEC-05 body contradicted the r4 header).
+- **Artifact completeness**: no implementation task starts while any
+  chain file is still a template (unfilled handoff.md, missing
+  verification.md). CI enforces via tools/check-chain-artifacts.py.
+- **Retrospective ledger is append-only**: every gate catch, review
+  finding (REAL/WRONG + arbitration), and bypass gets a row in
+  docs/specs/tooling/retrospective-ledger.md. Effectiveness is measured
+  from that ledger, not from memory.
+- **Sign after every rebuild** (SAC): signtool /fd SHA256 /f
+  D:/CV/Github/.keys/fork-codesign.pfx /p fork-local-only bin\64\<exe>.
+  NEVER commit private key material — the release profile/owner machine
+  split (tooling DEC-07) exists precisely for this.
+- **Parity constants live in tools/preflight-ground-truth/*.json with
+  provenance headers**; update ONLY with a commit citing the diff that
+  changed the underlying binary (RSK-01). In-tree key material is never
+  trusted — it is cross-checked against the off-repo JSON by the
+  preflight release profile (b2).
+
+## Gate commands quick reference
+
+    cd docs/specs/<chain>
+    goldfish check design.md spec.md plan.md tasks.md     # exit 0 required
+    python tools/cng-signature-bench.py                   # 4/4 PASS required
+    python tools/release-preflight.py bin/64/simplewall.exe          # release
+    python tools/release-preflight.py bin/64/simplewall.exe --ci     # CI profile
+
+## Merge discipline
+
+Linear: feature branch → sequential PRs → merge commits. CI green
+(build + 20s lifetime + C preflight --ci + dnsrig self-test + goldfish
+checks) before merge. PR-number gaps and unexpanded $VARS in merge
+messages are silent-automation-failure symptoms — note them in the
+ledger when seen (precedents: missing PR #9, "Merge PR #$PR2").
