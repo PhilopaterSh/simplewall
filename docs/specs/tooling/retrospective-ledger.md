@@ -45,6 +45,8 @@
 
 | 21 | 2026-11-07 | CI chain-gates step (first live run) | its own install source | pip from the PRIVATE goldfish-gate repo failed on the runner (prompt-script error) — visible failure, not silent | REAL — vendor-pinned 0.2.0 @ 5e31480 (tools/vendor/goldfish-gate-pin + PIN.md provenance); upgrade = owner action with full gate re-run | CI run 42373818607 |
 
+| 22 | 2026-11-07 | CI preflight (c) — change control in reverse | imports.json | the 25-DLL update measured an UNCOMMITTED parallel-checkout build; the committed tree on every branch builds 24 (verified by a clean CI-style build) — CI rejected the constant and protected the committed-tree truth | REAL — reverted to 24 with provenance; re-apply when the udpstats work lands committed (gate EXTRA = the trigger) | CI run 42374193195 + clean rebuild |
+
 ## Standing rule adopted from this ledger (empirical-arbiter-first, roadmap item 1)
 
 > Any BLOCKING finding about observable behavior must attach a reproduction
