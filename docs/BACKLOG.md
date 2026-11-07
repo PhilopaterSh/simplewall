@@ -70,3 +70,21 @@ live requirement signal). Items marked [fixed] are already handled in this fork.
    (non-persistent by design, FR-04) — document in user docs.
 6. Publisher validation revocation: drop-out on revoked certs requires
    IsOCSPEnabled (default off) — document.
+
+## Identity-research salvage (2026-11-07, adversarial review of the ProcessStartKey proposal)
+
+- **[DONE] UDP PID-reuse path fix**: re-resolve owner path when
+  `liCreateTimestamp` changes on a matched (pid, port) row (network.c, udp4+udp6,
+  ~12 LOC). The full (PID, ProcessStartKey) + second ETW session proposal was
+  REDESIGNED away (adversarial review: 5157/WFP events carry no PID — kernel path
+  capture already correct; SI does NOT use Kernel-Process ETW; ProcessStartKey
+  needs build-fragile undocumented structs).
+- **[P2] 5157 capture-side dedup LRU**: current dedup is a single-slot 2-second
+  global window (composite_eventlog.c) — any interleaved event evicts it. Replace
+  with a bounded multi-entry LRU of event keys (~40-60 LOC).
+- **[P2] AGENTS.md rewrite**: contains unrelated injected text — replace with real
+  project conventions (it guides future coding agents).
+- **[Phase 3 design note]**: process identity = lazy PID→(ImageName, CreateTime)
+  map over the already-vendored `_r_sys_enumprocesses` — NO ProcessStartKey, NO
+  second ETW session (carries the adversarial redesign verdict into the Phase 3
+  design round).
