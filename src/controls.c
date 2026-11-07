@@ -3,6 +3,8 @@
 
 #include "global.h"
 
+#include "composite_eventlog.h" // composite prompt pipeline (FR-01/RSK-08)
+
 VOID _app_getapptooltipstring (
 	_Inout_ PR_STRINGBUILDER buffer,
 	_In_ ULONG app_hash,
@@ -660,10 +662,19 @@ VOID _app_setinterfacestate (
 	if (!_wfp_isfiltersapplying ())
 	{
 		// hardening round 1: visible degraded-enforcement state (SEC-01)
+		// composite T002: prompt-pipeline degradation surfaces too (RSK-08)
 		if (_wfp_isenforcementdegraded ())
+		{
 			_r_status_settext (hwnd, IDC_STATUSBAR, 0, L"Enforcement degraded: one or more global filters failed to install (see log)");
+		}
+		else if (_app_eventlog_ispromptdegraded ())
+		{
+			_r_status_settext (hwnd, IDC_STATUSBAR, 0, L"Prompt pipeline degraded: Security-channel subscription unavailable (using WFP events)");
+		}
 		else
+		{
 			_r_status_settext (hwnd, IDC_STATUSBAR, 0, _app_getstatelocale (install_type));
+		}
 	}
 
 	_r_toolbar_setbutton (config.hrebar, IDC_TOOLBAR, IDM_TRAY_START, _app_getstateaction (install_type), BTNS_BUTTON | BTNS_AUTOSIZE | BTNS_SHOWTEXT, 0, (install_type != INSTALL_DISABLED) ? 1 : 0);
@@ -685,10 +696,19 @@ VOID _app_settrayicon (
 	hicon = _r_sys_loadsharedicon (_r_sys_getimagebase (), MAKEINTRESOURCE (_app_getstateicon (install_type)), icon_size);
 
 	// hardening round 1: degraded-enforcement state surfaces in the tooltip too (SEC-01)
+	// composite T002: prompt-pipeline degradation surfaces too (RSK-08)
 	if (_wfp_isenforcementdegraded ())
+	{
 		_r_str_printf (tooltip, RTL_NUMBER_OF (tooltip), L"%s (enforcement degraded)", _r_app_getname ());
+	}
+	else if (_app_eventlog_ispromptdegraded ())
+	{
+		_r_str_printf (tooltip, RTL_NUMBER_OF (tooltip), L"%s (prompt pipeline degraded)", _r_app_getname ());
+	}
 	else
+	{
 		_r_str_copy (tooltip, RTL_NUMBER_OF (tooltip), _r_app_getname ());
+	}
 
 	_r_tray_setinfo (hwnd, &GUID_TrayIcon, hicon, tooltip);
 }

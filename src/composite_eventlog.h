@@ -14,3 +14,4 @@
 NTSTATUS _app_eventlog_start (_In_ HWND hwnd);
 VOID _app_eventlog_stop (VOID);
 BOOLEAN _app_eventlog_ishealthy (VOID);
+BOOLEAN _app_eventlog_ispromptdegraded (VOID); // RSK-08: prompt-pipeline degradation surfaced on the UI (T002)
