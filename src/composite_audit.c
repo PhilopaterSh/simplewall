@@ -404,7 +404,6 @@ NTSTATUS _app_audit_revert (VOID)
 	BOOLEAN failure_prior;
 	BOOLEAN success_prior;
 	BOOLEAN legacy_present;
-	BOOLEAN legacy_is_dword;
 	BOOLEAN inventory_is_present;
 	BOOLEAN inventory_is_valid;
 	BOOLEAN audit_restored;
