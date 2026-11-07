@@ -1,331 +1,147 @@
-<h1 align="center">simplewall</h1>
+<h1 align="center">simplewall — hardened composite fork</h1>
 
 <p align="center">
-	<a href="https://github.com/henrypp/simplewall/releases"><img src="https://img.shields.io/github/v/release/henrypp/simplewall?style=flat-square&include_prereleases&label=version" /></a>
-	<a href="https://github.com/henrypp/simplewall/releases"><img src="https://img.shields.io/github/downloads/henrypp/simplewall/total.svg?style=flat-square" /></a>
-	<a href="https://github.com/henrypp/simplewall/issues"><img src="https://img.shields.io/github/issues-raw/henrypp/simplewall.svg?style=flat-square&label=issues" /></a>
-	<a href="https://github.com/henrypp/simplewall/graphs/contributors"><img src="https://img.shields.io/github/contributors/henrypp/simplewall?style=flat-square" /></a>
-	<a href="https://github.com/henrypp/simplewall/blob/master/LICENSE"><img src="https://img.shields.io/github/license/henrypp/simplewall?style=flat-square" /></a>
+	<a href="https://github.com/PhilopaterSh/simplewall"><img src="https://img.shields.io/github/license/PhilopaterSh/simplewall?style=flat-square" /></a>
+	<a href="#verified-build"><img src="https://img.shields.io/badge/build-verified%20(2026--11--07)-success?style=flat-square" /></a>
+	<a href="https://github.com/PhilopaterSh/simplewall/issues"><img src="https://img.shields.io/github/issues-raw/PhilopaterSh/simplewall.svg?style=flat-square&label=issues" /></a>
+	<a href="https://github.com/henrypp/simplewall"><img src="https://img.shields.io/badge/upstream-henrypp%2Fsimplewall-blue?style=flat-square" /></a>
 </p>
 
 <p align="center">
-	<i>Definitely for advanced users.</i>
+	<i>The lightweight WFP firewall you know — hardened, audited, and evolving into a composite security tool.</i>
 </p>
 
--------
+---
 
-<p align="center">
-	<img src="/images/simplewall.png?cache" />
-</p>
+> ### Attribution (GPL-3.0)
+> This is a fork of **[simplewall](https://github.com/henrypp/simplewall)** by **Henry++** — © 2016-2026 Henry++.
+> All credit for the original application belongs to upstream. This repository carries the upstream GPL-3.0 license
+> and publishes every change openly. Upstream website: [henrypp.org](https://www.henrypp.org/product/simplewall).
 
-### Description:
-Simple tool to configure [Windows Filtering Platform (WFP)](https://docs.microsoft.com/en-us/windows/win32/fwp/windows-filtering-platform-start-page) which can configure network activity on your computer.
+## What is this fork?
 
-The lightweight application is less than a megabyte, and it is compatible with Windows 7 SP1 and higher operating systems.
-You can download either the installer or portable version. For correct working you are require administrator rights.
+A hardened and audited evolution of simplewall: the same tiny, user-space, no-driver WFP firewall — with its
+trust boundaries fixed, its updater rebuilt around signed releases, and a composite feature roadmap designed
+through a formal design-gate process (see [Engineering discipline](#engineering-discipline)).
 
-### Nota bene:
-Keep in mind, simplewall is not a control UI over Windows Firewall, and does not interact in any level with Windows Firewall. It works
-over Windows Filtering Platform (WFP) which is a set of internal API and system services that provide a platform for creating network filtering
-applications. Windows Filtering Platform is a development technology and not a firewall itself, but simplewall is the tool that uses this technology.
+**Current status:** based on the upstream 3.9.x line, with 3 hardening/audit rounds completed, every fix
+verified by fresh-context code reviews, and the first interactive build validated on Windows 11 x64.
 
-### Features:
-- Simple interface without annoying pop ups
-- [Rules editor](https://github.com/henrypp/simplewall#rules-editor) (create your own rules)
-- [Internal blocklist](https://crazymax.dev/WindowsSpyBlocker/blocking-rules/simplewall/) (block Windows spy / telemetry)
-- Dropped packets information with notification and logging to a file feature (win7+)
-- Allowed packets information with logging to a file feature (win8+)
-- Windows Subsystem for Linux (WSL) support
-- Windows Store support (win8+)
-- Windows services support
-- Free and open source
-- Localization support
-- IPv6 support
+### Verified build
+
+| | |
+| --- | --- |
+| Binary | `bin/64/simplewall.exe` (~1.0 MB) |
+| SHA256 | `d807804132865bb4630e263df74b10dcbce6efc8f6993d2ee78419a7250911d8` |
+| Built with | MSVC 14.44 (v143), Windows SDK 10.0.26100 |
+| Audited | 2026-11-07 — two independent fresh-context reviews + cppcheck (0 findings) |
+
+## Differences from upstream
+
+| Area | Upstream | This fork |
+| --- | --- | --- |
+| Enforcement failure | Silent log entries | **Visible degraded-enforcement state** on tray/status + tri-state transaction (applying-never-sticks) |
+| Internal rules | On-disk override possible | **Compiled-in resource only** — attacker-writable override removed, foreign files logged as ignored |
+| Log viewer | Elevated launch (LPE class) | **De-elevated via shell token** — refuse + log on failure |
+| Privileges | Multiple SE_* held for lifetime | **SE_INC_BASE_PRIORITY only**; SE_DEBUG on-demand around the kill path |
+| Windows Update fix | Rewrites `System32\wusvc.exe` | **Original ImagePath preserved and restorable** with a guard |
+| Notification window | Ungated action messages | **All action branches gated** (enabled/visible check) |
+| Log file | Default ACL | **Explicit user+admins DACL** + migration for existing files |
+| Updates | Vendor transport (CA-ignore retry, unsigned URLs) | **Fail-closed TLS + ECDSA P-256 signed manifest + artifact SHA256** — unsigned content never executes |
+| Vendored library | n/a (submodule) | **In-tree, ABI-aligned** (every internal caller verified against the fork contract — see audit) |
+
+## Roadmap — the composite
+
+Designed and approved through the gate process (`docs/specs/composite/`), implemented in phases:
+
+- **Phase 1 — trust-aware prompting & packs** *(next)*
+  Security-audit-event prompt pipeline (5157) with automatic fallback and a visible prompt-degradation state •
+  pre-prompt auto-tiers • **publisher (Authenticode) rules** that survive app updates • decision durations
+  (once / until restart / always) • **single-flight prompting** • guarded **Lockdown mode** with recorded-snapshot
+  rollback • **signed rule packs** (Ed25519-class verification, anti-rollback) from a separate packs repository.
+- **Phase 2 — accountability & scale**
+  Audit ledger (detect/quarantine foreign firewall-rule changes, GPO-aware) • sorted-array blocklist engine
+  (2M entries/zone) • incremental filter apply.
+- **Phase 3 — domain layer (no driver)**
+  Per-app domain-level filtering via local resolver ownership + ETW DNS attribution • DoH/DoT • DNS-leak prevention.
+
+## Features (inherited from upstream)
+
+- Simple interface; rules editor (IP/ranges/CIDR/ports, global and per-app rules)
+- Built-in telemetry blocklist (WindowsSpyBlocker-based; 1,496 entries)
+- Dropped/allowed packet logging with notifications (win7+/win8+)
+- WSL, Windows Store (UWP) and per-service (svchost) filtering
+- IPv6, localization, portable mode (`simplewall.ini` beside the exe), free and open source
+
+## System requirements
+
+- Windows 7 SP1 … 11, 64-bit (x64 builds verified; ARM64 project configuration available)
+- SSE2-capable CPU; no external dependencies
+
+## Build from source
+
+```bat
+git clone https://github.com/PhilopaterSh/simplewall.git
+cd simplewall
+msbuild simplewall.sln -p:Configuration=Release -p:Platform=x64 -p:PlatformToolset=v143 -restore
+```
+
+The support library is vendored in-tree (`vendor/routine/`) — no submodule step needed.
+Requires VS 2022 Build Tools with the C++ workload.
+
+## Command line
 
 ```
-To activate portable mode, create "simplewall.ini" in application folder, or move it from "%APPDATA%\Henry++\simplewall".
+-install          enable filtering
+-install -temp    enable filtering until next reboot
+-install -silent  enable filtering without prompt
+-uninstall        remove all installed filters
 ```
 
-### System requirements:
-- Windows 7, 8, 8.1, 10, 11 64-bit/ARM64
-- An SSE2-capable CPU
-- <s>KB2533623</s> [KB3063858](https://www.microsoft.com/en-us/download/details.aspx?id=47442) update for Windows 7 was required
+## Uninstall — safe by design
 
-### Donate:
-- [Bitcoin](https://www.blockchain.com/btc/address/1LrRTXPsvHcQWCNZotA9RcwjsGcRghG96c) (BTC)
-- [Ethereum](https://www.blockchain.com/explorer/addresses/eth/0xe2C84A62eb2a4EF154b19bec0c1c106734B95960) (ETH)
-- [Yandex Money](https://yoomoney.ru/to/4100115776040583) (RUB)
-- [Paypal](https://paypal.me/henrypp) (USD)
+This fork asks **keep-or-release** during uninstall while filters are active (default: full revert),
+and intentionally disabling the firewall clears the degraded-state flag — you are never left with
+silent filters or a misleading status. (Upstream guidance: filters persist until "Disable filters"
+is pressed — this fork automates the decision.)
 
-### GPG Signature:
-Binaries have GPG signature `simplewall.exe.sig` in application folder.
+## Rule syntax
 
-- Public key: [pubkey.asc](https://raw.githubusercontent.com/henrypp/builder/master/pubkey.asc) ([pgpkeys.eu](https://pgpkeys.eu/pks/lookup?op=index&fingerprint=on&search=0x5635B5FD))
-- Key ID: 0x5635B5FD
-- Fingerprint: D985 2361 1524 AB29 BE73 30AC 2881 20A7 5635 B5FD
+Same engine, same syntax as upstream: IPs (`192.168.0.1`), IP:port (`192.168.0.1:443`),
+ranges (`192.168.0.1-192.168.0.255`), CIDR (`192.168.0.0/16`, `fe80::/10`), ports and port ranges
+(`443`, `49152-65534`), semicolon-separated. See upstream documentation for the full CIDR tables.
 
-### Reviews of idiots:
-[<img src="/images/idiot_n1.png" />](https://alternativeto.net/software/simplewall-firewall/about/)
+## FAQ
 
-Look at them, he does not know about [.gitmodules](https://github.com/henrypp/simplewall/blob/master/.gitmodules) and how to use, lol.
+**Is it safe to run alongside Windows Firewall?**
+Yes — this tool configures WFP directly and works independently; both firewalls can coexist.
 
-PS: Without idiots we are not to be fun, yeah!
+**Are filters active when the app is closed?**
+Yes — installed filters persist in the system regardless of the process.
 
-### Installation:
-When install rules, you can choose two modes:
-- Permanent rules - rules are working until you <a href="#uninstall">disable it manually</a>.
-- Temporary rules - rules are reset after the next reboot.
+**How are releases verified?**
+Release artifacts ship with a SHA256 hash and a signature over the update manifest
+(ECDSA P-256); the app itself refuses to apply any update that fails verification (fail-closed).
 
-### Uninstall:
-When you uninstall simplewall, all previously configured filters stay alive in system.
-To remove all filters created by simplewall, start simplewall and press "Disable filters" button.
+**Is the blocklist configurable?**
+Yes — `Settings -> Blocklist` per-category enable/disable; signed pack support (Phase 1) adds
+community-maintained, tamper-evident lists on top.
 
-### Command line:
+## Engineering discipline
 
-~~~
--install - enable filtering.
--install -temp - enable filtering until next reboot.
--install -silent - enable filtering without prompt.
--uninstall - remove all installed filters.
-~~~
+Every feature and fix in this fork passes through a machine-checked design-gate workflow
+([goldfish-gate](https://github.com/PhilopaterSh/goldfish-gate)): an approved design, a fresh-context
+review, human approval, and traceability keys that must survive into spec, plan and tasks
+(`docs/specs/`). The 2026-11-07 audit ran two independent fresh-context reviews over the full delta
+(vendor: *patch-set-sound*; src: all fixes verified) plus cppcheck (0 findings).
 
-### Rules editor:
-simplewall have two types of custom user rules rules:
-- **Global rules:** rule applied for all applications.
-- **Special rules:** rule applied only for specified applications.
+## Credits
 
-<img src="/images/simplewall_rules.png?cache2" />
+- **Henry++** — original simplewall ([upstream](https://github.com/henrypp/simplewall))
+- **WindowsSpyBlocker** — telemetry blocklist data
+- **goldfish-gate** — design-gate workflow (same author, this fork)
 
-### Rule syntax format:
+## License
 
-To set rule applications, open rule and then navigate to "Apps" tab.
-
-<details>
-<summary>Rule syntax format:</summary>
-
----
-- IP addresses `192.168.0.1; 192.168.0.1; [fc00::]`
-- IP addresses with port `192.168.0.1:80; 192.168.0.1:443; [fc00::]:443;`
-- IP ranges `192.168.0.1-192.168.0.255; 192.168.0.1-192.168.0.255;`
-- IP ranges (with port) `192.168.0.1-192.168.0.255:80; 192.168.0.1-192.168.0.255:443;` (v2.0.20+)
-- IP with prefix lengths (CIDR) `192.168.0.0/16; 192.168.0.0/24; fe80::/10`
-- Ports `21; 80; 443;`
-- Ports ranges `20-21; 49152-65534;`
-
-_To specify more than one ip, port and/or host, use semicolon._
----
-</details>
-
-<details>
-<summary>IPv4 CIDR blocks:</summary>
-
----
-| Address format | Mask |
-| -------- | ------- |
-| a.b.c.d/32 | 255.255.255.255 |
-| a.b.c.d/31 | 255.255.255.254 |
-| a.b.c.d/30 | 255.255.255.252 |
-| a.b.c.d/29 | 255.255.255.248 |
-| a.b.c.d/28 | 255.255.255.240 |
-| a.b.c.d/27 | 255.255.255.224 |
-| a.b.c.d/26 | 255.255.255.192 |
-| a.b.c.d/25 | 255.255.255.128 |
-| a.b.c.0/24 | 255.255.255.0|
-| a.b.c.0/23 | 255.255.254.0|
-| a.b.c.0/22 | 255.255.252.0|
-| a.b.c.0/21 | 255.255.248.0|
-| a.b.c.0/20 | 255.255.240.0|
-| a.b.c.0/19 | 255.255.224.0|
-| a.b.c.0/18 | 255.255.192.0|
-| a.b.c.0/17 | 255.255.128.0|
-| a.b.0.0/16 | 255.255.0.0|
-| a.b.0.0/15 | 255.254.0.0|
-| a.b.0.0/14 | 255.252.0.0|
-| a.b.0.0/13 | 255.248.0.0|
-| a.b.0.0/12 | 255.240.0.0|
-| a.b.0.0/11 | 255.224.0.0|
-| a.b.0.0/10 | 255.192.0.0|
-| a.b.0.0/9 | 255.128.0.0|
-| a.0.0.0/8 | 255.0.0.0|
-| a.0.0.0/7 | 254.0.0.0|
-| a.0.0.0/6 | 252.0.0.0|
-| a.0.0.0/5 | 248.0.0.0|
-| a.0.0.0/4 | 240.0.0.0|
-| a.0.0.0/3 | 224.0.0.0|
-| a.0.0.0/2 | 192.0.0.0|
-| a.0.0.0/1 | 128.0.0.0|
-| 0.0.0.0/0 | 0.0.0.0|
----
-</details>
-
-<details>
-<summary>IPv6 CIDR blocks:</summary>
-
----
-[IPv6 CIDR blocks](https://www.mediawiki.org/wiki/Help:Range_blocks/IPv6)
----
-</details>
-
-### FAQ:
-#### Q: Are internet connections blocked when simplewall is not running?
-A: Yes. Installed filters are working even if simplewall is terminated.
-
-#### Q: What apps are blocked in default configuration?
-A: By default, simplewall blocks **all** applications. You do not need to create custom rules to block specific applications.
-
-#### Q: Is it safe to use simplewall with Windows Firewall?
-A: Yes. You do not need to disable Windows Firewall. These two firewalls work independently.
-
-#### Q: How can i disable blocklist entirely?
-A: Open `Settings` -> `Blocklist` and then click the radio buttons labeled `Disable`.
-
-#### Q: Where is blacklist mode?
-A: Blacklist was removed many days ago for uselessness. But if you need it, you can still configure it.
-
-<details>
-<summary>Solution: Configure blacklist mode in simplewall:</summary>
-
----
-1) Open `Settings` -> `Rules`
-2) Uncheck `Block outbound for all` and `Block inbound for all` options.
-3) Create user rule (green cross on toolbar) with block action, any direction, `Block connection` name and empty remote and local rule.
-4) You can assign this rule for apps whatever you want to block network access.
----
-</details>
-
-#### Q: Why does my network icon have an exclamation mark?
-A: When you are connected to a network, Windows checks for internet connectivity using Active Probing. This feature is named as NCSI (Network Connectivity Status Indicator). You can resolve this problem in one of the following ways:
-
-<details>
-<summary>Solution 1: Enable NCSI through internal system rule:</summary>
-
----
-1) Open `System rules` tab.
-2) Allow `NCSI` rule (enabled by default).
----
-</details>
-
-<details>
-<summary>Solution 2: Disable NCSI through system registry:</summary>
-
----
-Create `Disable NCSI.reg` and import it into registry.
-
-```reg
-Windows Registry Editor Version 5.00
-
-[HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Windows\NetworkConnectivityStatusIndicator]
-"NoActiveProbe"=dword:00000001
-"DisablePassivePolling"=dword:00000001
-```
----
-</details>
-
-<details>
-<summary>Solution 3: Disable NCSI through group policy:</summary>
-
----
-1) Launch the group policy editor (`gpedit.msc` ).
-2) Go to `Computer Configuration -> Administrative Templates -> System -> Internet Communication Management -> Internet Communication Settings`.
-3) Double-click `Turn off Windows Network Connectivity Status Indicator active tests` and then select Enabled. Click Ok.
-4) Open the Command Prompt (Admin) and enter `gpupdate /force` to enforce the changes made to the Group Policies.
----
-</details>
-
-#### Q: How can I disable Windows Firewall?
-Start the command line _as an administrator_, and enter the commands below.
-
-<details>
-<summary>Disable Windows Firewall profiles:</summary>
-
----
-~~~bat
-netsh advfirewall set allprofiles state off
-~~~
----
-</details>
-
-<details>
-<summary>Enable Windows Firewall profiles:</summary>
-
----
-~~~bat
-netsh advfirewall set allprofiles state on
-~~~
----
-</details>
-
-#### Q: How can I view all filters information?
-Start the command line _as an administrator_, and enter the commands below.
-
-<details>
-<summary>Dump filters information saved into a `filters.xml` file:</summary>
-
----
-~~~bat
-cd /d %USERPROFILE%\Desktop
-
-netsh wfp show filters
-~~~
----
-</details>
-
-<details>
-<summary>Dump providers, callouts and layers information into a `wfpstate.xml` file:</summary>
-
----
-~~~bat
-cd /d %USERPROFILE%\Desktop
-
-netsh wfp show state
-~~~
----
-</details>
-
-Open it in any text editor and study.
-
-#### Q: How to fix Windows Update internet access?
-<details>
-<summary>Windows 10 and above:</summary>
-
----
-Open main window menu `Settings` -> `Rules` -> `Allow Windows Update`.
-<br />
-This is working by method described [here](https://github.com/henrypp/simplewall/issues/677).
-
----
-</details>
-
-<details>
-<summary>Windows 8.1:</summary>
-
----
-Open main window, Navigate into `System rules` tab and then enable `Windows Update service` rule.
-
----
-</details>
-
-#### Q: Other questions:
-- [Windows Security center integration (impossible)](https://stackoverflow.com/questions/3698285/how-can-i-tell-the-windows-security-center-that-im-an-antivirus/3698375#3698375)
-
-<details>
-<summary>Undocumented options:</summary>
-
----
-~~~ini
-IsSaveAppsWithEnvironment=TRUE # 4.0+
-IsNetworkMonitorEnabled=TRUE
-IsInternalRulesDisabled=FALSE
-IsBackupProfile=TRUE
-BackupPeriod=BACKUP_HOURS_PERIOD
-BackupTimestamp=0
-IsOCSPEnabled=FALSE
-UseStealthMode=TRUE
-~~~
-</details>
-
----
-- Website: [github.com/henrypp](https://github.com/henrypp)
-- Support: sforce5@mail.ru
----
-(c) 2016-2026 Henry++
+GPL-3.0 — see [LICENSE](LICENSE).
+© 2016-2026 Henry++ (upstream). Fork changes © 2026 PhilopaterSh.
