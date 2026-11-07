@@ -22,7 +22,7 @@ ULONG _wfp_getdegradedfailures ()
 
 static VOID _wfp_degraded_mark ()
 {
-	degraded_failures += 1;
+	InterlockedIncrement (&degraded_failures); // audit fix: mark can run from UI and apply threads concurrently
 	is_enforcementdegraded = TRUE;
 }
 
@@ -2174,6 +2174,7 @@ VOID NTAPI _wfp_applythread (
 
 		_wfp_destroyfilters (engine_handle);
 		_wfp_uninitialize (engine_handle, TRUE);
+		_wfp_degraded_reset (); // audit fix: intentional-off is a chosen state, not a degraded one — clear the tray/status flag
 	}
 
 	// dropped packets logging (win7+)

@@ -2157,7 +2157,7 @@ INT_PTR CALLBACK DlgProc (
 			PITEM_APP ptr_app;
 			PITEM_LOG ptr_log;
 			HWND hnotify;
-			ULONG_PTR enum_key;
+			ULONG_PTR enum_key = 0; // hardening round 1 (FR-08 audit fix): cursor must start at 0 — uninitialized values made _r_obj_enumhashtablepointer skip/drop legitimate notifications nondeterministically
 			BOOLEAN is_known;
 
 			ptr_log = (PITEM_LOG)lparam;

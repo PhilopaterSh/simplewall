@@ -2391,8 +2391,8 @@ VOID _r_update_setpublickey (
 // verify: ECDSA P-256 detached signature (raw 64-byte r||s, IEEE P1363)
 // over the exact data bytes, against the embedded public key
 static NTSTATUS _r_update_verifysignature (
-	_In_ PR_STRING data_bytes,
-	_In_ PR_STRING sig_bytes
+	_In_ PR_BYTEREF data_bytes,
+	_In_ PR_BYTE sig_bytes
 )
 {
 	BCRYPT_ALG_HANDLE halg_ecdsa = NULL;
@@ -2407,11 +2407,13 @@ static NTSTATUS _r_update_verifysignature (
 	if (update_public_key_length != sizeof (update_public_key_bytes))
 		return STATUS_INVALID_PARAMETER;
 
-	if (!data_bytes || !sig_bytes || sig_bytes->length != 64)
+	if (!data_bytes->buffer || !data_bytes->length || !sig_bytes || sig_bytes->length != 64)
 		return STATUS_INVALID_PARAMETER;
 
 	// BCRYPT_ECDSA_PUBLIC_BLOB layout: magic (ULONG) + cbKey (ULONG) +
-	// little-endian X + little-endian Y
+	// little-endian X + little-endian Y — update_key.h stores X||Y
+	// big-endian (the .NET/openssl export format), so both halves are
+	// byte-reversed here (hardening round 2, RSK-04)
 	blob_length = sizeof (BCRYPT_ECCKEY_BLOB) + sizeof (update_public_key_bytes);
 
 	public_blob = _r_mem_allocate (blob_length);
@@ -2419,7 +2421,17 @@ static NTSTATUS _r_update_verifysignature (
 	public_blob->dwMagic = BCRYPT_ECDSA_PUBLIC_P256_MAGIC;
 	public_blob->cbKey = 32;
 
-	RtlCopyMemory (public_blob + 1, update_public_key_bytes, sizeof (update_public_key_bytes));
+	{
+		PUCHAR blob_xy;
+
+		blob_xy = (PUCHAR)(public_blob + 1);
+
+		for (ULONG i = 0; i < 32; i++)
+		{
+			blob_xy[i] = update_public_key_bytes[31 - i]; // X, big→little endian
+			blob_xy[32 + i] = update_public_key_bytes[63 - i]; // Y, big→little endian
+		}
+	}
 
 	status = BCryptOpenAlgorithmProvider (&halg_ecdsa, BCRYPT_ECDSA_P256_ALGORITHM, NULL, 0);
 
@@ -2483,6 +2495,7 @@ NTSTATUS NTAPI _r_update_checkthread (
 	R_STRINGREF sr;
 	PR_HASHTABLE string_table;
 	PR_STRING string_value = NULL;
+	PR_STRING manifest_string = NULL;
 	PR_STRING update_url;
 	PR_STRING string;
 	R_STRINGREF remaining_part;
@@ -2495,6 +2508,11 @@ NTSTATUS NTAPI _r_update_checkthread (
 	update_info = arglist;
 
 	_r_inet_initializedownload (&download_info, NULL, NULL, NULL);
+
+	// hardening round 2 (FR-03/SEC-01): byte-exact feed download — the
+	// signature is computed over the raw feed bytes; the multibyte2unicode
+	// path is codepage-dependent (hashes UTF-16 instead of the signed bytes)
+	download_info.is_bytes = TRUE;
 
 	update_url = _r_obj_createstring (_r_app_getupdate_url ());
 
@@ -2528,6 +2546,11 @@ NTSTATUS NTAPI _r_update_checkthread (
 
 		_r_inet_initializedownload (&sig_download_info, NULL, NULL, NULL);
 
+		// hardening round 2 (FR-03/SEC-01): raw 64-byte r||s signature —
+		// text conversion is lossy for binary payloads and would trip the
+		// exact 64-byte length check
+		sig_download_info.is_bytes = TRUE;
+
 		status = _r_inet_begindownload (update_info->hsession, &sig_url->sr, &sig_download_info);
 
 		_r_obj_dereference (sig_url);
@@ -2539,10 +2562,9 @@ NTSTATUS NTAPI _r_update_checkthread (
 			goto CleanupExit;
 		}
 
-		status = _r_update_verifysignature (download_info.string, sig_download_info.string);
+		status = _r_update_verifysignature (&download_info.bytes->sr, sig_download_info.bytes);
 
-		if (sig_download_info.string)
-			_r_obj_dereference (sig_download_info.string);
+		SAFE_DELETE_REFERENCE (sig_download_info.bytes);
 
 		if (status != STATUS_SUCCESS)
 		{
@@ -2550,6 +2572,23 @@ NTSTATUS NTAPI _r_update_checkthread (
 
 			goto CleanupExit;
 		}
+
+		// verified raw bytes → parseable string (feed is ASCII, so the
+		// conversion is 1:1); decode into a local first — the union slot
+		// shared by bytes/string must stay untouched until the byte buffer
+		// is released
+		status = _r_str_multibyte2unicode (&download_info.bytes->sr, &manifest_string);
+
+		SAFE_DELETE_REFERENCE (download_info.bytes);
+
+		if (!NT_SUCCESS (status))
+		{
+			_r_log (LOG_LEVEL_ERROR, NULL, L"_r_update_checkthread", L"verified feed could not be decoded", status);
+
+			goto CleanupExit;
+		}
+
+		download_info.string = manifest_string;
 	}
 
 	string_table = _r_str_unserialize (&download_info.string->sr, L';', L'=');

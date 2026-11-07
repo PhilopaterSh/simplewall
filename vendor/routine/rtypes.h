@@ -975,12 +975,14 @@ typedef struct _R_DOWNLOAD_INFO
 	{
 		HANDLE hfile;
 		PR_STRING string;
+		PR_BYTE bytes; // hardening round 2: raw-byte download mode for binary feeds
 	};
 
 	PR_INET_DOWNLOAD_CALLBACK download_callback;
 	PVOID lparam;
 
 	BOOLEAN is_savetofile;
+	BOOLEAN is_bytes; // hardening round 2: bypass multibyte2unicode (binary-safe)
 } R_DOWNLOAD_INFO, *PR_DOWNLOAD_INFO;
 
 typedef struct _R_URLPARTS

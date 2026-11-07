@@ -6,3 +6,6 @@
 *.txt diff
 *.xml diff
 *.lng diff
+VERSION text eol=lf
+VERSION.sig binary
+*.sig binary
