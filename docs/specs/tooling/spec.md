@@ -18,6 +18,10 @@ decisions, and unresolved gates; do not re-interpret settled choices.
 - US4: As a maintainer I receive a pointed failure message when a parity
   constant drifts after an upstream merge so I can update the cited data file
   deliberately instead of blindly (RSK-01).
+- US5: As the developer I use the SAME tools in the program's own language
+  (C, via the vendored routine library) so tooling and product share one
+  language, one build tree, and the production verifier itself (FR-07,
+  FR-08, FR-09, DEC-08, DEC-09, DEC-10).
 
 ## Acceptance scenarios
 
@@ -51,6 +55,23 @@ decisions, and unresolved gates; do not re-interpret settled choices.
   verification runs against the rig+server harness, then the update fails
   closed and no artifact lands (harness-level witness of the app's own
   fail-closed path).
+- AS10: Given the C preflight (tools/preflight.vcxproj → bin\64\preflight.exe),
+  when run in full profile on the signed release exe, then it prints the same
+  six-check verdict table as the python implementation and exits 0 (FR-07,
+  NFR-03).
+- AS11: Given the repo feed pair (VERSION + VERSION.sig), when the C preflight
+  runs its feed-verification check, then it calls the UN-MODIFIED production
+  verifier with unchanged logic (static-export change only, DEC-09) via
+  `_r_update_setpublickey` with the embedded key, then it passes on the true
+  pair and fails on a tampered pair
+  (FR-07, DEC-09).
+- AS12: Given the C dnsrig (bin\64\dnsrig.exe), when run with `-selftest`, then
+  it passes the same loopback assertions (mapped answer, NXDOMAIN default,
+  OPT tolerance) without a sandbox (FR-08, NFR-03).
+- AS13: Given the C feedserver (bin\64\feedserver.exe) started with a
+  guest-trusted cert and the feed root, when the updater requests over TLS,
+  then it serves the manifest pair and logs requests, and refuses to start
+  without the feed pair (FR-09, NFR-03).
 
 ## Success criteria
 
@@ -68,3 +89,9 @@ decisions, and unresolved gates; do not re-interpret settled choices.
    (MIT-only borrows); no GPL third-party code anywhere (NFR-01, DEC-06).
 8. Preflight on the 1 MB exe completes in < 5 s deterministically; the DNS
    rig binds and answers in < 1 s (NFR-02).
+9. The C tools build from per-tool vcxproj files in CI WITHOUT the NuGet
+   restore step (no CppWinRT coupling — DEC-10) and land in bin\64\.
+10. The C tools re-pass AS1-AS9 through the C binaries (including AS5 --ci
+    SKIP labels and AS7 self-test) AND pass AS10-AS13 (production-verifier
+    feed positive/tamper included) — only then are the python versions
+    retired (DEC-08, NFR-03).
