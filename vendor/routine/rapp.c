@@ -2411,9 +2411,14 @@ static NTSTATUS _r_update_verifysignature (
 		return STATUS_INVALID_PARAMETER;
 
 	// BCRYPT_ECDSA_PUBLIC_BLOB layout: magic (ULONG) + cbKey (ULONG) +
-	// little-endian X + little-endian Y — update_key.h stores X||Y
-	// big-endian (the .NET/openssl export format), so both halves are
-	// byte-reversed here (hardening round 2, RSK-04)
+	// X + Y — CNG ECC blobs and ECDSA signatures are BIG-endian
+	// multiprecision integers (empirically proven by the CNG bench:
+	// verbatim big-endian blob imports 0x0 and verifies P1363 r||s
+	// as-is; little-endian halves fail 0xC000000D/0xC000A000), and
+	// update_key.h stores X||Y big-endian in the same convention, so
+	// the bytes are copied VERBATIM (hardening round 2, RSK-04; an
+	// earlier r4 half-reversal attempt was refuted by the bench and
+	// reverted)
 	blob_length = sizeof (BCRYPT_ECCKEY_BLOB) + sizeof (update_public_key_bytes);
 
 	public_blob = _r_mem_allocate (blob_length);
@@ -2421,17 +2426,7 @@ static NTSTATUS _r_update_verifysignature (
 	public_blob->dwMagic = BCRYPT_ECDSA_PUBLIC_P256_MAGIC;
 	public_blob->cbKey = 32;
 
-	{
-		PUCHAR blob_xy;
-
-		blob_xy = (PUCHAR)(public_blob + 1);
-
-		for (ULONG i = 0; i < 32; i++)
-		{
-			blob_xy[i] = update_public_key_bytes[31 - i]; // X, big→little endian
-			blob_xy[32 + i] = update_public_key_bytes[63 - i]; // Y, big→little endian
-		}
-	}
+	RtlCopyMemory (public_blob + 1, update_public_key_bytes, sizeof (update_public_key_bytes));
 
 	status = BCryptOpenAlgorithmProvider (&halg_ecdsa, BCRYPT_ECDSA_P256_ALGORITHM, NULL, 0);
 
