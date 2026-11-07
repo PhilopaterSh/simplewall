@@ -28,6 +28,13 @@ DEFINE_GUID (GUID_WfpSublayer, 0x9FEE6F59, 0xB951, 0x4F9A, 0xB5, 0x2F, 0x13, 0x3
 #define FWW_APP 0x09
 #define FWW_LOWEST 0x08
 
+// composite T004/T005 (FR-04/SEC-02): private sentinel for the composite
+// session-scoped filters (once/until-restart decisions, publisher
+// materializations) — consumed inside _wfp_createfilter, where it
+// suppresses FWPM_FILTER_FLAG_PERSISTENT so a session decision can never
+// outlive the process/reboot; never reaches FwpmFilterAdd0
+#define FWPCOMPOSITE_FLAG_SESSIONFILTER 0x80000000
+
 // transaction state (hardening round 1: a failed FwpmTransactionBegin0
 // must never be confused with a benign re-entry into someone's transaction)
 typedef enum _ENUM_TRANSACT_STATE

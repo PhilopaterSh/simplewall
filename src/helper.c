@@ -3,6 +3,8 @@
 
 #include "global.h"
 
+#include "composite_publisher.h" // composite Phase 1 (T004): publisher signer cache hooks
+
 VOID NTAPI _app_dereferenceapp (
 	_In_ PVOID entry
 )
@@ -779,16 +781,59 @@ BOOLEAN _app_calculatefilehash (
 	return TRUE;
 }
 
+// composite T004 (FR-03/SEC-02/DEC-05): self-signed detection for the
+// signer certificate — provider self-signed flag / chain-shape check
+// first, Subject==Issuer compare as belt-and-braces. Self-signed binaries
+// never get a publisher binding.
+static BOOLEAN _app_verifyisselfsigned (
+	_In_ PCRYPT_PROVIDER_SGNR prov_signer,
+	_In_ PCRYPT_PROVIDER_CERT prov_cert
+)
+{
+	BOOLEAN is_selfsigned = FALSE;
+
+	if (prov_cert->fSelfSigned)
+	{
+		is_selfsigned = TRUE;
+	}
+	else if (prov_signer && prov_signer->pChainContext)
+	{
+		if (prov_signer->pChainContext->cChain == 1 &&
+			prov_signer->pChainContext->rgpChain[0]->cElement == 1 &&
+			(prov_signer->pChainContext->rgpChain[0]->rgpElement[0]->TrustStatus.dwInfoStatus & CERT_TRUST_IS_SELF_SIGNED))
+		{
+			is_selfsigned = TRUE;
+		}
+	}
+
+	if (!is_selfsigned && prov_cert->pCert)
+	{
+		if (CertCompareCertificateName (X509_ASN_ENCODING | PKCS_7_ASN_ENCODING, &prov_cert->pCert->pCertInfo->Subject, &prov_cert->pCert->pCertInfo->Issuer))
+			is_selfsigned = TRUE;
+	}
+
+	return is_selfsigned;
+}
+
 _Ret_maybenull_
 PR_STRING _app_verifygetstring (
-	_In_ HANDLE state_data
+	_In_ HANDLE state_data,
+	_Out_opt_ PR_STRING_PTR signer_hash, // composite T004: hex SHA1 of the signer certificate
+	_Out_opt_ PBOOLEAN is_selfsigned // composite T004: signer certificate self-signed status
 )
 {
 	PCRYPT_PROVIDER_SGNR prov_signer;
 	PCRYPT_PROVIDER_DATA prov_data;
 	PCRYPT_PROVIDER_CERT prov_cert;
 	PR_STRING string = NULL;
-	ULONG idx = 0, length;
+	UCHAR sha1_hash[20];
+	ULONG idx = 0, length, sha1_length;
+
+	if (signer_hash)
+		*signer_hash = NULL;
+
+	if (is_selfsigned)
+		*is_selfsigned = FALSE;
 
 	prov_data = WTHelperProvDataFromStateData (state_data);
 
@@ -810,6 +855,20 @@ PR_STRING _app_verifygetstring (
 
 			if (length > 1)
 			{
+				// composite T004: hash and self-signed status are taken from the
+				// same certificate the common name resolves to, so the anchor and
+				// the display string can never disagree
+				if (signer_hash && !*signer_hash)
+				{
+					sha1_length = RTL_NUMBER_OF (sha1_hash);
+
+					if (CryptHashCertificate (0, CALG_SHA1, 0, prov_cert->pCert->pbCertEncoded, prov_cert->pCert->cbCertEncoded, sha1_hash, &sha1_length) && sha1_length == RTL_NUMBER_OF (sha1_hash))
+						*signer_hash = _r_str_fromhex (sha1_hash, sha1_length, TRUE);
+				}
+
+				if (is_selfsigned)
+					*is_selfsigned = _app_verifyisselfsigned (prov_signer, prov_cert);
+
 				string = _r_obj_createstring_ex (NULL, length * sizeof (WCHAR));
 
 				CertGetNameStringW (prov_cert->pCert, CERT_NAME_ATTR_TYPE, 0, szOID_COMMON_NAME, string->buffer, length + 1);
@@ -831,11 +890,19 @@ LONG _app_verifyfromfile (
 	_In_ PVOID union_data,
 	_In_ LPGUID action_id,
 	_In_opt_ PVOID policy_callback,
-	_Out_ PR_STRING_PTR signature_string
+	_Out_ PR_STRING_PTR signature_string,
+	_Out_opt_ PR_STRING_PTR signer_hash, // composite T004
+	_Out_opt_ PBOOLEAN is_selfsigned // composite T004
 )
 {
 	WINTRUST_DATA trust_data = {0};
 	LONG status;
+
+	if (signer_hash)
+		*signer_hash = NULL;
+
+	if (is_selfsigned)
+		*is_selfsigned = FALSE;
 
 	trust_data.cbStruct = sizeof (WINTRUST_DATA);
 	trust_data.dwUIChoice = WTD_UI_NONE;
@@ -874,7 +941,7 @@ LONG _app_verifyfromfile (
 	trust_data.dwStateAction = WTD_STATEACTION_VERIFY;
 	status = WinVerifyTrust (INVALID_HANDLE_VALUE, action_id, &trust_data);
 
-	*signature_string = (status == ERROR_SUCCESS && trust_data.hWVTStateData) ? _app_verifygetstring (trust_data.hWVTStateData) : NULL;
+	*signature_string = (status == ERROR_SUCCESS && trust_data.hWVTStateData) ? _app_verifygetstring (trust_data.hWVTStateData, signer_hash, is_selfsigned) : NULL;
 
 	// close state data
 	trust_data.dwStateAction = WTD_STATEACTION_CLOSE;
@@ -887,7 +954,9 @@ NTSTATUS _app_verifyfilefromcatalog (
 	_In_ HANDLE hfile,
 	_In_ LPCWSTR path,
 	_In_opt_ LPCWSTR algorithm_id,
-	_Out_ PR_STRING_PTR signature_string
+	_Out_ PR_STRING_PTR signature_string,
+	_Out_opt_ PR_STRING_PTR signer_hash, // composite T004
+	_Out_opt_ PBOOLEAN is_selfsigned // composite T004
 )
 {
 	GUID DriverActionVerify = DRIVER_ACTION_VERIFY;
@@ -908,12 +977,24 @@ NTSTATUS _app_verifyfilefromcatalog (
 	{
 		*signature_string = NULL;
 
+		if (signer_hash)
+			*signer_hash = NULL;
+
+		if (is_selfsigned)
+			*is_selfsigned = FALSE;
+
 		return status;
 	}
 
 	if (!file_size || file_size > _r_calc_megabytes2bytes64 (32))
 	{
 		*signature_string = NULL;
+
+		if (signer_hash)
+			*signer_hash = NULL;
+
+		if (is_selfsigned)
+			*is_selfsigned = FALSE;
 
 		return STATUS_FILE_TOO_LARGE;
 	}
@@ -940,7 +1021,7 @@ NTSTATUS _app_verifyfilefromcatalog (
 				catalog_info.cbCalculatedFileHash = file_hash_length;
 				catalog_info.hCatAdmin = hcat_admin;
 
-				status = _app_verifyfromfile (WTD_CHOICE_CATALOG, &catalog_info, &DriverActionVerify, &ver_info, &string);
+				status = _app_verifyfromfile (WTD_CHOICE_CATALOG, &catalog_info, &DriverActionVerify, &ver_info, &string, signer_hash, is_selfsigned);
 
 				if (ver_info.pcSignerCertContext)
 					CertFreeCertificateContext (ver_info.pcSignerCertContext);
@@ -960,6 +1041,12 @@ NTSTATUS _app_verifyfilefromcatalog (
 	else
 	{
 		*signature_string = NULL;
+
+		if (signer_hash)
+			*signer_hash = NULL;
+
+		if (is_selfsigned)
+			*is_selfsigned = FALSE;
 
 		return TRUST_E_SUBJECT_FORM_UNKNOWN;
 	}
@@ -992,14 +1079,14 @@ VOID _app_getfilesignatureinfo (
 	file_info.pcwszFilePath = ptr_app_info->path->buffer;
 	file_info.hFile = hfile;
 
-	status = _app_verifyfromfile (WTD_CHOICE_FILE, &file_info, &WinTrustActionGenericVerifyV2, NULL, &string);
+	status = _app_verifyfromfile (WTD_CHOICE_FILE, &file_info, &WinTrustActionGenericVerifyV2, NULL, &string, NULL, NULL);
 
 	if (status == TRUST_E_NOSIGNATURE)
 	{
-		status = _app_verifyfilefromcatalog (hfile, ptr_app_info->path->buffer, _r_sys_isosversiongreaterorequal (WINDOWS_8) ? BCRYPT_SHA256_ALGORITHM : NULL, &string);
+		status = _app_verifyfilefromcatalog (hfile, ptr_app_info->path->buffer, _r_sys_isosversiongreaterorequal (WINDOWS_8) ? BCRYPT_SHA256_ALGORITHM : NULL, &string, NULL, NULL);
 
 		if (status == TRUST_E_NOSIGNATURE)
-			_app_verifyfilefromcatalog (hfile, ptr_app_info->path->buffer, BCRYPT_SHA1_ALGORITHM, &string);
+			_app_verifyfilefromcatalog (hfile, ptr_app_info->path->buffer, BCRYPT_SHA1_ALGORITHM, &string, NULL, NULL);
 	}
 
 	__try
@@ -1010,6 +1097,64 @@ VOID _app_getfilesignatureinfo (
 	{
 		NOTHING;
 	}
+}
+
+// composite T004 (FR-03/SEC-02): full publisher verification for a single
+// file — the same file+catalog pipeline as _app_getfilesignatureinfo, but
+// also returning the signer-certificate SHA1 anchor and the self-signed
+// status (self-signed binaries never qualify for a publisher binding).
+// Returns the WinVerifyTrust status (ERROR_SUCCESS = trusted chain).
+LONG _app_getfilepublisherinfo (
+	_In_ PR_STRING path,
+	_In_opt_ HANDLE hfile,
+	_Out_ PR_STRING_PTR signer_hash,
+	_Out_ PR_STRING_PTR signer_name,
+	_Out_ PBOOLEAN is_selfsigned
+)
+{
+	GUID WinTrustActionGenericVerifyV2 = WINTRUST_ACTION_GENERIC_VERIFY_V2;
+	WINTRUST_FILE_INFO file_info = {0};
+	PR_STRING string = NULL;
+	HANDLE hfile_local = NULL;
+	LONG status;
+
+	*signer_hash = NULL;
+	*signer_name = NULL;
+	*is_selfsigned = FALSE;
+
+	if (_r_obj_isstringempty (path) || !_app_isappvalidbinary (path))
+		return TRUST_E_SUBJECT_FORM_UNKNOWN;
+
+	if (!hfile)
+	{
+		status = _r_fs_openfile (&hfile_local, &path->sr, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_DELETE | FILE_SHARE_WRITE, 0, FALSE);
+
+		if (!NT_SUCCESS (status))
+			return TRUST_E_NOSIGNATURE;
+
+		hfile = hfile_local;
+	}
+
+	file_info.cbStruct = sizeof (WINTRUST_FILE_INFO);
+	file_info.pcwszFilePath = path->buffer;
+	file_info.hFile = hfile;
+
+	status = _app_verifyfromfile (WTD_CHOICE_FILE, &file_info, &WinTrustActionGenericVerifyV2, NULL, &string, signer_hash, is_selfsigned);
+
+	if (status == TRUST_E_NOSIGNATURE)
+	{
+		status = _app_verifyfilefromcatalog (hfile, path->buffer, _r_sys_isosversiongreaterorequal (WINDOWS_8) ? BCRYPT_SHA256_ALGORITHM : NULL, &string, signer_hash, is_selfsigned);
+
+		if (status == TRUST_E_NOSIGNATURE)
+			status = _app_verifyfilefromcatalog (hfile, path->buffer, BCRYPT_SHA1_ALGORITHM, &string, signer_hash, is_selfsigned);
+	}
+
+	*signer_name = string; // may be NULL even for a trusted chain (no common name)
+
+	if (hfile_local)
+		NtClose (hfile_local);
+
+	return status;
 }
 
 VOID _app_getfileversioninfo (
@@ -1654,6 +1799,11 @@ VOID NTAPI _app_timercallback (
 
 		_r_queuedlock_releaseshared (&lock_apps);
 
+		// composite T004 (FR-03/SEC-02): re-validate materialized publisher
+		// bindings at the same 10-minute cadence; a signer that no longer
+		// validates is revoked and logged (drop-out)
+		_app_publisher_revalidate ();
+
 		_r_sys_waitforsingleobject (NtCurrentThread (), _r_calc_minutes2milliseconds (10));
 	}
 }
@@ -1819,6 +1969,14 @@ VOID NTAPI _app_queue_notifyinformation (
 
 					NtClose (hfile);
 				}
+
+				// composite T004 (FR-03): pre-warm the publisher signer cache
+				// (path+mtime keyed) while the popup's signature is resolved, so
+				// the "Always for publisher" choice is ready when the dropdown
+				// opens (WinVerifyTrust is not re-run on the UI thread unless the
+				// pre-warm lost the race)
+				if (_r_config_getboolean (L"IsCompositePublishersEnabled", TRUE, NULL))
+					_app_publisher_capturefile (ptr_app_info->path);
 			}
 
 			_r_obj_dereference (ptr_app_info);

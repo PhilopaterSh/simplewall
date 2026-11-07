@@ -140,6 +140,18 @@ VOID _app_getfilesignatureinfo (
 	_In_ HANDLE hfile
 );
 
+// composite T004 (FR-03/SEC-02): Authenticode publisher verification with
+// signer-certificate SHA1 anchor and self-signed status; the outputs are
+// ref-counted strings (dereference required). Returns the WinVerifyTrust
+// status (ERROR_SUCCESS = trusted chain).
+LONG _app_getfilepublisherinfo (
+	_In_ PR_STRING path,
+	_In_opt_ HANDLE hfile,
+	_Out_ PR_STRING_PTR signer_hash,
+	_Out_ PR_STRING_PTR signer_name,
+	_Out_ PBOOLEAN is_selfsigned
+);
+
 VOID _app_getfileversioninfo (
 	_Inout_ PITEM_APP_INFO ptr_app_info
 );

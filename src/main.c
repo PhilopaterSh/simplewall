@@ -5,6 +5,8 @@
 
 #include "update_key.h" // hardening round 2: update feed verification public key
 #include "composite_audit.h" // composite Phase 1 (SEC-03/DEC-03)
+#include "composite_state.h" // composite Phase 1 (T005 durations/T006 single-flight)
+#include "composite_publisher.h" // composite Phase 1 (T004 publisher rules)
 
 BOOLEAN _app_changefilters (
 	_In_ HWND hwnd,
@@ -1944,6 +1946,12 @@ VOID _app_initialize (
 	cache_information = _r_obj_createhashtablepointer (0x20);
 	cache_resolution = _r_obj_createhashtablepointer (0x20);
 
+	// composite Phase 1 (T004-T006): prompting session state (session
+	// decisions, held-pending counter) and publisher anchors (in-memory
+	// this round; sidecar persistence is T009)
+	_app_state_initialize ();
+	_app_publisher_initialize ();
+
 	NtCreateEvent (&config.hnotify_evt, EVENT_ALL_ACCESS, NULL, NotificationEvent, TRUE);
 
 	if (hwnd)
@@ -2262,6 +2270,11 @@ INT_PTR CALLBACK DlgProc (
 				_r_workqueue_waitforfinish (&wfp_queue);
 				_r_workqueue_destroy (&wfp_queue);
 			}
+
+			// composite Phase 1 (T004/T005): session decisions and publisher
+			// bindings revoke their filters with the session (FR-04/DATA-01)
+			_app_state_uninitialize ();
+			_app_publisher_uninitialize ();
 
 			_r_tray_destroy (hwnd, &GUID_TrayIcon);
 

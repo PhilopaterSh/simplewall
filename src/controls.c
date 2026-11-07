@@ -4,6 +4,7 @@
 #include "global.h"
 
 #include "composite_eventlog.h" // composite prompt pipeline (FR-01/RSK-08)
+#include "composite_state.h" // composite Phase 1 (T006 held-pending surface)
 
 VOID _app_getapptooltipstring (
 	_Inout_ PR_STRINGBUILDER buffer,
@@ -671,6 +672,11 @@ VOID _app_setinterfacestate (
 		{
 			_r_status_settext (hwnd, IDC_STATUSBAR, 0, L"Prompt pipeline degraded: Security-channel subscription unavailable (using WFP events)");
 		}
+		else if (_app_state_getheldtotal () != 0)
+		{
+			// composite T006 (FR-05): connections held for batch review while a prompt was visible
+			_r_status_settextformat (hwnd, IDC_STATUSBAR, 0, L"%s (%lu connection(s) held for batch review)", _app_getstatelocale (install_type), _app_state_getheldtotal ());
+		}
 		else
 		{
 			_r_status_settext (hwnd, IDC_STATUSBAR, 0, _app_getstatelocale (install_type));
@@ -697,6 +703,7 @@ VOID _app_settrayicon (
 
 	// hardening round 1: degraded-enforcement state surfaces in the tooltip too (SEC-01)
 	// composite T002: prompt-pipeline degradation surfaces too (RSK-08)
+	// composite T006: held-pending counter surfaces too (FR-05)
 	if (_wfp_isenforcementdegraded ())
 	{
 		_r_str_printf (tooltip, RTL_NUMBER_OF (tooltip), L"%s (enforcement degraded)", _r_app_getname ());
@@ -704,6 +711,10 @@ VOID _app_settrayicon (
 	else if (_app_eventlog_ispromptdegraded ())
 	{
 		_r_str_printf (tooltip, RTL_NUMBER_OF (tooltip), L"%s (prompt pipeline degraded)", _r_app_getname ());
+	}
+	else if (_app_state_getheldtotal () != 0)
+	{
+		_r_str_printf (tooltip, RTL_NUMBER_OF (tooltip), L"%s (%lu held for review)", _r_app_getname (), _app_state_getheldtotal ());
 	}
 	else
 	{
