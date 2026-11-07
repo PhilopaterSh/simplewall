@@ -1,10 +1,19 @@
 # Design: Round 2 — Routine Hardening & Secure Updater
 
-> Revision `2026-11-06-r2` — incorporates goldfish review (verdict
-> APPROVE-WITH-CHANGES; all six audit claims independently CONFIRMED
-> against the library code). Round-1's fail-safe rules posture stays
-> untouched: rules/language unification is deferred to Round 3. Owner
-> policy input: the updater keeps working, fail-closed and signed.
+> Revision `2026-11-06-r3` — retrospective amendment (2026-11-07): the
+> first interactive run crashed 0xC0000005; root cause = DEC-04 was
+> applied to headers/definitions but NOT to all internal vendor callers
+> (arg-order shuffle class) plus one PR_STRING/PR_STRINGREF layout
+> divergence. This extends DEC-04's scope explicitly: **the fork-ABI
+> contract covers every caller inside the vendored tree, not only the
+> two functions originally aligned** — implemented as T014 (patch set
+> F9-F13 + the parallel-session queryversion fix, commits f4bfda30,
+> ccd618a9, 02d99172) and verified as T015 (two fresh-context goldfish
+> audits: vendor patch-set VERDICT patch-set-sound incl. a 9-function
+> sweep finding zero crash-capable mismatches remaining; full src
+> re-audit with one blocking finding fixed at 015f95ce; cppcheck clean;
+> warnings 60+ -> 18 benign const lints). Prior r2 content unchanged.
+> Owner policy input: the updater keeps working, fail-closed and signed.
 
 ## Problem and intended outcomes
 
