@@ -1,18 +1,20 @@
 // simplewall (composite fork)
-// Composite Phase 1 — audit lifecycle (T001)
+// Composite Phase 1 — audit lifecycle (T001, rev2 after goldfish review)
 // SEC-03 / DATA-01 / DEC-03: the prompt pipeline consumes failure-audit
 // events (5157) from the "Filtering Platform Connection" subcategory.
-// That is a machine-wide change: prior state is inventoried into the
-// audit sidecar before any write, reverted exactly on disable/uninstall,
-// and checked at startup for crash residue (lost inventory downgrades
-// revert to warn-and-leave). In-process Audit* APIs only — no
-// auditpol.exe child process (SEC-05). advapi32 linked statically —
-// precedent: SetEntriesInAclW (log.c). Module-local exclusive lock; the
-// audit code never calls back into _wfp_*/profile/apps (no lock nesting).
+// That is a machine-wide change: the PRIOR state is inventoried into the
+// audit sidecar exactly once (before the first write), reverted exactly
+// on disable/uninstall, and checked at startup for crash residue.
+// In-process Audit* APIs only — no auditpol.exe child process (SEC-05).
+// NOTE: AuditQuerySystemPolicy/AuditSetSystemPolicy return BOOLEAN and
+// report errors via GetLastError (NTSecAPI.h) — every failure maps to a
+// failure HRESULT so NT_SUCCESS plumbing stays honest.
+// Module-local exclusive lock; audit code never calls back into
+// _wfp_*/profile/apps (no lock nesting).
 
 #include "global.h"
 #include "composite_audit.h"
-#include "composite.h" // sidecar names (DATA-01)
+#include "composite.h"
 
 #include <ntsecapi.h>
 
@@ -21,6 +23,10 @@
 #define AUDIT_SUBCATEGORY_GUID {0x0cce9226, 0x69ae, 0x11d9, {0xbe, 0xd3, 0x50, 0x50, 0x54, 0x50, 0x30, 0x30}} // "Filtering Platform Connection"
 #define AUDIT_LEGACY_REGKEY L"SYSTEM\\CurrentControlSet\\Control\\Lsa"
 #define AUDIT_LEGACY_REGVALUE L"SCENoApplyLegacyAuditPolicy"
+#define AUDIT_INVENTORY_MAGIC L"composite_audit_inventory_v1"
+
+// single source for the config key (SEC-03 gates + hooks)
+#define COMPOSITE_CONFIG_AUDIT L"IsCompositeAuditEnabled"
 
 static R_QUEUED_LOCK lock_audit = PR_QUEUED_LOCK_INIT;
 
@@ -30,18 +36,28 @@ static NTSTATUS _app_audit_querysubcategory (
 	_Out_ AUDIT_POLICY_INFORMATION *policy_info
 )
 {
-	AUDIT_POLICY_INFORMATION *policies;
+	AUDIT_POLICY_INFORMATION *policies = NULL;
 	NTSTATUS status;
 
-	status = AuditQuerySystemPolicy (&audit_subcategory_guid, 1, &policies);
-
-	if (!NT_SUCCESS (status))
-		return status;
+	// NOTE: returns BOOLEAN; failures surface through GetLastError
+	if (!AuditQuerySystemPolicy (&audit_subcategory_guid, 1, &policies))
+		return HRESULT_FROM_WIN32 (GetLastError ());
 
 	*policy_info = policies[0];
 	AuditFree (policies);
 
-	return status;
+	return STATUS_SUCCESS;
+}
+
+static NTSTATUS _app_audit_setsubcategory (
+	_In_ const AUDIT_POLICY_INFORMATION *policy_info
+)
+{
+	// NOTE: returns BOOLEAN; failures surface through GetLastError
+	if (!AuditSetSystemPolicy (policy_info, 1))
+		return HRESULT_FROM_WIN32 (GetLastError ());
+
+	return STATUS_SUCCESS;
 }
 
 static NTSTATUS _app_audit_getinventorypath (
@@ -63,7 +79,12 @@ static NTSTATUS _app_audit_getinventorypath (
 	return STATUS_SUCCESS;
 }
 
-static VOID _app_audit_writeinventory (
+// inventory format: magic line + 4 fixed key=value lines (our own writer;
+// anything else is treated as corrupt and never drives a restore — SEC-03
+// warn-and-leave, the sidecar can only ever change what is restored to the
+// system's OWN prior values)
+
+static NTSTATUS _app_audit_writeinventory (
 	_In_ BOOLEAN failure_prior,
 	_In_ BOOLEAN success_prior,
 	_In_ BOOLEAN legacy_present,
@@ -81,27 +102,33 @@ static VOID _app_audit_writeinventory (
 	if (!NT_SUCCESS (status))
 	{
 		_r_log (LOG_LEVEL_WARNING, NULL, L"_app_audit_writeinventory", L"inventory path unavailable", status);
-		return;
+		return status;
 	}
 
-	_r_str_printf (buffer, RTL_NUMBER_OF (buffer), L"subcategory_failure_prior=%d\r\nsubcategory_success_prior=%d\r\nlegacy_policy_present=%d\r\nlegacy_policy_value=%u\r\n",
-		failure_prior ? 1 : 0, success_prior ? 1 : 0, legacy_present ? 1 : 0, legacy_value);
+	_r_str_printf (buffer, RTL_NUMBER_OF (buffer), L"%s\r\nsubcategory_failure_prior=%d\r\nsubcategory_success_prior=%d\r\nlegacy_policy_present=%d\r\nlegacy_policy_value=%u\r\n",
+		AUDIT_INVENTORY_MAGIC, failure_prior ? 1 : 0, success_prior ? 1 : 0, legacy_present ? 1 : 0, legacy_value);
 
 	hfile = CreateFileW (path->buffer, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
 
 	if (hfile == INVALID_HANDLE_VALUE)
 	{
-		_r_log (LOG_LEVEL_WARNING, NULL, L"CreateFileW", COMPOSITE_SIDECAR_AUDIT, (NTSTATUS)(ULONG_PTR)GetLastError ());
+		status = HRESULT_FROM_WIN32 (GetLastError ());
+		_r_log (LOG_LEVEL_WARNING, NULL, L"CreateFileW", COMPOSITE_SIDECAR_AUDIT, status);
 	}
 	else
 	{
 		if (!WriteFile (hfile, buffer, (DWORD)(wcslen (buffer) * sizeof (WCHAR)), &written, NULL))
-			_r_log (LOG_LEVEL_WARNING, NULL, L"WriteFile", COMPOSITE_SIDECAR_AUDIT, (NTSTATUS)(ULONG_PTR)GetLastError ());
+		{
+			status = HRESULT_FROM_WIN32 (GetLastError ());
+			_r_log (LOG_LEVEL_WARNING, NULL, L"WriteFile", COMPOSITE_SIDECAR_AUDIT, status);
+		}
 
 		CloseHandle (hfile);
 	}
 
 	_r_obj_dereference (path);
+
+	return status;
 }
 
 static VOID _app_audit_readinventory (
@@ -109,7 +136,8 @@ static VOID _app_audit_readinventory (
 	_Out_ PBOOLEAN success_prior,
 	_Out_ PBOOLEAN legacy_present,
 	_Out_ PULONG legacy_value,
-	_Out_ PBOOLEAN is_valid
+	_Out_ PBOOLEAN is_present,   // file exists (readable or not)
+	_Out_ PBOOLEAN is_valid      // file exists and matches our format exactly
 )
 {
 	PR_STRING path;
@@ -122,6 +150,7 @@ static VOID _app_audit_readinventory (
 	*success_prior = FALSE;
 	*legacy_present = FALSE;
 	*legacy_value = 0;
+	*is_present = FALSE;
 	*is_valid = FALSE;
 
 	status = _app_audit_getinventorypath (&path);
@@ -134,7 +163,9 @@ static VOID _app_audit_readinventory (
 	_r_obj_dereference (path);
 
 	if (hfile == INVALID_HANDLE_VALUE)
-		return; // no inventory = nothing to revert (silent)
+		return; // absent — the common no-inventory case
+
+	*is_present = TRUE;
 
 	if (!ReadFile (hfile, buffer, sizeof (buffer) - sizeof (WCHAR), &readed, NULL))
 	{
@@ -145,9 +176,18 @@ static VOID _app_audit_readinventory (
 	CloseHandle (hfile);
 	buffer[readed / sizeof (WCHAR)] = UNICODE_NULL;
 
-	// fixed keys only — written by us, tiny; tampering with them can only
-	// change what gets restored to the system's own prior values (no
-	// privilege outcome depends on the file's contents)
+	// strict format: magic + all four keys — anything else is corrupt
+	// (truncated write, tamper) and MUST NOT drive a restore (SEC-03
+	// warn-and-leave; a 0-byte file from a crashed write is realistic)
+
+	if (wcsstr (buffer, AUDIT_INVENTORY_MAGIC) == NULL)
+		return;
+
+	if (wcsstr (buffer, L"subcategory_failure_prior=") == NULL
+		|| wcsstr (buffer, L"subcategory_success_prior=") == NULL
+		|| wcsstr (buffer, L"legacy_policy_present=") == NULL
+		|| wcsstr (buffer, L"legacy_policy_value=") == NULL)
+		return;
 
 	if (wcsstr (buffer, L"subcategory_failure_prior=1") != NULL)
 		*failure_prior = TRUE;
@@ -162,10 +202,9 @@ static VOID _app_audit_readinventory (
 		value_ptr = wcsstr (buffer, L"legacy_policy_value=");
 
 		if (value_ptr)
-		{
-			*legacy_present = TRUE;
 			*legacy_value = wcstoul (value_ptr + wcslen (L"legacy_policy_value="), NULL, 10);
-		}
+
+		*legacy_present = TRUE;
 	}
 
 	*is_valid = TRUE;
@@ -173,7 +212,8 @@ static VOID _app_audit_readinventory (
 
 static LSTATUS _app_audit_getlegacypolicy (
 	_Out_ PBOOLEAN is_present,
-	_Out_ PULONG value
+	_Out_ PULONG value,
+	_Out_ PBOOLEAN is_dword
 )
 {
 	HKEY hkey;
@@ -184,6 +224,7 @@ static LSTATUS _app_audit_getlegacypolicy (
 
 	*is_present = FALSE;
 	*value = 0;
+	*is_dword = FALSE;
 
 	ls = RegOpenKeyExW (HKEY_LOCAL_MACHINE, AUDIT_LEGACY_REGKEY, 0, KEY_QUERY_VALUE, &hkey);
 
@@ -193,18 +234,20 @@ static LSTATUS _app_audit_getlegacypolicy (
 	ls = RegQueryValueExW (hkey, AUDIT_LEGACY_REGVALUE, NULL, &type, (LPBYTE)&data, &size);
 	RegCloseKey (hkey);
 
-	if (ls == ERROR_SUCCESS || ls == ERROR_MORE_DATA)
-	{
-		*is_present = TRUE;
-		*value = data;
-		ls = ERROR_SUCCESS;
-	}
-	else if (ls == ERROR_FILE_NOT_FOUND)
-	{
-		ls = ERROR_SUCCESS; // value absent — that IS the prior state
-	}
+	if (ls == ERROR_FILE_NOT_FOUND)
+		return ERROR_SUCCESS; // absent — that IS the prior state
 
-	return ls;
+	if (ls != ERROR_SUCCESS)
+		return ls;
+
+	if (type != REG_DWORD || size != sizeof (ULONG))
+		return ERROR_INVALID_DATATYPE; // exact restore requires same type — warn-and-leave upstream
+
+	*is_present = TRUE;
+	*value = data;
+	*is_dword = TRUE;
+
+	return ERROR_SUCCESS;
 }
 
 static LSTATUS _app_audit_setlegacypolicy (
@@ -244,51 +287,105 @@ static LSTATUS _app_audit_deletelegacypolicy (VOID)
 	return ls;
 }
 
+static VOID _app_audit_deleteinventory (VOID)
+{
+	PR_STRING path;
+	NTSTATUS status;
+
+	status = _app_audit_getinventorypath (&path);
+
+	if (NT_SUCCESS (status))
+	{
+		DeleteFileW (path->buffer);
+		_r_obj_dereference (path);
+	}
+}
+
 NTSTATUS _app_audit_enable (VOID)
 {
 	AUDIT_POLICY_INFORMATION policy_info;
+	BOOLEAN inventory_is_present;
+	BOOLEAN inventory_is_valid;
 	BOOLEAN failure_prior;
 	BOOLEAN success_prior;
 	BOOLEAN legacy_present;
+	BOOLEAN legacy_is_dword;
+	BOOLEAN inventory_secured;
 	ULONG legacy_value = 0;
 	LSTATUS ls;
 	NTSTATUS status;
 
 	_r_queuedlock_acquireexclusive (&lock_audit);
 
-	status = _app_audit_querysubcategory (&policy_info);
+	// goldfish finding 2: the GUI re-applies filters constantly —
+	// re-inventorying on every apply would destroy the ORIGINAL prior
+	// state. Inventory exactly once: if a valid sidecar already exists,
+	// keep it and only re-assert the failure bit.
+	_app_audit_readinventory (&failure_prior, &success_prior, &legacy_present, &legacy_value, &inventory_is_present, &inventory_is_valid);
 
-	if (!NT_SUCCESS (status))
+	if (inventory_is_present && !inventory_is_valid)
 	{
-		_r_log (LOG_LEVEL_ERROR, NULL, L"AuditQuerySystemPolicy", L"composite audit subcategory {0CCE9226}", status);
+		// corrupt sidecar — never proceed on unknown prior state (SEC-03
+		// warn-and-leave); refuse the machine-wide change entirely
+		_r_log (LOG_LEVEL_WARNING, NULL, L"_app_audit_enable", L"corrupt audit inventory — refusing to change machine audit state", STATUS_INVALID_PARAMETER);
 		_r_queuedlock_releaseexclusive (&lock_audit);
-		return status;
+		return STATUS_INVALID_PARAMETER;
 	}
 
-	failure_prior = (policy_info.AuditingInformation & POLICY_AUDIT_EVENT_FAILURE) != 0;
-	success_prior = (policy_info.AuditingInformation & POLICY_AUDIT_EVENT_SUCCESS) != 0;
+	inventory_secured = inventory_is_valid; // original priors already on disk
 
-	ls = _app_audit_getlegacypolicy (&legacy_present, &legacy_value);
-
-	if (ls != ERROR_SUCCESS)
+	if (!inventory_secured)
 	{
-		_r_log (LOG_LEVEL_WARNING, NULL, L"RegQueryValueExW", AUDIT_LEGACY_REGVALUE, (NTSTATUS)(ULONG_PTR)ls);
-		legacy_present = FALSE;
-		legacy_value = 0;
+		// first-ever enable: query + inventory BEFORE any machine write.
+		// Any failure here aborts the enable (finding 4: never a machine
+		// change without revert data).
+		status = _app_audit_querysubcategory (&policy_info);
+
+		if (!NT_SUCCESS (status))
+		{
+			_r_log (LOG_LEVEL_ERROR, NULL, L"AuditQuerySystemPolicy", L"composite audit subcategory {0CCE9226}", status);
+			_r_queuedlock_releaseexclusive (&lock_audit);
+			return status;
+		}
+
+		failure_prior = (policy_info.AuditingInformation & POLICY_AUDIT_EVENT_FAILURE) != 0;
+		success_prior = (policy_info.AuditingInformation & POLICY_AUDIT_EVENT_SUCCESS) != 0;
+
+		ls = _app_audit_getlegacypolicy (&legacy_present, &legacy_value, &legacy_is_dword);
+
+		if (ls != ERROR_SUCCESS || (legacy_present && !legacy_is_dword))
+		{
+			_r_log (LOG_LEVEL_WARNING, NULL, L"RegQueryValueExW", AUDIT_LEGACY_REGVALUE, (NTSTATUS)(ULONG_PTR)ls);
+			_r_queuedlock_releaseexclusive (&lock_audit);
+			return HRESULT_FROM_WIN32 (ls); // destructive-on-uncertainty refused (finding 8)
+		}
+
+		status = _app_audit_writeinventory (failure_prior, success_prior, legacy_present, legacy_value);
+
+		if (!NT_SUCCESS (status))
+		{
+			_r_queuedlock_releaseexclusive (&lock_audit);
+			return status; // no inventory = no machine write (finding 4)
+		}
+
+		inventory_secured = TRUE;
 	}
 
-	_app_audit_writeinventory (failure_prior, success_prior, legacy_present, legacy_value);
-
-	// DEC-03: failure auditing only — the SUCCESS bit is intentionally
-	// cleared (5156 is a machine-wide flood); the prior state is
-	// inventoried above and restored exactly on revert
+	// (re-)assert the DEC-03 posture: failure-only (SUCCESS stays cleared —
+	// 5156 is a machine-wide flood; the inventoried prior is what revert restores)
+	policy_info.AuditSubCategoryGuid = audit_subcategory_guid;
 	policy_info.AuditingInformation = POLICY_AUDIT_EVENT_FAILURE;
+	policy_info.AuditEventType = (POLICY_AUDIT_EVENT_TYPE)0;
 
-	status = AuditSetSystemPolicy (&policy_info, 1);
+	status = _app_audit_setsubcategory (&policy_info);
 
 	if (!NT_SUCCESS (status))
 	{
 		_r_log (LOG_LEVEL_ERROR, NULL, L"AuditSetSystemPolicy", L"composite audit subcategory {0CCE9226}", status);
+
+		if (inventory_secured && !inventory_is_valid)
+			_app_audit_deleteinventory (); // written this call, no change made — remove it
+
 		_r_queuedlock_releaseexclusive (&lock_audit);
 		return status;
 	}
@@ -296,7 +393,7 @@ NTSTATUS _app_audit_enable (VOID)
 	ls = _app_audit_setlegacypolicy (1);
 
 	if (ls != ERROR_SUCCESS)
-		_r_log (LOG_LEVEL_WARNING, NULL, L"RegSetValueExW", AUDIT_LEGACY_REGVALUE, (NTSTATUS)(ULONG_PTR)ls); // non-fatal: the fallback pipeline covers a missing 5157 feed
+		_r_log (LOG_LEVEL_WARNING, NULL, L"RegSetValueExW", AUDIT_LEGACY_REGVALUE, (NTSTATUS)(ULONG_PTR)ls); // non-fatal: fallback pipeline covers a missing 5157 feed
 
 	_r_queuedlock_releaseexclusive (&lock_audit);
 
@@ -306,25 +403,42 @@ NTSTATUS _app_audit_enable (VOID)
 NTSTATUS _app_audit_revert (VOID)
 {
 	AUDIT_POLICY_INFORMATION policy_info;
-	PR_STRING path;
 	BOOLEAN failure_prior;
 	BOOLEAN success_prior;
 	BOOLEAN legacy_present;
-	BOOLEAN is_valid;
+	BOOLEAN legacy_is_dword;
+	BOOLEAN inventory_is_present;
+	BOOLEAN inventory_is_valid;
+	BOOLEAN audit_restored;
+	BOOLEAN legacy_restored;
 	ULONG legacy_value = 0;
 	LSTATUS ls;
 	NTSTATUS status;
+	NTSTATUS result;
 
 	_r_queuedlock_acquireexclusive (&lock_audit);
 
-	_app_audit_readinventory (&failure_prior, &success_prior, &legacy_present, &legacy_value, &is_valid);
+	_app_audit_readinventory (&failure_prior, &success_prior, &legacy_present, &legacy_value, &inventory_is_present, &inventory_is_valid);
 
-	if (!is_valid)
+	if (!inventory_is_present)
 	{
 		// no inventory = nothing we changed (silent no-op — the common case)
 		_r_queuedlock_releaseexclusive (&lock_audit);
 		return STATUS_SUCCESS;
 	}
+
+	if (!inventory_is_valid)
+	{
+		// SEC-03 warn-and-leave: corrupt inventory never drives a restore,
+		// and the file is KEPT for manual inspection (finding 3)
+		_r_log (LOG_LEVEL_WARNING, NULL, L"_app_audit_revert", L"corrupt audit inventory — leaving machine audit state untouched, file kept", STATUS_INVALID_PARAMETER);
+		_r_queuedlock_releaseexclusive (&lock_audit);
+		return STATUS_INVALID_PARAMETER;
+	}
+
+	result = STATUS_SUCCESS;
+	audit_restored = TRUE;
+	legacy_restored = TRUE;
 
 	status = _app_audit_querysubcategory (&policy_info);
 
@@ -336,39 +450,60 @@ NTSTATUS _app_audit_revert (VOID)
 			| (failure_prior ? POLICY_AUDIT_EVENT_FAILURE : 0)
 			| (success_prior ? POLICY_AUDIT_EVENT_SUCCESS : 0);
 
-		status = AuditSetSystemPolicy (&policy_info, 1);
+		status = _app_audit_setsubcategory (&policy_info);
 
 		if (!NT_SUCCESS (status))
+		{
+			audit_restored = FALSE;
+			result = status;
 			_r_log (LOG_LEVEL_ERROR, NULL, L"AuditSetSystemPolicy", L"composite audit revert", status);
+		}
+	}
+	else
+	{
+		audit_restored = FALSE;
+		result = status;
+		_r_log (LOG_LEVEL_ERROR, NULL, L"AuditQuerySystemPolicy", L"composite audit revert", status);
 	}
 
 	if (legacy_present)
+	{
 		ls = _app_audit_setlegacypolicy (legacy_value);
+	}
 	else
+	{
 		ls = _app_audit_deletelegacypolicy ();
+	}
 
 	if (ls != ERROR_SUCCESS)
-		_r_log (LOG_LEVEL_WARNING, NULL, L"SCENoApplyLegacyAuditPolicy", L"composite audit revert", (NTSTATUS)(ULONG_PTR)ls);
-
-	// remove the inventory: revert is complete (re-created on next enable)
-	status = _app_audit_getinventorypath (&path);
-
-	if (NT_SUCCESS (status))
 	{
-		DeleteFileW (path->buffer);
-		_r_obj_dereference (path);
+		legacy_restored = FALSE;
+		result = HRESULT_FROM_WIN32 (ls);
+		_r_log (LOG_LEVEL_WARNING, NULL, L"SCENoApplyLegacyAuditPolicy", L"composite audit revert", (NTSTATUS)(ULONG_PTR)ls);
+	}
+
+	// goldfish finding 5: the inventory is deleted ONLY when both restores
+	// verifiably succeeded — otherwise residue stays recoverable
+	// (warn-and-keep), e.g. the unelevated startupcheck path
+	if (audit_restored && legacy_restored)
+	{
+		_app_audit_deleteinventory ();
+	}
+	else
+	{
+		_r_log (LOG_LEVEL_WARNING, NULL, L"_app_audit_revert", L"inventory kept — revert incomplete, retry later", result);
 	}
 
 	_r_queuedlock_releaseexclusive (&lock_audit);
 
-	return STATUS_SUCCESS;
+	return result;
 }
 
 VOID _app_audit_startupcheck (VOID)
 {
 	// SEC-03 crash residue: an inventory sidecar present while the
 	// composite audit flag is off means a previous enable never reverted
-	if (_r_config_getboolean (L"IsCompositeAuditEnabled", FALSE, NULL))
+	if (_r_config_getboolean (COMPOSITE_CONFIG_AUDIT, FALSE, NULL))
 		return; // this session manages state through the enable path
 
 	_app_audit_revert (); // silent no-op when no inventory exists
