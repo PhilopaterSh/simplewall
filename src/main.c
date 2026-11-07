@@ -2380,7 +2380,20 @@ INT_PTR CALLBACK DlgProc (
 			{
 				case RBN_HEIGHTCHANGE:
 				{
-					_r_wnd_sendmessage (hwnd, 0, WM_SIZE, 0, 0);
+					// hardening (upstream issue henrypp/simplewall#2167): an
+					// external WM_WINDOWPOSCHANGED during layout made this
+					// forward recurse with the toolbar resize ~11k frames
+					// (stack overflow, c0000005). The rebar has RBS_AUTOSIZE
+					// and self-sizes; the guard breaks any remaining cycle.
+					static BOOLEAN is_heightchange_reentrant = FALSE;
+
+					if (!is_heightchange_reentrant)
+					{
+						is_heightchange_reentrant = TRUE;
+						_r_wnd_sendmessage (hwnd, 0, WM_SIZE, 0, 0);
+						is_heightchange_reentrant = FALSE;
+					}
+
 					break;
 				}
 
