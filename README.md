@@ -2,7 +2,7 @@
 
 <p align="center">
 	<a href="https://github.com/PhilopaterSh/simplewall"><img src="https://img.shields.io/github/license/PhilopaterSh/simplewall?style=flat-square" /></a>
-	<a href="#verified-build"><img src="https://img.shields.io/badge/build-verified%20(2026--11--07)-success?style=flat-square" /></a>
+	<a href="https://github.com/PhilopaterSh/simplewall/actions/workflows/smoke-test.yml"><img src="https://img.shields.io/badge/CI-smoke--test-blue?style=flat-square" /></a>
 	<a href="https://github.com/PhilopaterSh/simplewall/issues"><img src="https://img.shields.io/github/issues-raw/PhilopaterSh/simplewall.svg?style=flat-square&label=issues" /></a>
 	<a href="https://github.com/henrypp/simplewall"><img src="https://img.shields.io/badge/upstream-henrypp%2Fsimplewall-blue?style=flat-square" /></a>
 </p>
@@ -32,9 +32,10 @@ verified by fresh-context code reviews, and the first interactive build validate
 | | |
 | --- | --- |
 | Binary | `bin/64/simplewall.exe` (~1.0 MB) |
-| SHA256 | `d807804132865bb4630e263df74b10dcbce6efc8f6993d2ee78419a7250911d8` |
+| SHA256 | `2cf8f0c9d75e5c82bfcb48ef2c4b72d0960b86444101f4857f4cac2f97c83c44` |
 | Built with | MSVC 14.44 (v143), Windows SDK 10.0.26100 |
-| Audited | 2026-11-07 — two independent fresh-context reviews + cppcheck (0 findings) |
+| CI | smoke-test workflow on every push (build + launch + 20s lifetime check) |
+| Audited | 2026-11-07 — independent fresh-context reviews (vendor + src + design-gate seam) + cppcheck (0 findings) |
 
 ## Differences from upstream
 

@@ -23,9 +23,11 @@ and acknowledges every risk (RSK-01..RSK-08).
     fallback to the existing FwpmNetEventSubscribe pipeline (FR-01,
     FR-04, FR-05, DEC-03; RSK-08 throttle lives here).
   - `src/composite_publisher.c` — WinVerifyTrust capture at prompt
-    time, signer-hash anchor store, materialized path filters, lazy
-    at-connection validation cached per path+mtime, drop-out on
-    validation failure (FR-02, FR-03, SEC-02, DEC-05).
+    time, signer-hash anchor store, materialized path filters with
+    re-validation at all three points (prompt time, FileMonitor 10-minute
+    re-hash loop, rule-apply), lazy at-connection validation cached per
+    path+mtime, drop-out on validation failure (FR-02, FR-03, SEC-02,
+    DEC-05).
   - `src/composite_lockdown.c` — record/verify/survive/commit/rollback
     recipe exactly per DEC-04 step order; service-scoped survival rules;
     recorded-snapshot restore; keep-or-release uninstall hook;

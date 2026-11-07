@@ -40,7 +40,9 @@ deferred contracts recorded below, never implemented this round.
   connections prompt.
 - **FR-03 publisher binding:** Given a signed binary prompts, When the
   user selects "Always for this publisher", Then a signer-hash-anchored
-  rule is stored and its path set materializes; a binary at a new path
+  rule is stored and its path set materializes at three re-validating
+  points — (a) prompt time, (b) the FileMonitor re-hash loop (10-minute
+  cadence, src/helper.c:1603), (c) rule-apply; a binary at a new path
   is lazily signer-checked at connection (cached per path+mtime),
   permitted and logged on match, prompted on mismatch; self-signed
   binaries are offered path binding only (DEC-05).
@@ -57,7 +59,7 @@ deferred contracts recorded below, never implemented this round.
   confirm-without-prompts path under GPO), pre-creates service-scoped
   survival rules (svchost + Dhcp/CryptSvc; WSL/ICS; port-wide allows
   rejected), sets default-outbound BLOCK, and disables the recorded
-  allow set; any pre-commit failure aborts, any post-commit failure
+  allow set (survival and app-own rules excluded — DEC-04 step 5); any pre-commit failure aborts, any post-commit failure
   rolls back to the recorded snapshot; disable restores the snapshot
   exactly; uninstall asks keep-or-release (default release); tray state
   is visible throughout (DEC-04).
@@ -67,7 +69,8 @@ deferred contracts recorded below, never implemented this round.
   any rule parses, the unit applies exactly its filter delta, sidecar
   state is hash-checked at load, and the version high-water mark in
   `pack_watermarks.json` refuses older correctly-signed packs
-  (anti-rollback) (SEC-01, DATA-02).
+  (anti-rollback); the water-mark store sits outside any rebuild set
+  (SEC-01, DATA-02).
 - **FR-09 packs repository:** Given the separate packs repo, When
   maintained, Then it carries the schema docs and the first three packs
   (Telemetry-Refresh, Vendor-blockers, AI-Agents) with CI that builds,
@@ -93,7 +96,8 @@ deferred contracts recorded below, never implemented this round.
   automated tests without elevation gate the merge (OPS-01 convention).
 - **SEC-01** unsigned/tampered pack never contributes a filter;
   **SEC-02** publisher rules bind only to WinVerifyTrust-valid chains at
-  every materialization point; **SEC-03** audit changes inventoried at
+  every materialization and rule-apply point (including FileMonitor
+  re-validation); **SEC-03** audit changes inventoried at
   install (DATA-01), exactly reverted at uninstall/disable with startup
   crash-residue check, loss downgrades to warn-and-leave; **SEC-05** no
   new elevated paths, helper binaries, downloaded executables, or
@@ -109,7 +113,7 @@ deferred contracts recorded below, never implemented this round.
 
 ## Acceptance criteria
 
-The handoff's AC-1..AC-10 are binding verbatim (handoff.md § Acceptance
+The handoff's AC-1..AC-11 are binding verbatim (handoff.md § Acceptance
 criteria), executed per the design's verification split: automated items
 in the sandbox bench, manual procedures documented in this round's
 verification.md.

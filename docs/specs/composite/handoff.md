@@ -65,7 +65,9 @@ manual procedures are documented in the round's verification.md):
 - **AC-6 (FR-06):** Given Lockdown enabled, When the engine is degraded
   (provider filters deleted) or the process is stopped, Then un-permitted
   probes are denied by the WFAS seal and service-scoped survival rules
-  hold; When enable fails pre-commit or mid-commit, Then the recorded
+  hold; When the engine is healthy, Then engine-permitted probes flow and
+  engine-blocked probes stay blocked (the seal is shadowed) and disabling
+  restores the recorded snapshot exactly; When enable fails pre-commit or mid-commit, Then the recorded
   snapshot is restored exactly; When audit is GPO-blocked, Then an
   explicit logged confirm-without-prompts path is offered.
 - **AC-7 (FR-08):** Given a tampered, unsigned, or older-version
@@ -79,6 +81,9 @@ manual procedures are documented in the round's verification.md):
   Then audit-policy changes are inventoried and exactly reverted
   (default release path), with a startup crash-residue check; inventory
   loss downgrades to warn-and-leave.
+- **AC-11 (SEC-02):** Given a re-signed or self-signed binary swap at a
+  known path, When it connects, Then the publisher rule stops matching and
+  the event is logged (DEC-05 FileMonitor/rule-apply re-validation).
 - **AC-10 (NFR-03/SEC-05):** Given the release build, When produced,
   Then the binary set is unchanged (no new exe/dll), size ≤ 8 MB, and
   the sandbox observes no child processes during feature exercise.

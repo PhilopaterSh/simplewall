@@ -169,8 +169,9 @@ alternative UI toolkit, telemetry egress, DPI-circumvention bundling.
   direction parsing via raw `LayerRTID` ints, never localized `%%14592/93`
   strings.
 - **DEC-04: Lockdown = WFAS-layer defense-in-depth backstop.** Arbitration
-  contract, stated explicitly: the app's own WFP sublayer weight (0xFFFF,
-  `src/wfp.c:275`) outranks mpsvc's, so while the engine is healthy its
+  contract, stated explicitly: the app's own WFP sublayer weight (0xFFFF = `FWW_SUBLAYER`,
+  `src/wfp.h:19`, applied at `src/wfp.c:304` via the `SublayerWeight`
+  config; T007 pins it while Lockdown is engaged) outranks mpsvc's, so while the engine is healthy its
   verdicts govern and the WFAS seal is shadowed; when the engine degrades,
   is disabled, or the app is stopped (hardening FR-01 degraded state), the
   WFAS seal governs instead — Lockdown is what keeps a degraded machine
