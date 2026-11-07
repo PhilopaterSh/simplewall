@@ -37,7 +37,6 @@ static NTSTATUS _app_audit_querysubcategory (
 )
 {
 	AUDIT_POLICY_INFORMATION *policies = NULL;
-	NTSTATUS status;
 
 	// NOTE: returns BOOLEAN; failures surface through GetLastError
 	if (!AuditQuerySystemPolicy (&audit_subcategory_guid, 1, &policies))
@@ -54,7 +53,7 @@ static NTSTATUS _app_audit_setsubcategory (
 )
 {
 	// NOTE: returns BOOLEAN; failures surface through GetLastError
-	if (!AuditSetSystemPolicy (policy_info, 1))
+	if (!AuditSetSystemPolicy ((PAUDIT_POLICY_INFORMATION)policy_info, 1))
 		return HRESULT_FROM_WIN32 (GetLastError ());
 
 	return STATUS_SUCCESS;
@@ -375,7 +374,6 @@ NTSTATUS _app_audit_enable (VOID)
 	// 5156 is a machine-wide flood; the inventoried prior is what revert restores)
 	policy_info.AuditSubCategoryGuid = audit_subcategory_guid;
 	policy_info.AuditingInformation = POLICY_AUDIT_EVENT_FAILURE;
-	policy_info.AuditEventType = (POLICY_AUDIT_EVENT_TYPE)0;
 
 	status = _app_audit_setsubcategory (&policy_info);
 
