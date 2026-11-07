@@ -403,6 +403,12 @@
     <ClCompile Include="src\uwp.cpp" />
     <ClCompile Include="src\wfp.c" />
     <ClCompile Include="src\messages.c" />
+    <ClCompile Include="src\composite_audit.c" />
+    <ClCompile Include="src\composite_eventlog.c" />
+    <ClCompile Include="src\composite_lockdown.c" />
+    <ClCompile Include="src\composite_packs.c" />
+    <ClCompile Include="src\composite_publisher.c" />
+    <ClCompile Include="src\composite_state.c" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\routine\src\ntapi.h" />
@@ -411,6 +417,13 @@
     <ClInclude Include="..\routine\src\rconfig.h" />
     <ClInclude Include="..\routine\src\routine.h" />
     <ClInclude Include="..\routine\src\rtypes.h" />
+    <ClInclude Include="src\composite.h" />
+    <ClInclude Include="src\composite_audit.h" />
+    <ClInclude Include="src\composite_eventlog.h" />
+    <ClInclude Include="src\composite_lockdown.h" />
+    <ClInclude Include="src\composite_packs.h" />
+    <ClInclude Include="src\composite_publisher.h" />
+    <ClInclude Include="src\composite_state.h" />
     <ClInclude Include="src\app.h" />
     <ClInclude Include="src\controls.h" />
     <ClInclude Include="src\db.h" />
