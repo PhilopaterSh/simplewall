@@ -3,6 +3,8 @@
 
 #include "global.h"
 
+#include "composite_audit.h" // composite Phase 1 (SEC-03/DEC-03)
+
 // hardening round 1: degraded-enforcement state. Set when a vital (global)
 // filter fails to install, so a silently incomplete default-deny posture
 // becomes visible on the tray tooltip and status bar. Reset at the start of
@@ -2165,7 +2167,13 @@ VOID NTAPI _wfp_applythread (
 	if (context->is_install)
 	{
 		if (_wfp_initialize (context->hwnd, engine_handle))
+		{
 			_wfp_installfilters (engine_handle);
+
+			// composite Phase 1 (SEC-03/DEC-03): failure-audit events (5157) feed the prompt pipeline
+			if (_r_config_getboolean (L"IsCompositeAuditEnabled", FALSE, NULL))
+				_app_audit_enable ();
+		}
 	}
 	else
 	{
@@ -2175,6 +2183,7 @@ VOID NTAPI _wfp_applythread (
 		_wfp_destroyfilters (engine_handle);
 		_wfp_uninitialize (engine_handle, TRUE);
 		_wfp_degraded_reset (); // audit fix: intentional-off is a chosen state, not a degraded one — clear the tray/status flag
+		_app_audit_revert (); // composite Phase 1 (SEC-03): exact revert (silent no-op without inventory)
 	}
 
 	// dropped packets logging (win7+)
