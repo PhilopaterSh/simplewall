@@ -5,7 +5,7 @@ name: smoke-test
 
 on:
   push:
-    branches: [feat/routine-hardening, feat/hardening-round-1, master]
+    branches: [feat/routine-hardening, feat/hardening-round-1, master, feat/tooling]
   workflow_dispatch:
 
 jobs:
@@ -70,6 +70,18 @@ jobs:
         shell: pwsh
         run: Stop-Process -Name simplewall -Force -ErrorAction SilentlyContinue
 
+      # tooling round (FR-05): REQUIRED preflight gate — CI profile skips the
+      # release-authoritative checks (Authenticode: runner builds are unsigned;
+      # off-repo key JSON: never leaves the owner machine — DEC-05/DEC-07)
+      - name: Release preflight (CI profile)
+        shell: pwsh
+        run: python tools/release-preflight.py bin/64/simplewall.exe --ci --json | Tee-Object -FilePath preflight.json
+
+      # tooling round (FR-04): DNS rig loopback self-test — no sandbox needed
+      - name: DNS rig self-test
+        shell: pwsh
+        run: python tools/dnsrig.py --self-test
+
       - name: Upload artifacts
         if: always()
         uses: actions/upload-artifact@v4
@@ -78,6 +90,7 @@ jobs:
           path: |
             exe-hash.txt
             smoke-result.txt
+            preflight.json
             smoke-artifacts/
 
       - name: Verdict
