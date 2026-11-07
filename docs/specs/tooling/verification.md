@@ -32,6 +32,29 @@
 - CI: run 42326397797 (commit c2c3b3ef) SUCCESS with the required
   preflight --ci step + dnsrig self-test on windows-latest.
 
+## C unification (T010-T013) — verified 2026-11-07
+
+- dnsrig.c/feedserver.c (T010/T011): both build clean (v143 override);
+  dnsrig -selftest byte-identical to python (3 PASS, exit 0 — verified
+  independently by the owner lane); config smoke wire-verified (0xC00C
+  pointer, A/IN, TTL 60, NXDOMAIN default, OPT tolerated); feedserver
+  schannel handshake fixed at root cause (zeroed CredHandle never copied
+  into conn.cred), PFX-only cert, 200/404/403 + traversal refusal
+  verified without admin; fail-closed: missing feed pair, bad mapping
+  IP refuses start, 30 s socket timeouts. Documented deviations:
+  invalid-IP refuse-to-start (python crashed on first query), 403 vs
+  404 for listing, one-request-per-connection.
+- T012: CI builds all three tool vcxprojs (v143 override, no NuGet) and
+  runs bin/64/preflight.exe --ci --json + bin/64/dnsrig.exe -selftest
+  (exit-code based — the routine console writer is invisible to pipes
+  by design, documented).
+- T013 retirement: AS1-AS9 re-passed through the C binaries (AS5 SKIP
+  labels + AS7 self-test included) AND AS10-AS13 (production-verifier
+  feed positive/tamper; rig parity; feedserver acceptance) — python
+  tools retired per DEC-08 in the same commit as this record.
+- Known CI note: SAC intermittently blocks freshly built unsigned exes
+  on the OWNER machine (per-hash verdicts; CI runners unaffected).
+
 ## Pending (owner-side, RSK-02)
 
 - Sandbox positive control: rig + feedserver + trusted root -> the

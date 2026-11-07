@@ -48,6 +48,15 @@ jobs:
         shell: cmd
         run: msbuild simplewall.vcxproj -p:Configuration=Release -p:Platform=x64 -p:PlatformToolset=v143 -p:WindowsTargetPlatformVersion=10.0 -p:TreatWarningAsError=false -m -nologo -v:m
 
+      # tooling round r3 (DEC-08/DEC-10): build the C tool suite - no
+      # NuGet needed (no CppWinRT coupling), same v143 override
+      - name: Build tool suite (Release x64)
+        shell: cmd
+        run: |
+          msbuild tools\preflight.vcxproj -p:Configuration=Release -p:Platform=x64 -p:PlatformToolset=v143 -p:WindowsTargetPlatformVersion=10.0 -p:TreatWarningAsError=false -m -nologo -v:m
+          msbuild tools\dnsrig.vcxproj -p:Configuration=Release -p:Platform=x64 -p:PlatformToolset=v143 -p:WindowsTargetPlatformVersion=10.0 -p:TreatWarningAsError=false -m -nologo -v:m
+          msbuild toolseedserver.vcxproj -p:Configuration=Release -p:Platform=x64 -p:PlatformToolset=v143 -p:WindowsTargetPlatformVersion=10.0 -p:TreatWarningAsError=false -m -nologo -v:m
+
       - name: Verify exe exists
         shell: pwsh
         run: |
@@ -92,14 +101,14 @@ jobs:
       # tooling round (FR-05): REQUIRED preflight gate — CI profile skips the
       # release-authoritative checks (Authenticode: runner builds are unsigned;
       # off-repo key JSON: never leaves the owner machine — DEC-05/DEC-07)
-      - name: Release preflight (CI profile)
+      - name: Release preflight (CI profile, C tool)
         shell: pwsh
-        run: python tools/release-preflight.py bin/64/simplewall.exe --ci --json | Tee-Object -FilePath preflight.json
+        run: bin/64/preflight.exe bin/64/simplewall.exe --ci --json | Tee-Object -FilePath preflight.json
 
       # tooling round (FR-04): DNS rig loopback self-test — no sandbox needed
-      - name: DNS rig self-test
+      - name: DNS rig self-test (C tool)
         shell: pwsh
-        run: python tools/dnsrig.py --self-test
+        run: bin/64/dnsrig.exe -selftest
 
       - name: Upload artifacts
         if: always()
