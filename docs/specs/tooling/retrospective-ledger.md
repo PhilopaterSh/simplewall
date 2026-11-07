@@ -43,6 +43,8 @@
 | 19 | 2026-11-07 | check-chain-artifacts.py (roadmap item 1, "best buy") | all 4 chains | tooling handoff.md was an unfilled template + tooling/composite had NO verification.md — exactly as the cross-exam predicted | REAL — all three artifacts written the same commit; gate now 4/4 PASS exit 0 | first run of the checker |
 | 20 | 2026-11-07 | AGENTS.md rewrite (cross-exam blind-spot #3) | the workflow documentation itself | CLAUDE/GROK pointed agents at upstream song lyrics — every agent's canonical instructions were junk | REAL — replaced with the actual EGM procedure + standing rules; pointer files now resolve to real instructions | commit of record |
 
+| 21 | 2026-11-07 | CI chain-gates step (first live run) | its own install source | pip from the PRIVATE goldfish-gate repo failed on the runner (prompt-script error) — visible failure, not silent | REAL — vendor-pinned 0.2.0 @ 5e31480 (tools/vendor/goldfish-gate-pin + PIN.md provenance); upgrade = owner action with full gate re-run | CI run 42373818607 |
+
 ## Standing rule adopted from this ledger (empirical-arbiter-first, roadmap item 1)
 
 > Any BLOCKING finding about observable behavior must attach a reproduction

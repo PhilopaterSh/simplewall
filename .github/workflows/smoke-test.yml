@@ -23,7 +23,7 @@ jobs:
       - name: Chain gates (goldfish check + artifact completeness)
         shell: pwsh
         run: |
-          pip install git+https://github.com/PhilopaterSh/goldfish-gate.git
+          pip install tools/vendor/goldfish-gate-pin
           $failed = $false
           Get-ChildItem docs/specs -Directory | Where-Object { Test-Path "$($_.FullName)/design.md" } | ForEach-Object {
             Push-Location $_.FullName
