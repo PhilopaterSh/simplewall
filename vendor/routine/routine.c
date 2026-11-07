@@ -6649,7 +6649,7 @@ NTSTATUS _r_shell_openkey (
 
 	if (_r_initonce_begin (&init_once))
 	{
-		status = _r_str_fromsid (_r_sys_getcurrenttoken ()->token_sid, &name);
+		status = _r_str_fromsid (&name, _r_sys_getcurrenttoken ()->token_sid);
 
 		if (NT_SUCCESS (status))
 		{
