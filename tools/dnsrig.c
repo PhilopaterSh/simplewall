@@ -185,6 +185,7 @@ typedef struct _RIG_SELFTEST_CONTEXT
 	RIG_CONFIG rig;
 	volatile LONG queries_seen; // r4 diagnostics: server-side visibility (CI run 42382080671)
 	volatile LONG replies_sent;
+	WCHAR last_note[512]; // the server's own verdict note for the last query
 } RIG_SELFTEST_CONTEXT;
 
 //
@@ -816,8 +817,9 @@ DWORD WINAPI _rig_selftest_thread (
 		if (length <= 0)
 			continue;
 
-		// notes are dropped in the self-test pump (python pump ignores them)
+		// r4: the note IS the server's diagnosis - keep it for the verdict line
 		_rig_handle_query (&ctx->rig, data, length, reply, sizeof (reply), &reply_length, note, RTL_NUMBER_OF (note));
+		wcsncpy_s (ctx->last_note, RTL_NUMBER_OF (ctx->last_note), note, _TRUNCATE);
 
 		InterlockedIncrement (&ctx->queries_seen);
 
@@ -1053,7 +1055,7 @@ INT _rig_selftest ()
 	else
 		mapped_ok = FALSE;
 
-	tool_out_format (L"%s: mapped name answered (rcode=%u) [server saw %lu q / %lu replies]\n", mapped_ok ? L"PASS" : L"FAIL", (ULONG)rcode, (ULONG)ctx.queries_seen, (ULONG)ctx.replies_sent);
+	tool_out_format (L"%s: mapped name answered (rcode=%u) [server saw %lu q / %lu replies; note: %s]\n", mapped_ok ? L"PASS" : L"FAIL", (ULONG)rcode, (ULONG)ctx.queries_seen, (ULONG)ctx.replies_sent, ctx.last_note);
 
 	// (2) unknown name NXDOMAIN (python qid 0x1234)
 	query_length = _rig_build_query (query, sizeof (query), 0x1234, "unknown.test", FALSE);
