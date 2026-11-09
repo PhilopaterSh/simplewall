@@ -31,6 +31,16 @@
   #1807, #2132, #2085). Two proposal errors caught and corrected by the
   round: no `subLayerId` field exists in net-event structs; the
   enumTemplate cannot scope by event type.
+- **External senior review** (2026-11-10): independent fresh-context
+  assessment (reverse-engineering / netsec / pentest / SWE perspective,
+  `review-external-senior-2026-11-10.md`) — verdict **SOUND-WITH-CONDITIONS**
+  (medium-high confidence). Top conditions: BENCH end-to-end never run yet
+  (make it a merge gate), S4 fix before any release, signing re-key before
+  any public release, audit policy stays opt-in-only, ship Phase 1 only.
+  New r6 gaps found: 60 s fallback-latency window unstated, net-event queue
+  completeness untested under flood, 5157 single-slot dedup storm until
+  T017. FR-14 should be marked aspirational, not contractual. Triage pending
+  owner.
 
 ## Frozen decision: r6 (awaiting owner)
 
