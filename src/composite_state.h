@@ -41,7 +41,11 @@ VOID _app_state_uninitialize (VOID);
 // T005: record a session-only decision for the app and deploy its
 // composite-owned filters. is_block selects permit/block, is_once selects
 // the exact-connection short-lived variant (requires ptr_log for the
-// connection tuple; falls back to app-wide when absent).
+// connection tuple; a "once" without context REFUSES to deploy and is
+// never silently upgraded to app-wide — see the guard in
+// _app_state_deploy; documented edge: a TpAllocTimer failure degrades a
+// "once" decision to an until-restart lifetime instead of its
+// STATE_ONCE_EXPIRY_SECONDS expiry — deliberate safe-side degradation).
 BOOLEAN _app_state_decide (
 	_In_ PITEM_APP ptr_app,
 	_In_ BOOLEAN is_block,

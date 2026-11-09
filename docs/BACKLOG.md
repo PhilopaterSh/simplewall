@@ -51,19 +51,23 @@ live requirement signal). Items marked [fixed] are already handled in this fork.
 
 ## P1 — composite T003-T006 follow-ups (from the 2026-11-07 goldfish review)
 
-1. **UI-hang risk (S4, real):** `_app_state_deploy/revoke` and
-   `_app_publisher_revokepath` hold module-exclusive locks across
+1. **UI-hang risk (S4, real):** [fixed 2026-11-10] `_app_state_deploy/revoke` and
+   `_app_publisher_revokepath` HELD module-exclusive locks across
    `_wfp_destroyfilters_array`, which SendMessages to the toolbar/statusbar —
    a UI thread blocked on the same lock while the holder messages it = hang.
-   Fix: snapshot GUIDs under the lock, destroy outside it, or defer to
-   wfp_queue. Do before Phase 1 release.
+   Fix applied: detach GUIDs under the lock, destroy outside it
+   (`_app_state_detachlocked`/`_app_state_destroyguids`,
+   `_app_publisher_revokepath`/`_app_publisher_destroyguids`; same
+   snapshot-outside-lock pattern as `_app_publisher_revokeexpired`).
+   x64 Release builds clean. Runtime confirmation still owed by the
+   owner interactive verification round.
 2. **Held-pending counter coherence (S3):** counter not released on
    Esc-close/editor-dismiss/app-delete/timer-expiry — tray can show stale
    "N held". Release on prompt destroy + revokeapp.
-3. **Header/doc mismatch (S5):** composite_state.h "once without context
-   falls back to app-wide" is wrong — the code refuses to deploy (correct,
-   safe). Fix the doc. Undocumented edge: TpAllocTimer failure leaves a
-   2-minute-bounded permit with no timer.
+3. **Header/doc mismatch (S5):** [fixed 2026-11-10] composite_state.h now
+   documents that a "once" without context REFUSES to deploy (never
+   upgraded to app-wide) and that TpAllocTimer failure degrades a "once"
+   to an until-restart lifetime (safe-side degradation).
 4. Dual-feed double-count: one block can be counted by both the WFP feed
    and the 5157 feed — dedup pass when batch review (T007-era) lands.
 5. Session filters vanish on BFE service restart until next rule-apply

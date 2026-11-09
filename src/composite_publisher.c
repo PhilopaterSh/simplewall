@@ -91,14 +91,34 @@ VOID _app_publisher_initialize (VOID)
 	publisher_anchors = _r_obj_createhashtablepointer (0x04);
 }
 
-static VOID _app_publisher_revokepath (
+// S4/P1-1 (2026-11-10): detach the path's live filter GUID list; the
+// caller must destroy it OUTSIDE lock_publisher — _wfp_destroyfilters_array
+// messages the UI (toolbar/statusbar), and a UI thread blocked on the same
+// lock while the holder SendMessages it would hang (P1-1)
+static PR_ARRAY _app_publisher_revokepath (
 	_Inout_ PITEM_PUBLISHER_PATH ptr_path
 )
 {
-	if (!_r_obj_isempty2 (ptr_path->guids) && _wfp_isfiltersinstalled ())
-		_wfp_destroyfilters_array (_wfp_getenginehandle (), ptr_path->guids, DBG_ARG);
+	PR_ARRAY guids = ptr_path->guids;
 
-	_r_obj_clearreference ((PVOID_PTR)&ptr_path->guids);
+	ptr_path->guids = NULL;
+
+	return guids;
+}
+
+// destroy a detached (still-owned) GUID list outside lock_publisher;
+// tolerates a gone engine handle like the previous in-lock path did
+static VOID _app_publisher_destroyguids (
+	_In_opt_ PR_ARRAY guids
+)
+{
+	if (!guids)
+		return;
+
+	if (!_r_obj_isempty2 (guids) && _wfp_isfiltersinstalled ())
+		_wfp_destroyfilters_array (_wfp_getenginehandle (), guids, DBG_ARG);
+
+	_r_obj_dereference (guids);
 }
 
 static ULONG _app_publisher_anchork (
@@ -235,6 +255,7 @@ static VOID _app_publisher_querypath (
 )
 {
 	PITEM_PUBLISHER_PATH ptr_path;
+	PR_ARRAY detached_guids = NULL;
 	PR_STRING signer_hash = NULL, signer_name = NULL;
 	FILETIME write_time;
 	LARGE_INTEGER mtime_li;
@@ -261,12 +282,14 @@ static VOID _app_publisher_querypath (
 
 		if (ptr_path && !_r_obj_isempty2 (ptr_path->guids))
 		{
-			_app_publisher_revokepath (ptr_path);
+			detached_guids = _app_publisher_revokepath (ptr_path); // S4/P1-1: destroy outside the lock
 
 			_r_log (LOG_LEVEL_WARNING, NULL, L"composite_publisher", ptr_path->path->buffer, (LONG)STATUS_OBJECT_NAME_NOT_FOUND);
 		}
 
 		_r_queuedlock_releaseexclusive (&lock_publisher);
+
+		_app_publisher_destroyguids (detached_guids);
 
 		return;
 	}
@@ -341,12 +364,14 @@ static VOID _app_publisher_querypath (
 		// and logged
 		if (was_materialized && (!ptr_path->is_valid || ptr_path->is_selfsigned))
 		{
-			_app_publisher_revokepath (ptr_path);
+			detached_guids = _app_publisher_revokepath (ptr_path); // S4/P1-1: destroy outside the lock
 
 			_r_log (LOG_LEVEL_WARNING, NULL, L"composite_publisher", ptr_path->path->buffer, (LONG)status);
 		}
 
 		_r_queuedlock_releaseexclusive (&lock_publisher);
+
+		_app_publisher_destroyguids (detached_guids);
 	}
 
 	if (hfile)

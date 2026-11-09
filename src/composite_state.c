@@ -64,30 +64,55 @@ NTSTATUS _app_state_initialize (VOID)
 	return STATUS_SUCCESS;
 }
 
-// destroy the decision's live resources; MUST run while the decision is
-// still referenced (the table's cleanup callback derefs on removal)
-static VOID _app_state_clearlocked (
+// S4/P1-1 (2026-11-10): _wfp_destroyfilters_array messages the UI
+// (toolbar/statusbar). Destroying filters while holding the exclusive
+// lock_state deadlocks any UI thread blocked on the same lock while the
+// holder SendMessages it (the P1-1 hang). Under the lock we now only
+// DETACH the decision's live resources; the caller destroys the detached
+// GUID list outside the lock. MUST run while the decision is still
+// referenced (the table's cleanup callback derefs on removal).
+static PR_ARRAY _app_state_detachlocked (
 	_Inout_ PITEM_STATE_DECISION ptr_decision
 )
 {
-	// destroy deployed filters (engine handle may be gone at exit —
-	// _wfp_destroyfilters_array tolerates that like the timer path does)
-	if (!_r_obj_isempty2 (ptr_decision->guids) && _wfp_isfiltersinstalled ())
-		_wfp_destroyfilters_array (_wfp_getenginehandle (), ptr_decision->guids, DBG_ARG);
+	PR_ARRAY guids = ptr_decision->guids;
 
-	_r_obj_clearreference ((PVOID_PTR)&ptr_decision->guids);
+	ptr_decision->guids = NULL;
 
 	if (ptr_decision->htimer)
 	{
 		TpReleaseTimer (ptr_decision->htimer);
 		ptr_decision->htimer = NULL;
 	}
+
+	return guids;
+}
+
+// destroy a detached (still-owned) GUID list outside lock_state; tolerates
+// a gone engine handle at exit like the previous in-lock path did
+static VOID _app_state_destroyguids (
+	_In_opt_ PR_ARRAY guids
+)
+{
+	if (!guids)
+		return;
+
+	if (!_r_obj_isempty2 (guids) && _wfp_isfiltersinstalled ())
+		_wfp_destroyfilters_array (_wfp_getenginehandle (), guids, DBG_ARG);
+
+	_r_obj_dereference (guids);
 }
 
 VOID _app_state_uninitialize (VOID)
 {
 	PITEM_STATE_DECISION ptr_decision = NULL;
+	PR_LIST detached;
+	PR_ARRAY guids;
 	ULONG_PTR enum_key = 0;
+
+	// S4/P1-1: detach everything under the lock, destroy outside it
+	// (same snapshot pattern as _app_publisher_revokeexpired)
+	detached = _r_obj_createlist (0x04, NULL);
 
 	_r_queuedlock_acquireexclusive (&lock_state);
 
@@ -96,7 +121,10 @@ VOID _app_state_uninitialize (VOID)
 		while (_r_obj_enumhashtablepointer (state_decisions, (PVOID_PTR)&ptr_decision, NULL, &enum_key))
 		{
 			// session ends: "once"/"until-restart" filters die with it (FR-04)
-			_app_state_clearlocked (ptr_decision);
+			guids = _app_state_detachlocked (ptr_decision);
+
+			if (guids)
+				_r_obj_addlistitem (detached, guids, NULL); // list takes our ownership ref
 		}
 
 		_r_obj_clearhashtable (state_decisions); // derefs (and frees) every decision
@@ -106,6 +134,18 @@ VOID _app_state_uninitialize (VOID)
 		_r_obj_clearhashtable (state_held);
 
 	_r_queuedlock_releaseexclusive (&lock_state);
+
+	while (!_r_obj_isempty2 (detached))
+	{
+		guids = (PR_ARRAY)_r_obj_getlistitem (detached, 0);
+
+		if (!_r_obj_isempty2 (guids) && _wfp_isfiltersinstalled ())
+			_wfp_destroyfilters_array (_wfp_getenginehandle (), guids, DBG_ARG);
+
+		_r_obj_removelistitem (detached, 0); // list derefs our ownership ref
+	}
+
+	_r_obj_dereference (detached);
 }
 
 // deploy the decision's filters inside the standard transaction pattern
@@ -272,6 +312,7 @@ static VOID NTAPI _app_state_expired_callback (
 )
 {
 	PITEM_STATE_DECISION ptr_decision;
+	PR_ARRAY guids = NULL;
 	ULONG app_hash = PtrToUlong (context);
 
 	// "once" expiry: silently remove the session filters; the next
@@ -282,12 +323,15 @@ static VOID NTAPI _app_state_expired_callback (
 
 	if (ptr_decision)
 	{
-		_app_state_clearlocked (ptr_decision);
+		// S4/P1-1: detach under the lock, destroy outside it
+		guids = _app_state_detachlocked (ptr_decision);
 
 		_r_obj_removehashtableitem (state_decisions, app_hash); // table derefs (frees)
 	}
 
 	_r_queuedlock_releaseexclusive (&lock_state);
+
+	_app_state_destroyguids (guids);
 }
 
 BOOLEAN _app_state_decide (
@@ -421,6 +465,7 @@ VOID _app_state_revokeapp (
 )
 {
 	PITEM_STATE_DECISION ptr_decision;
+	PR_ARRAY guids = NULL;
 
 	if (!state_decisions)
 		return;
@@ -431,12 +476,15 @@ VOID _app_state_revokeapp (
 
 	if (ptr_decision)
 	{
-		_app_state_clearlocked (ptr_decision);
+		// S4/P1-1: detach under the lock, destroy outside it
+		guids = _app_state_detachlocked (ptr_decision);
 
 		_r_obj_removehashtableitem (state_decisions, app_hash); // table derefs (frees)
 	}
 
 	_r_queuedlock_releaseexclusive (&lock_state);
+
+	_app_state_destroyguids (guids);
 }
 
 VOID _app_state_applyall (
