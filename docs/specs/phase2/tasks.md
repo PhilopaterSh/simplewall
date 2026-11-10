@@ -1,7 +1,7 @@
 # Phase 2 tasks
 
-- [ ] P2-1 ledger core (FR-10, DATA-03)
-- [ ] P2-2 FR-12 integrity (ACL + baseline hash-check)
+- [x] P2-1 ledger core (FR-10, DATA-03) - implemented 2026-11-10: composite_ledger.c (baseline, diff, quarantine/approve/reject, GPO exemption, startupcheck); x64 clean build
+- [x] P2-2 FR-12 baseline hash-check DONE (in P2-1); config-dir ACL hardening remains for the follow-up round
 - [ ] P2-3 FR-11 incremental apply + NFR-04 harness
 - [ ] P2-4 FR-07 blocklist zones engine
 - [ ] P2-5 GPO-origin refinement + data API for Audit tab (FR-10, FR-12)
