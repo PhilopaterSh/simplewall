@@ -4,7 +4,8 @@
 #include "global.h"
 
 #include "composite_eventlog.h" // composite prompt pipeline (FR-01/RSK-08)
-#include "composite_state.h" // composite Phase 1 (T006 held-pending surface)
+#include "composite_state.h"
+#include "composite_lockdown.h" // composite T011 tray/status surface // composite Phase 1 (T006 held-pending surface)
 
 VOID _app_getapptooltipstring (
 	_Inout_ PR_STRINGBUILDER buffer,
@@ -668,6 +669,12 @@ VOID _app_setinterfacestate (
 		{
 			_r_status_settext (hwnd, IDC_STATUSBAR, 0, L"Enforcement degraded: one or more global filters failed to install (see log)");
 		}
+		else if (_app_lockdown_isactive ())
+		{
+			// composite T007/T011 (DEC-04): the WFAS seal is governing or
+			// standing by — always visible, never silent
+			_r_status_settext (hwnd, IDC_STATUSBAR, 0, L"Lockdown engaged: outbound sealed at the Windows Firewall layer (defense-in-depth backstop)");
+		}
 		else if (_app_eventlog_ispromptdegraded ())
 		{
 			_r_status_settext (hwnd, IDC_STATUSBAR, 0, L"Prompt pipeline degraded: Security-channel subscription unavailable (using WFP events)");
@@ -719,6 +726,16 @@ VOID _app_settrayicon (
 	else
 	{
 		_r_str_copy (tooltip, RTL_NUMBER_OF (tooltip), _r_app_getname ());
+	}
+
+	// composite T007/T011 (DEC-04): lockdown state rides on top of every
+	// tooltip state — the seal being engaged is never silent
+	if (_app_lockdown_isactive ())
+	{
+		WCHAR lockdown_tooltip[0x80];
+
+		_r_str_copy (lockdown_tooltip, RTL_NUMBER_OF (lockdown_tooltip), tooltip);
+		_r_str_printf (tooltip, RTL_NUMBER_OF (tooltip), L"%s [LOCKDOWN]", lockdown_tooltip);
 	}
 
 	_r_tray_setinfo (hwnd, &GUID_TrayIcon, hicon, tooltip);
