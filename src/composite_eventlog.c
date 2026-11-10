@@ -347,9 +347,22 @@ static VOID _app_eventlog_processevent (
 	ptr_log->timestamp = _r_unixtime_now ();
 	ptr_log->af = af;
 
-	// ports and protocol (5157: Application -> DestAddress, treat as OUTBOUND)
-	ptr_log->remote_port = (UINT16)dest_port;
-	ptr_log->local_port = (UINT16)source_port;
+	// ports: 5157 names endpoints by network role, not by direction —
+	// DestPort is the remote peer for outbound but the LOCAL machine for
+	// inbound (LayerRTID 44/46); the addresses above already swap on
+	// is_inbound, the ports must follow the same rule (r1 finding: inbound
+	// rows were port-swapped vs the address roles)
+	if (is_inbound)
+	{
+		ptr_log->remote_port = (UINT16)source_port;
+		ptr_log->local_port = (UINT16)dest_port;
+	}
+	else
+	{
+		ptr_log->remote_port = (UINT16)dest_port;
+		ptr_log->local_port = (UINT16)source_port;
+	}
+
 	ptr_log->protocol = (UINT8)protocol;
 
 	_r_str_printf (buffer, RTL_NUMBER_OF (buffer), L"<unknown protocol> (% " TEXT (PRIu8) L")", ptr_log->protocol);

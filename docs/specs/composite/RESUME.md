@@ -59,7 +59,12 @@
    uninstall flow).
 2. Merge clicks: #9 → #11 → #12.
 3. r6 decision (open the goldfish round, or keep frozen).
-4. P1 fixes before any Phase 1 release: S4 first (`docs/BACKLOG.md`).
+4. P1 fixes before any Phase 1 release: S4 FIXED 2026-11-10 (detach-under-
+   lock/destroy-outside in composite_state.c + composite_publisher.c),
+   inbound port swap FIXED 2026-11-10 (composite_eventlog.c: ports now
+   follow the same is_inbound endpoint mapping as the addresses), S5 doc
+   fix applied. Remaining P1s: S3 held-pending counter coherence. Runtime
+   confirmation owed by the owner interactive verification round.
 5. Naming decision (Portcullis / Husn / simplewall CE / defer) — release
    branding only.
 6. PFX password re-key (password is public in pushed history, commit
