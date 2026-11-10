@@ -61,9 +61,14 @@ live requirement signal). Items marked [fixed] are already handled in this fork.
    snapshot-outside-lock pattern as `_app_publisher_revokeexpired`).
    x64 Release builds clean. Runtime confirmation still owed by the
    owner interactive verification round.
-2. **Held-pending counter coherence (S3):** counter not released on
-   Esc-close/editor-dismiss/app-delete/timer-expiry — tray can show stale
-   "N held". Release on prompt destroy + revokeapp.
+2. **Held-pending counter coherence (S3):** [fixed 2026-11-10, arena
+   tournament winner: 8 designs -> 4 cross-exams -> judge] releaseallpending
+   on prompt destroy (held entries are stale by definition once no prompt
+   is visible - single-flight means one window; judge refuted the "live
+   counts" objection with the code), fold held release into revokeapp
+   (covers app-delete/disable/timer expiry), immediate tray refresh on
+   destroy + timer paths, redundant decide/always releases removed
+   (db9260c1).
 3. **Header/doc mismatch (S5):** [fixed 2026-11-10] composite_state.h now
    documents that a "once" without context REFUSES to deploy (never
    upgraded to app-wide) and that TpAllocTimer failure degrades a "once"
