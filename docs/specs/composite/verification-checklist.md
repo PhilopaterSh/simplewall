@@ -68,3 +68,19 @@
   gaps from review-external-senior-2026-11-10).
 - FAIL any -> record the failing step + observed behavior in RESUME.md
   and file it in docs/BACKLOG.md before any merge.
+
+
+---
+
+## Automated agent run (2026-11-10, post-Phase-1-complete build)
+
+- Smoke: launched `bin4\simplewall.exe` (full-feature build incl. S3/S4/
+  port-swap/T007/T008/T009/T011) — stable 30s+, zero crash events, newest
+  crash dump still 2026-11-07 (predates all fixes).
+- Memory: 21.9 MB fresh start (unelevated), 48 MB measured earlier with
+  full UI session — consistent, no growth spikes.
+- T012 bench probes re-run: green (SKIPS legitimate — composite features
+  not engaged in this run).
+- UAC-gated items (0.1 blocking test, sections 1-6 GUI steps): NOT
+  executable by the agent (elevation prompt declined, no hands) — owner
+  run still required for those lines.
