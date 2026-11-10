@@ -25,6 +25,13 @@
 
 static R_QUEUED_LOCK lock_ledger = PR_QUEUED_LOCK_INIT;
 
+// P2-5 Audit-tab data API storage: the last diff's foreign records
+// (name + policy-managed flag) — the future GUI reads these via
+// _app_ledger_queryforeign instead of parsing logs
+static WCHAR ledger_foreign_records[LEDGER_MAX_FOREIGN][128];
+static BOOLEAN ledger_foreign_policy[LEDGER_MAX_FOREIGN];
+static ULONG ledger_foreign_count = 0;
+
 static NTSTATUS _app_ledger_getpath (
 	_Out_ PR_STRING_PTR out_path
 )
@@ -537,6 +544,8 @@ ULONG _app_ledger_diff (VOID)
 
 	_r_queuedlock_acquireshared (&lock_ledger);
 
+	ledger_foreign_count = 0; // fresh diff = fresh records
+
 	status = _app_ledger_read (&baseline, &is_valid);
 
 	if (!NT_SUCCESS (status) || !is_valid)
@@ -581,16 +590,24 @@ ULONG _app_ledger_diff (VOID)
 			if (line_len && line[line_len - 1] == L'\r')
 				name_len--;
 
-			if (name_len > 0 && name_len < 256 && !_app_ledger_streamcontains (baseline->buffer, sep2 + 1, name_len))
+			if (name_len > 0 && name_len < 128 && !_app_ledger_streamcontains (baseline->buffer, sep2 + 1, name_len))
 			{
 				WCHAR name_buf[256];
 
 				memcpy (name_buf, sep2 + 1, name_len * sizeof (WCHAR));
 				name_buf[name_len] = UNICODE_NULL;
 
-				_r_log (LOG_LEVEL_WARNING, NULL, L"composite_ledger",
-					name_buf,
-					_app_ledger_ispolicymanaged (name_buf) ? 1 : 0);
+				BOOLEAN is_policy = _app_ledger_ispolicymanaged (name_buf);
+
+				_r_log (LOG_LEVEL_WARNING, NULL, L"composite_ledger", name_buf, is_policy ? 1 : 0);
+
+				// P2-5: record for the Audit-tab data API
+				if (ledger_foreign_count < LEDGER_MAX_FOREIGN)
+				{
+					wcsncpy_s (ledger_foreign_records[ledger_foreign_count], RTL_NUMBER_OF (ledger_foreign_records[0]), name_buf, _TRUNCATE);
+					ledger_foreign_policy[ledger_foreign_count] = is_policy;
+					ledger_foreign_count++;
+				}
 
 				foreign++;
 			}
@@ -786,4 +803,32 @@ NTSTATUS _app_ledger_reject (
 	_r_log (LOG_LEVEL_WARNING, NULL, L"composite_ledger", rule_name, 1);
 
 	return STATUS_SUCCESS;
+}
+
+
+// P2-5 Audit-tab data API: read the last diff's foreign record by index
+// (0-based up to _app_ledger_diff()'s return). Returns FALSE when the
+// index is out of range. is_policy = policy-managed (report-only)
+BOOLEAN _app_ledger_queryforeign (
+	_In_ ULONG index,
+	_Out_writes_ (buffer_chars) WCHAR *buffer,
+	_In_ ULONG buffer_chars,
+	_Out_ PBOOLEAN is_policy
+)
+{
+	*is_policy = FALSE;
+
+	if (index >= ledger_foreign_count || !buffer || buffer_chars == 0)
+		return FALSE;
+
+	wcscpy_s (buffer, buffer_chars, ledger_foreign_records[index]);
+
+	*is_policy = ledger_foreign_policy[index];
+
+	return TRUE;
+}
+
+ULONG _app_ledger_querycount (VOID)
+{
+	return ledger_foreign_count;
 }

@@ -37,3 +37,15 @@ NTSTATUS _app_ledger_reject (
 VOID _app_ledger_startupcheck (
 	VOID
 );
+
+// P2-5 Audit-tab data API: iterate the last diff's foreign records
+ULONG _app_ledger_querycount (
+	VOID
+);
+
+BOOLEAN _app_ledger_queryforeign (
+	_In_ ULONG index,
+	_Out_writes_ (buffer_chars) WCHAR *buffer,
+	_In_ ULONG buffer_chars,
+	_Out_ PBOOLEAN is_policy
+);
