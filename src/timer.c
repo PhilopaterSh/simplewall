@@ -124,14 +124,21 @@ VOID _app_timer_reset (
 
 	// composite T005: the expired temporary permit no longer shields the
 	// app — drop any session decision with it (a leftover session permit
-	// must not keep permitting after the user's temporary allow expired)
+	// must not keep permitting after the user's temporary allow expired);
+	// the S3 fold releases the app's held-pending count with it
 	_app_state_revokeapp (ptr_app->app_hash);
 
 	if (_app_istimerset (ptr_app))
 		_app_timer_remove (ptr_app);
 
 	if (hwnd)
+	{
 		_app_listview_updateitemby_param (hwnd, ptr_app->app_hash, TRUE);
+
+		// S3: correct the tray immediately — this runs on a threadpool
+		// callback like the existing _r_tray_popup precedent
+		_app_settrayicon (hwnd, _wfp_getinstalltype ());
+	}
 }
 
 VOID _app_timer_remove (

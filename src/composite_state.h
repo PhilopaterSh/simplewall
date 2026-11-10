@@ -89,5 +89,11 @@ VOID _app_state_releasepending (
 	_In_ ULONG app_hash
 );
 
+// S3: clear every held-pending count (the prompt died without decisions —
+// held entries are stale by definition once no prompt is visible)
+VOID _app_state_releaseallpending (
+	VOID
+);
+
 // T006: total held-pending connections across apps (tray/status surface)
 ULONG _app_state_getheldtotal (VOID);

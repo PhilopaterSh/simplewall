@@ -405,8 +405,9 @@ BOOLEAN _app_state_decide (
 
 	_r_queuedlock_releaseexclusive (&lock_state);
 
-	// the decision covers the held-pending connections (T006 batch review)
-	_app_state_releasepending (ptr_app->app_hash);
+	// the decision covers the held-pending connections (T006 batch
+	// review) — the hold release itself happens through the revokeapp
+	// fold at decide's supersede step above (S3, 2026-11-10)
 
 	if (hwnd)
 		_app_listview_updateitemby_param (hwnd, ptr_app->app_hash, TRUE);
@@ -485,6 +486,13 @@ VOID _app_state_revokeapp (
 	_r_queuedlock_releaseexclusive (&lock_state);
 
 	_app_state_destroyguids (guids);
+
+	// S3 (2026-11-10): every revokeapp caller supersedes or cancels the
+	// app's session state; the held-pending count accumulated under the
+	// old state is stale the moment the state goes — drop it so the tray
+	// never shows held connections for an app that lost its session
+	// decision (covers app-delete, disable, and timer expiry for free)
+	_app_state_releasepending (app_hash);
 }
 
 VOID _app_state_applyall (
@@ -576,6 +584,26 @@ VOID _app_state_releasepending (
 	_r_queuedlock_acquireexclusive (&lock_state);
 
 	_r_obj_removehashtableitem (state_held, app_hash);
+
+	_r_queuedlock_releaseexclusive (&lock_state);
+}
+
+// S3 (2026-11-10): clear every held-pending count. Held entries only
+// accumulate while a prompt window is visible (single-flight: one prompt
+// at a time), so once the prompt dies without a decision they are stale
+// by definition — "N held for review" with no prompt open is a false
+// promise; the underlying connections were already blocked and logged,
+// and new holds re-accumulate under the next prompt
+VOID _app_state_releaseallpending (
+	VOID
+)
+{
+	if (!state_held)
+		return;
+
+	_r_queuedlock_acquireexclusive (&lock_state);
+
+	_r_obj_clearhashtable (state_held);
 
 	_r_queuedlock_releaseexclusive (&lock_state);
 }

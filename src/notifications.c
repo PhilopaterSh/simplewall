@@ -369,10 +369,9 @@ BOOLEAN _app_notify_command (
 
 		// composite T005: an "always" decision supersedes any session
 		// decision for this app — a leftover session permit must not
-		// silently override a permanent block (and vice versa); it also
-		// releases the app's held-pending connections (T006 batch review)
+		// silently override a permanent block (and vice versa); the held
+		// release happens through revokeapp's S3 fold
 		_app_state_revokeapp (app_hash);
-		_app_state_releasepending (app_hash);
 
 		if (ptr_app->is_enabled && seconds > 0)
 		{
@@ -1201,8 +1200,21 @@ VOID _app_notify_destroy (
 )
 {
 	PNOTIFY_CONTEXT context;
+	HWND hmain;
 
 	_InterlockedCompareExchangePointer ((volatile PVOID_PTR)&config.hnotification, NULL, config.hnotification);
+
+	// S3 (2026-11-10): the prompt is dying; held-pending counts exist only
+	// while a prompt is visible (single-flight), so everything still in
+	// state_held is stale by definition — clear it and correct the tray
+	// immediately (this is the funnel for Esc, WM_CLOSE, editor-dismiss,
+	// app-delete and queue-drain teardowns)
+	_app_state_releaseallpending ();
+
+	hmain = _r_app_gethwnd ();
+
+	if (hmain)
+		_app_settrayicon (hmain, _wfp_getinstalltype ());
 
 	context = _app_notify_getcontext (hwnd);
 
