@@ -23,6 +23,11 @@
 
 ## Non-functional
 
+- NFR-06: every new module carries automated tests runnable without
+  elevation (the bench probes cover the ledger/zone modules).
+- OPS-01: goldfish check runs as the local pre-merge gate for this chain
+  and is recorded per verification step; a failing gate blocks merge.
+
 - NFR-04: incremental apply p95 <= 1.1x full rebuild, unfiltered window
   strictly smaller.
 - NFR-02/03/05/06 inherited.
