@@ -1,5 +1,9 @@
 # Phase 2 plan
 
+Scope boundary: per DEC-08 this chain covers only the Phase 2 backend
+contracts; per DEC-11 the GUI is a separate future chain consuming the
+data APIs designed here (it never re-opens this chain).
+
 - Module: `src/composite_ledger.c/.h` (FR-10, FR-12, DATA-03). Reuses the
   lockdown sidecar IO pattern (magic + key=value lines + FNV1a trailer),
   INetFwPolicy2 C-COM enumeration (wfp.c pattern), and the warn-and-leave
@@ -26,3 +30,14 @@
 - Verification: extend tools/bench-phase1-probes.ps1 with ledger probes
   (baseline tamper, quarantine restore, GPO exemption); goldfish check
   gate before any merge.
+
+## Cross-cutting keys honored in every task
+
+- DATA-01: every new sidecar (ledger baseline) is namespaced and never
+  touches profile.xml (P2-1 implements it; P2-6 probes assert it).
+- NFR-02: MSVC /W4 + /analyze clean, system libraries only
+  (P2-1..P2-4 all build under the standing build recipe).
+- SEC-05: no new processes/binaries — ledger and zones run inside the
+  existing single-binary elevation model (asserted in P2-6).
+- NFR-06: automated tests runnable without elevation = the bench probes
+  (P2-6 records them; gate runs local pre-merge (OPS-01 lives in the composite chain; here the gate is the same tool, recorded per this chain's verification step)).
