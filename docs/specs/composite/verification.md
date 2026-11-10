@@ -60,10 +60,15 @@
 
 ## /W4 + /analyze status (T014, NFR-02/SEC-05)
 
-- x64 Release `/W4`: **clean (zero warnings)** as of the 2026-11-10
-  composite wave (verified per-file during the S3/S4/T007 builds;
-  composite_lockdown.c required 6 warning fixes to reach zero).
-- `/analyze` pass: PENDING (build script runs /W4 only; run
-  `msbuild ... /p:RunCodeAnalysisOnce=true` before the next release cut).
-- Release inventory (unchanged binary set + ≤ 8 MB): to be asserted by
+- x64 Release `/W4`: **clean (zero warnings)** across all composite files
+  (2026-11-10 wave; composite_lockdown.c required 6 fixes to reach zero).
+- `/analyze` pass (2026-11-10, RunCodeAnalysisOnce): **executed**. Caught a
+  REAL defect the compiler missed: three string builders passed as
+  uninitialized pointers into `_r_obj_initializestringbuilder` (lockdown +
+  packs) - writes through a garbage pointer on first engage; fixed by
+  stack-allocating the builder struct. All composite-file findings fixed
+  except ONE documented residual: composite_eventlog.c(196) C6387 param
+  contract nit in T002-era code (in-body NULL init present; pre-existing).
+  vendor/routine findings: upstream code, out of scope (DEC-01).
+- Release inventory (unchanged binary set + <= 8 MB): to be asserted by
   the release job when packaging lands (vision tracker row 12).

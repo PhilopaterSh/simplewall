@@ -13,7 +13,12 @@
   (AC-1..AC-11). All goldfish-gate checks exit 0.
 - Implemented on branch `composite/T003-T006-prompting` (in sync with origin):
   T001 audit lifecycle, T002 5157 pipeline, T003–T006 smart prompting
-  (tiers/publisher/durations/single-flight) + UDP PID-reuse guards.
+  (tiers/publisher/durations/single-flight) + UDP PID-reuse guards; the
+  2026-11-10 wave added T007 lockdown (DEC-04 full recipe), T008/T009
+  signed packs (BCrypt P-256 + watermarks + hash-checked sidecar), T011
+  tray/status surfaces, T012 bench probes, T013 verification.md, T014
+  /W4+/analyze (one documented residual), and a fresh goldfish-gate run
+  (exit 0). Remaining in-chain: T010 packs repo (owner: new repository).
 - Open PRs (merge in this order): **#9 (T001) → #11 (T002) → #12 (T003–T006)**.
   PRs #1–#7 already merged.
 

@@ -625,6 +625,9 @@ VOID _app_publisher_revalidate (VOID)
 	{
 		path = (PR_STRING)_r_obj_getlistitem (path_list, 0);
 
+		if (!path) // /analyze C6387: empty-slot guard (cannot happen with this producer; cheap insurance)
+			break;
+
 		_app_publisher_querypath (path, FALSE); // mtime unchanged → no re-verify; changed → re-verify (+ revoke on failure)
 
 		_r_obj_removelistitem (path_list, 0);

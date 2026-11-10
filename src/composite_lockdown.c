@@ -203,7 +203,8 @@ static NTSTATUS _app_lockdown_writesnapshot (
 	IEnumVARIANT *rules_enum = NULL;
 	PR_STRING path = NULL;
 	PR_STRING contents = NULL;
-	PR_STRINGBUILDER sb;
+	R_STRINGBUILDER sb_storage;
+	PR_STRINGBUILDER sb = &sb_storage;
 	VARIANT variant;
 	INetFwRule *rule;
 	BSTR name_bstr = NULL;

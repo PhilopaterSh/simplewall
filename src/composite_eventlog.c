@@ -195,10 +195,13 @@ static UINT64 _app_eventlog_getnumbervalue (
 
 static BOOLEAN _app_eventlog_rendervalues (
 	_In_ EVT_HANDLE event,
-	_Outptr_result_buffer_ (*out_count) PEVT_VARIANT *out_values,
+	_Outptr_result_buffer_ (*out_count) PEVT_VARIANT *out_values, // always defined: NULL + count 0 on the failure path (in-body init)
 	_Out_ PDWORD out_count
 )
 {
+
+	*out_values = NULL;
+	*out_count = 0; // /analyze C6387: defined even on the failure path
 	PEVT_VARIANT values;
 	DWORD buffer_size;
 	DWORD used = 0;

@@ -192,7 +192,7 @@ static ULONG _app_packs_fnv1a32 (
 static BOOLEAN _app_packs_parseversion (
 	_In_reads_bytes_ (length) const CHAR *string,
 	_In_ SIZE_T length,
-	_Out_ ULONG version[3]
+	_Out_writes_(3) ULONG version[3]
 )
 {
 	ULONG component = 0;
@@ -234,6 +234,8 @@ static BOOLEAN _app_packs_toguid (
 	_Out_ LPGUID guid
 )
 {
+	ZeroMemory (guid, sizeof (GUID)); // /analyze C6101: defined even on the failure path
+
 	UINT data1;
 	UINT data2;
 	UINT data3;
@@ -327,6 +329,9 @@ static BOOLEAN _app_packs_jsonstring (
 	SIZE_T length = 0;
 	BYTE value;
 
+	*out_length = 0; // /analyze C6101: defined even on the failure path
+	buffer[0] = 0;
+
 	_app_packs_jsonskipws (json);
 
 	if (json->ptr >= json->end || json->ptr[0] != '"')
@@ -381,6 +386,8 @@ static BOOLEAN _app_packs_jsonnumber (
 	ULONG result = 0;
 	BYTE current;
 
+	*value = 0; // /analyze C6101: defined even on the failure path
+
 	_app_packs_jsonskipws (json);
 
 	if (json->ptr >= json->end)
@@ -427,12 +434,14 @@ static BOOLEAN _app_packs_jsonmatches (
 static BOOLEAN _app_packs_parseipv4 (
 	_In_reads_bytes_ (length) const CHAR *string,
 	_In_ SIZE_T length,
-	_Out_writes_ (4) BYTE address[4]
+	_Out_writes_bytes_ (4) BYTE address[4]
 )
 {
 	ULONG octet = 0;
 	ULONG index = 0;
 	SIZE_T i;
+
+	ZeroMemory (address, 4); // /analyze C6101: defined even on the failure path (v4 = 4 bytes)
 
 	for (i = 0; i < length; i++)
 	{
@@ -480,6 +489,8 @@ static BOOLEAN _app_packs_parseipv6 (
 	ULONG digits = 0;
 	BOOLEAN has_gap = FALSE;
 	ULONG i;
+
+	ZeroMemory (address, sizeof (FWP_BYTE_ARRAY16)); // /analyze C6101
 	SIZE_T pos;
 
 	RtlZeroMemory (groups, sizeof (groups));
@@ -1296,7 +1307,7 @@ static VOID _app_packs_logpack (
 static NTSTATUS _app_packs_watermarkread (
 	_In_ PR_STRING contents,
 	_In_ LPCWSTR pack_id,
-	_Out_ ULONG watermark[3]
+	_Out_writes_(3) ULONG watermark[3]
 )
 {
 	CHAR narrow[32];
@@ -1457,7 +1468,8 @@ static NTSTATUS _app_packs_watermarkwrite (
 	PR_STRING contents = NULL;
 	BOOLEAN is_present = FALSE;
 	BOOLEAN found = FALSE;
-	PR_STRINGBUILDER sb;
+	R_STRINGBUILDER sb_storage;
+	PR_STRINGBUILDER sb = &sb_storage;
 	NTSTATUS status;
 	LPCWSTR line;
 	LPCWSTR next;
@@ -1773,7 +1785,8 @@ static NTSTATUS _app_packs_statewrite (
 	PR_STRING path = NULL;
 	PR_STRING contents;
 	PR_STRING guid_string;
-	PR_STRINGBUILDER sb;
+	R_STRINGBUILDER sb_storage;
+	PR_STRINGBUILDER sb = &sb_storage;
 	PPACK_STATE_ENTRY ptr_entry;
 	ULONG hash;
 	NTSTATUS status;

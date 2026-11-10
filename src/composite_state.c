@@ -139,6 +139,9 @@ VOID _app_state_uninitialize (VOID)
 	{
 		guids = (PR_ARRAY)_r_obj_getlistitem (detached, 0);
 
+		if (!guids) // /analyze C6011: detached slots are never null by construction; cheap insurance
+			break;
+
 		if (!_r_obj_isempty2 (guids) && _wfp_isfiltersinstalled ())
 			_wfp_destroyfilters_array (_wfp_getenginehandle (), guids, DBG_ARG);
 
