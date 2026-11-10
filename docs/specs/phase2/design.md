@@ -18,7 +18,7 @@
   rebuildable.
 - NFR-04 incremental apply p95 <= 1.1x full rebuild; unfiltered window
   strictly smaller.
-- Inherited: NFR-02/03/05/06, DATA-01, SEC-05.
+- Inherited (verbatim from the umbrella): NFR-02/03/04/05, DATA-01, SEC-05, NFR-06, OPS-01.
 
 ## Scope boundary decisions
 
