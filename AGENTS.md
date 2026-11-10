@@ -1,84 +1,61 @@
-# AGENTS.md — simplewall hardened fork: repository-wide agent instructions
+# AGENTS.md - composite fork governance (rewritten 2026-11-10)
 
-> This file replaced upstream's placeholder content (inherited commit
-> `8f625967`). It is the canonical workflow for EVERY AI agent (and human)
-> working in this repository. The pointer files (CLAUDE.md, GROK.md)
-> reference this file.
+> The previous file at this path contained unrelated junk content and was
+> not a real instruction file; it was replaced. Agents working in this
+> repository follow THIS file plus `docs/specs/composite/RESUME.md`.
 
-## What this fork is
+## Read first, always
 
-Security-hardened, self-verified fork of henrypp/simplewall (GPL-3.0 WFP
-firewall), built on the latest upstream master plus: two hardening rounds,
-a signed ECDSA P-256 update feed, a composite Phase-1 skeleton, and a
-gated C tool suite (release-preflight / dnsrig / feedserver). All work is
-governed by the **goldfish-gate EGM workflow** defined below. The gate
-tool lives at github.com/PhilopaterSh/goldfish-gate (installed via pip).
+1. `docs/specs/composite/RESUME.md` - the canonical resume pointer. Never
+   restart from scratch; build on the latest reached state.
+2. `docs/BACKLOG.md` - mined upstream issues, P1 status, and the composite
+   vision tracker (14 rows).
+3. `docs/specs/composite/design.md` - the approved umbrella design (r5).
+   `design-r6-draft.md` stays FROZEN until the owner opens it.
 
-## The EGM cycle — MANDATORY for every feature/fix
+## Hard rules
 
-1. **Elephant drafts** `docs/specs/<chain>/design.md` (revision header).
-2. **Fresh-context goldfish review** — a NEW agent with zero conversation
-   history returns VERDICT APPROVE / APPROVE-WITH-CHANGES / BLOCK.
-3. **Owner approval recorded verbatim** (Arabic quote + date) in the
-   design header. No implementation before it exists.
-4. **spec.md / plan.md / tasks.md generated** from the approved design.
-5. **Mechanical gate MUST exit 0** before any implementation commit:
-   `goldfish check design.md spec.md plan.md tasks.md`
-   (run inside the chain directory; CI runs it too — see smoke-test.yml).
-6. **Implement only chain tasks**, in task order, then re-run the gate.
-7. **PR → CI green (build + launch + preflight + gate) → merge.**
+- **Owner gates.** Interactive verification, PR merges (#9 -> #11 -> #12),
+  the r6 decision, product naming, and the PFX re-key belong to the owner.
+  Do not perform, simulate, or pre-empt any of them.
+- **Goldfish chain.** Every design change goes: design -> fresh-context
+  review -> owner approval -> spec/plan/tasks -> gate exit 0. Subagent
+  research is welcome BEFORE drafting; it never replaces the chain.
+- **Upstream hygiene.** All composite code is fork-namespaced
+  (`composite_*.c` modules) and sidecar state lives outside `profile.xml`
+  (DEC-09, DATA-01). Monthly upstream rebases must stay cheap; if a change
+  would conflict with that, stop and design it.
+- **Locks and UI threads.** Never hold `lock_state` / `lock_publisher` /
+  `lock_transaction` across any call that can message a window (S4/P1-1).
+  Snapshot under the lock, work outside it.
+- **Verify before claiming.** Build with the MSVC toolchain and report the
+  actual result. Subagent verdicts are inputs, not proof - re-run tests
+  yourself before adopting (rule from the 2026-11-10 arena rounds).
+- **Signing material is burned.** The PFX password is public in history
+  (commit bfe26cc3). Treat all signing claims as void until the owner
+  re-keys. Never reference or reuse the leaked material.
+- **Secrets.** Never commit credentials, tokens, or private data.
 
-## Standing rules (each earned by a recorded incident — see the ledger)
+## Build
 
-- **Empirical-arbiter-first**: any BLOCKING finding about observable
-  behavior must attach a reproduction (bench/script/command output) at
-  review time; otherwise it is labeled `hypothesis — non-gating`.
-  Precedent: a wrong BLOCKING ("CNG wants little-endian") came within one
-  accepted review of ratifying a regression; the bench refuted it in
-  seconds (tools/cng-signature-bench.py — exit 0 REQUIRED before any
-  feed/signature change ships).
-- **Owner adversarial question per round**: the owner's unsolicited
-  challenge is a formal detection mechanism (it caught the one gate
-  bypass and spawned the entire supply-chain round). Log it in
-  docs/specs/tooling/retrospective-ledger.md when it fires.
-- **Never trust docs/memory for API byte-order or ABI claims** — prove
-  against the real API (bench or test) before coding.
-- **Lanes**: one worktree per lane; NEVER commit across lanes; the
-  tools lane never refactors vendor/ — tools adapt to vendor, never the
-  reverse; vendor changes are minimal diffs acked against the vendor
-  lane's live state (measure mtime + git log before racing).
-- **Amendment propagation**: when a revision header CORRECTS an earlier
-  statement, grep the body for the superseded term and rewrite it in the
-  same revision (incident: DEC-05 body contradicted the r4 header).
-- **Artifact completeness**: no implementation task starts while any
-  chain file is still a template (unfilled handoff.md, missing
-  verification.md). CI enforces via tools/check-chain-artifacts.py.
-- **Retrospective ledger is append-only**: every gate catch, review
-  finding (REAL/WRONG + arbitration), and bypass gets a row in
-  docs/specs/tooling/retrospective-ledger.md. Effectiveness is measured
-  from that ledger, not from memory.
-- **Sign after every rebuild** (SAC): signtool /fd SHA256 /f
-  D:/CV/Github/.keys/fork-codesign.pfx /p fork-local-only bin\64\<exe>.
-  NEVER commit private key material — the release profile/owner machine
-  split (tooling DEC-07) exists precisely for this.
-- **Parity constants live in tools/preflight-ground-truth/*.json with
-  provenance headers**; update ONLY with a commit citing the diff that
-  changed the underlying binary (RSK-01). In-tree key material is never
-  trusted — it is cross-checked against the off-repo JSON by the
-  preflight release profile (b2).
+```bat
+call "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvars64.bat"
+msbuild simplewall.sln -property:Configuration=Release -property:Platform=x64 -property:PlatformToolset=v143 -verbosity:minimal -m
+```
+(The project targets toolset v145/VS 2026 where available; v143 override is
+the verified fallback on this machine.)
 
-## Gate commands quick reference
 
-    cd docs/specs/<chain>
-    goldfish check design.md spec.md plan.md tasks.md     # exit 0 required
-    python tools/cng-signature-bench.py                   # 4/4 PASS required
-    python tools/release-preflight.py bin/64/simplewall.exe          # release
-    python tools/release-preflight.py bin/64/simplewall.exe --ci     # CI profile
+## Composite addendum (2026-11-10, merged from the composite branch)
 
-## Merge discipline
-
-Linear: feature branch → sequential PRs → merge commits. CI green
-(build + 20s lifetime + C preflight --ci + dnsrig self-test + goldfish
-checks) before merge. PR-number gaps and unexpanded $VARS in merge
-messages are silent-automation-failure symptoms — note them in the
-ledger when seen (precedents: missing PR #9, "Merge PR #$PR2").
+- **Locks and UI threads:** never hold `lock_state` / `lock_publisher` /
+  `lock_transaction` across any call that can message a window (S4/P1-1);
+  snapshot under the lock, work outside it.
+- **Signing material is burned:** the old PFX password is public in pushed
+  history (bfe26cc3). Treat all signing claims as void until the owner
+  re-keys; never reuse the leaked material.
+- **Verify subagent output:** subagent verdicts are inputs, not proof —
+  rebuild and re-run tests yourself before adopting (rule proven by the
+  2026-11-10 arena rounds).
+- **v143 build fallback:** where VS 2026 (v145 toolset) is absent, the
+  verified build is `msbuild ... -property:PlatformToolset=v143`.

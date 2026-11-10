@@ -9,5 +9,23 @@
 
 #include <windows.h>
 
-NTSTATUS _app_packs_import (_In_ LPCWSTR pack_dir);
-BOOLEAN _app_packs_isenabled (_In_ LPCWSTR pack_id);
+// import (and verify + enable) a pack from a directory containing
+// pack.json + pack.sig; refuses tampered/unsigned/rolled-back packs
+NTSTATUS _app_packs_import (
+	_In_ LPCWSTR pack_dir
+);
+
+BOOLEAN _app_packs_isenabled (
+	_In_ LPCWSTR pack_id
+);
+
+// disable an enabled pack: exact filter delta removal + state update
+NTSTATUS _app_packs_disable (
+	_In_ LPCWSTR pack_id
+);
+
+// startup consistency: sidecar hash-check; corrupt state = packs refuse
+// until re-confirmed (never silently rebuilt — DATA-02)
+VOID _app_packs_startupcheck (
+	VOID
+);

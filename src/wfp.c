@@ -3,6 +3,11 @@
 
 #include "global.h"
 
+#include "composite_audit.h" // composite Phase 1 (SEC-03/DEC-03)
+#include "composite_eventlog.h" // composite prompt pipeline (FR-01/DEC-03)
+#include "composite_publisher.h" // composite Phase 1 (T004 publisher materialization)
+#include "composite_state.h" // composite Phase 1 (T005 session decisions)
+
 // hardening round 1: degraded-enforcement state. Set when a vital (global)
 // filter fails to install, so a silently incomplete default-deny posture
 // becomes visible on the tray tooltip and status bar. Reset at the start of
@@ -424,6 +429,8 @@ VOID _wfp_uninitialize (
 	if (config.is_neteventset)
 		_wfp_logunsubscribe (engine_handle);
 
+	_app_eventlog_stop (); // composite prompt pipeline (FR-01): cancel the Security-channel subscription on teardown
+
 	if (!config.is_neteventenabled && config.is_neteventset)
 	{
 		RtlZeroMemory (&val, sizeof (FWP_VALUE0));
@@ -769,6 +776,7 @@ ULONG _wfp_createfilter (
 	LPCWSTR filter_type;
 	UINT64 filter_id;
 	ULONG status;
+	BOOLEAN is_sessionfilter;
 
 	// generate filter guid
 	_r_math_generateguid (&filter.filterKey);
@@ -792,10 +800,19 @@ ULONG _wfp_createfilter (
 	if ((weight == FWW_IMPORTANT) || (action == FWP_ACTION_BLOCK) || (action == FWP_ACTION_CALLOUT_TERMINATING))
 		filter.flags |= FWPM_FILTER_FLAG_CLEAR_ACTION_RIGHT;
 
+	// composite T005/T004 (FR-04/SEC-02): the private FWPCOMPOSITE_FLAG_SESSIONFILTER
+	// sentinel marks composite session-scoped filters (once/until-restart
+	// decisions, publisher materializations) — it suppresses the PERSISTENT
+	// flag so a session decision can never outlive the process/reboot, and
+	// is stripped before the real FwpmFilterAdd0 flags are applied
+	is_sessionfilter = (flags & FWPCOMPOSITE_FLAG_SESSIONFILTER) != 0;
+
+	flags &= ~FWPCOMPOSITE_FLAG_SESSIONFILTER;
+
 	// set filter flags
 	if ((flags & FWPM_FILTER_FLAG_BOOTTIME) == 0)
 	{
-		if (!config.is_filterstemporary)
+		if (!config.is_filterstemporary && !is_sessionfilter)
 			filter.flags |= FWPM_FILTER_FLAG_PERSISTENT;
 
 		// filter is indexed to help enable faster lookup during classification (win8+)
@@ -2165,7 +2182,21 @@ VOID NTAPI _wfp_applythread (
 	if (context->is_install)
 	{
 		if (_wfp_initialize (context->hwnd, engine_handle))
+		{
 			_wfp_installfilters (engine_handle);
+
+			// composite Phase 1 (SEC-03/DEC-03): failure-audit events (5157) feed the prompt pipeline
+			if (_r_config_getboolean (L"IsCompositeAuditEnabled", FALSE, NULL))
+				_app_audit_enable ();
+		}
+
+		// composite T004/T005 (FR-03/FR-04/SEC-02): rule-apply point — the
+		// full apply wiped every provider filter; re-materialize publisher
+		// permits (re-validated under WinVerifyTrust) and re-deploy
+		// session-only decisions
+		_app_publisher_clearfilters (); // T004 goldfish fix: the full apply just wiped our filters — drop the stale per-path GUID arrays so applyall re-materializes
+		_app_publisher_applyall (context->hwnd);
+		_app_state_applyall (context->hwnd);
 	}
 	else
 	{
@@ -2175,11 +2206,24 @@ VOID NTAPI _wfp_applythread (
 		_wfp_destroyfilters (engine_handle);
 		_wfp_uninitialize (engine_handle, TRUE);
 		_wfp_degraded_reset (); // audit fix: intentional-off is a chosen state, not a degraded one — clear the tray/status flag
+		_app_audit_revert (); // composite Phase 1 (SEC-03): exact revert (silent no-op without inventory)
+		_app_eventlog_stop (); // composite prompt pipeline (FR-01): the 5157 feed is disabled with the enforcement
+
+		// composite T004/T005: the stored guids are dead — drop them; the
+		// decision/binding records stay and re-deploy on the next install
+		_app_publisher_clearfilters ();
+		_app_state_clearfilters ();
 	}
 
 	// dropped packets logging (win7+)
 	if (config.is_neteventset)
 		_wfp_logsubscribe (context->hwnd, engine_handle);
+
+	// composite prompt pipeline (FR-01/DEC-03): feed 5157 Security-audit
+	// events into the shared log pipeline (install only — the disable branch
+	// stops it above)
+	if (context->is_install && _r_config_getboolean (L"IsCompositeEventLogEnabled", FALSE, NULL))
+		_app_eventlog_start (context->hwnd);
 
 	if (_r_sys_isosversiongreaterorequal (WINDOWS_10))
 		_app_wufixenable (context->hwnd, _r_config_getboolean (L"IsWUFixEnabled", FALSE, NULL));

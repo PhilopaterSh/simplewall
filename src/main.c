@@ -4,6 +4,11 @@
 #include "global.h"
 
 #include "update_key.h" // hardening round 2: update feed verification public key
+#include "composite_audit.h" // composite Phase 1 (SEC-03/DEC-03)
+#include "composite_lockdown.h" // composite Phase 1 (FR-06/DEC-04)
+#include "composite_packs.h" // composite Phase 1 (FR-08/DATA-02) // composite Phase 1 (FR-06/DEC-04)
+#include "composite_state.h" // composite Phase 1 (T005 durations/T006 single-flight)
+#include "composite_publisher.h" // composite Phase 1 (T004 publisher rules)
 
 BOOLEAN _app_changefilters (
 	_In_ HWND hwnd,
@@ -1867,6 +1872,17 @@ VOID _app_initialize (
 
 	_app_profile_initialize ();
 
+	// composite Phase 1 (SEC-03): crash-residue check — a leftover audit
+	// inventory without the composite flag means the previous session never
+	// reverted the machine-wide audit change
+	_app_audit_startupcheck ();
+
+	// composite Phase 1 (FR-06): crash-residue check for the lockdown seal
+	_app_lockdown_startupcheck ();
+
+	// composite Phase 1 (FR-08): packs state hash-check at load
+	_app_packs_startupcheck ();
+
 	{
 		R_STRINGREF image_path_sr;
 
@@ -1937,6 +1953,12 @@ VOID _app_initialize (
 	// initialize cache table
 	cache_information = _r_obj_createhashtablepointer (0x20);
 	cache_resolution = _r_obj_createhashtablepointer (0x20);
+
+	// composite Phase 1 (T004-T006): prompting session state (session
+	// decisions, held-pending counter) and publisher anchors (in-memory
+	// this round; sidecar persistence is T009)
+	_app_state_initialize ();
+	_app_publisher_initialize ();
 
 	NtCreateEvent (&config.hnotify_evt, EVENT_ALL_ACCESS, NULL, NotificationEvent, TRUE);
 
@@ -2256,6 +2278,11 @@ INT_PTR CALLBACK DlgProc (
 				_r_workqueue_waitforfinish (&wfp_queue);
 				_r_workqueue_destroy (&wfp_queue);
 			}
+
+			// composite Phase 1 (T004/T005): session decisions and publisher
+			// bindings revoke their filters with the session (FR-04/DATA-01)
+			_app_state_uninitialize ();
+			_app_publisher_uninitialize ();
 
 			_r_tray_destroy (hwnd, &GUID_TrayIcon);
 
@@ -3666,7 +3693,13 @@ BOOLEAN NTAPI _app_parseargs (
 				_app_profile_load (NULL, NULL);
 
 				if (_wfp_initialize (NULL, hengine))
+				{
 					_wfp_installfilters (hengine);
+
+					// composite Phase 1 (SEC-03): failure-audit events (5157) feed the prompt pipeline
+					if (_r_config_getboolean (L"IsCompositeAuditEnabled", FALSE, NULL))
+						_app_audit_enable ();
+				}
 
 				_wfp_uninitialize (hengine, FALSE);
 			}
@@ -3680,8 +3713,15 @@ BOOLEAN NTAPI _app_parseargs (
 			// https://github.com/henrypp/simplewall/issues/1698#issuecomment-4532518363
 			if (_wfp_isfiltersinstalled () && _app_installmessage (NULL, FALSE))
 			{
+				// composite Phase 1 (FR-06): keep-or-release for the lockdown
+				// seal BEFORE any teardown (default release = full revert;
+				// keep leaves the snapshot sidecar behind for a later restore)
+				if (!_app_lockdown_uninstallhook (NULL))
+					return TRUE;
+
 				_wfp_destroyfilters (hengine);
 				_wfp_uninitialize (hengine, TRUE);
+				_app_audit_revert (); // composite Phase 1 (SEC-03): exact revert (silent no-op without inventory)
 			}
 
 			return TRUE;

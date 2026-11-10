@@ -3,6 +3,10 @@
 
 #include "global.h"
 
+#include "composite_eventlog.h" // composite prompt pipeline (FR-01/RSK-08)
+#include "composite_state.h"
+#include "composite_lockdown.h" // composite T011 tray/status surface // composite Phase 1 (T006 held-pending surface)
+
 VOID _app_getapptooltipstring (
 	_Inout_ PR_STRINGBUILDER buffer,
 	_In_ ULONG app_hash,
@@ -660,10 +664,30 @@ VOID _app_setinterfacestate (
 	if (!_wfp_isfiltersapplying ())
 	{
 		// hardening round 1: visible degraded-enforcement state (SEC-01)
+		// composite T002: prompt-pipeline degradation surfaces too (RSK-08)
 		if (_wfp_isenforcementdegraded ())
+		{
 			_r_status_settext (hwnd, IDC_STATUSBAR, 0, L"Enforcement degraded: one or more global filters failed to install (see log)");
+		}
+		else if (_app_lockdown_isactive ())
+		{
+			// composite T007/T011 (DEC-04): the WFAS seal is governing or
+			// standing by — always visible, never silent
+			_r_status_settext (hwnd, IDC_STATUSBAR, 0, L"Lockdown engaged: outbound sealed at the Windows Firewall layer (defense-in-depth backstop)");
+		}
+		else if (_app_eventlog_ispromptdegraded ())
+		{
+			_r_status_settext (hwnd, IDC_STATUSBAR, 0, L"Prompt pipeline degraded: Security-channel subscription unavailable (using WFP events)");
+		}
+		else if (_app_state_getheldtotal () != 0)
+		{
+			// composite T006 (FR-05): connections held for batch review while a prompt was visible
+			_r_status_settextformat (hwnd, IDC_STATUSBAR, 0, L"%s (%lu connection(s) held for batch review)", _app_getstatelocale (install_type), _app_state_getheldtotal ());
+		}
 		else
+		{
 			_r_status_settext (hwnd, IDC_STATUSBAR, 0, _app_getstatelocale (install_type));
+		}
 	}
 
 	_r_toolbar_setbutton (config.hrebar, IDC_TOOLBAR, IDM_TRAY_START, _app_getstateaction (install_type), BTNS_BUTTON | BTNS_AUTOSIZE | BTNS_SHOWTEXT, 0, (install_type != INSTALL_DISABLED) ? 1 : 0);
@@ -685,10 +709,34 @@ VOID _app_settrayicon (
 	hicon = _r_sys_loadsharedicon (_r_sys_getimagebase (), MAKEINTRESOURCE (_app_getstateicon (install_type)), icon_size);
 
 	// hardening round 1: degraded-enforcement state surfaces in the tooltip too (SEC-01)
+	// composite T002: prompt-pipeline degradation surfaces too (RSK-08)
+	// composite T006: held-pending counter surfaces too (FR-05)
 	if (_wfp_isenforcementdegraded ())
+	{
 		_r_str_printf (tooltip, RTL_NUMBER_OF (tooltip), L"%s (enforcement degraded)", _r_app_getname ());
+	}
+	else if (_app_eventlog_ispromptdegraded ())
+	{
+		_r_str_printf (tooltip, RTL_NUMBER_OF (tooltip), L"%s (prompt pipeline degraded)", _r_app_getname ());
+	}
+	else if (_app_state_getheldtotal () != 0)
+	{
+		_r_str_printf (tooltip, RTL_NUMBER_OF (tooltip), L"%s (%lu held for review)", _r_app_getname (), _app_state_getheldtotal ());
+	}
 	else
+	{
 		_r_str_copy (tooltip, RTL_NUMBER_OF (tooltip), _r_app_getname ());
+	}
+
+	// composite T007/T011 (DEC-04): lockdown state rides on top of every
+	// tooltip state — the seal being engaged is never silent
+	if (_app_lockdown_isactive ())
+	{
+		WCHAR lockdown_tooltip[0x80];
+
+		_r_str_copy (lockdown_tooltip, RTL_NUMBER_OF (lockdown_tooltip), tooltip);
+		_r_str_printf (tooltip, RTL_NUMBER_OF (tooltip), L"%s [LOCKDOWN]", lockdown_tooltip);
+	}
 
 	_r_tray_setinfo (hwnd, &GUID_TrayIcon, hicon, tooltip);
 }
