@@ -5,6 +5,7 @@
 
 #include "update_key.h" // hardening round 2: update feed verification public key
 #include "composite_audit.h" // composite Phase 1 (SEC-03/DEC-03)
+#include "composite_lockdown.h" // composite Phase 1 (FR-06/DEC-04)
 #include "composite_state.h" // composite Phase 1 (T005 durations/T006 single-flight)
 #include "composite_publisher.h" // composite Phase 1 (T004 publisher rules)
 
@@ -1875,6 +1876,9 @@ VOID _app_initialize (
 	// reverted the machine-wide audit change
 	_app_audit_startupcheck ();
 
+	// composite Phase 1 (FR-06): crash-residue check for the lockdown seal
+	_app_lockdown_startupcheck ();
+
 	{
 		R_STRINGREF image_path_sr;
 
@@ -3705,6 +3709,12 @@ BOOLEAN NTAPI _app_parseargs (
 			// https://github.com/henrypp/simplewall/issues/1698#issuecomment-4532518363
 			if (_wfp_isfiltersinstalled () && _app_installmessage (NULL, FALSE))
 			{
+				// composite Phase 1 (FR-06): keep-or-release for the lockdown
+				// seal BEFORE any teardown (default release = full revert;
+				// keep leaves the snapshot sidecar behind for a later restore)
+				if (!_app_lockdown_uninstallhook (NULL))
+					return TRUE;
+
 				_wfp_destroyfilters (hengine);
 				_wfp_uninitialize (hengine, TRUE);
 				_app_audit_revert (); // composite Phase 1 (SEC-03): exact revert (silent no-op without inventory)
