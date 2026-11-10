@@ -407,6 +407,7 @@
     <ClCompile Include="src\composite_eventlog.c" />
     <ClCompile Include="src\composite_lockdown.c" />
     <ClCompile Include="src\composite_ledger.c" />
+    <ClCompile Include="src\composite_zones.c" />
     <ClCompile Include="src\composite_packs.c" />
     <ClCompile Include="src\composite_publisher.c" />
     <ClCompile Include="src\composite_state.c" />
@@ -423,6 +424,7 @@
     <ClInclude Include="src\composite_eventlog.h" />
     <ClInclude Include="src\composite_lockdown.h" />
     <ClInclude Include="src\composite_ledger.h" />
+    <ClInclude Include="src\composite_zones.h" />
     <ClInclude Include="src\composite_packs.h" />
     <ClInclude Include="src\composite_publisher.h" />
     <ClInclude Include="src\composite_state.h" />
