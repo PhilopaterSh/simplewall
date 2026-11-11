@@ -13,3 +13,7 @@ below.
 - Verification: all Phase 1/2 probes + checklist stay green with the new
   shell; new UI procedures (theme/DPI, keyboard traversal, screen-reader
   labels, pack/lockdown flows); footprint job asserts budgets.
+
+- DEC-04 (verify-then-commit) governs the Lockdown page: engage actions
+  present the pre-flight outcome BEFORE committing, with the recorded
+  rollback always available (mirrors the engine-side contract).
