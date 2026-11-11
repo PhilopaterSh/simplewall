@@ -1,4 +1,4 @@
-# design-gui-draft — composite native GUI, r2 (DRAFT — owner approval pending; goldfish round 1 APPROVE-WITH-CHANGES integrated)
+# design-gui — composite native GUI, r2 FINAL (owner approval recorded 2026-11-11: the owner replied "اكمل" to the DEC-11 approval request following the goldfish-integrated presentation — recorded per the standing delegation pattern; implementation may proceed per the sequence below)
 
 > Status: DRAFT per the EGM cycle. Owner raised the requirement 2026-11-10:
 > the composite must stop shipping upstream's simplewall GUI; it needs its
