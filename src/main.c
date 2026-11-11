@@ -8,7 +8,8 @@
 #include "composite_lockdown.h" // composite Phase 1 (FR-06/DEC-04)
 #include "composite_packs.h" // composite Phase 2 (FR-08/DATA-02)
 #include "composite_ledger.h"
-#include "composite_integrity.h" // composite Phase 2 (FR-12) // composite Phase 2 (FR-10/DATA-03) // composite Phase 1 (FR-08/DATA-02) // composite Phase 1 (FR-06/DEC-04)
+#include "composite_integrity.h"
+#include "composite_resolver.h" // composite Phase 3 (P3-C) // composite Phase 2 (FR-12) // composite Phase 2 (FR-10/DATA-03) // composite Phase 1 (FR-08/DATA-02) // composite Phase 1 (FR-06/DEC-04)
 #include "composite_state.h" // composite Phase 1 (T005 durations/T006 single-flight)
 #include "composite_publisher.h" // composite Phase 1 (T004 publisher rules)
 
@@ -1891,6 +1892,9 @@ VOID _app_initialize (
 	// composite Phase 2 (FR-12/P2-2): profile-directory DACL hardening
 	// (non-fatal; non-elevated sessions log and skip)
 	_app_integrity_hardenacl ();
+
+	// composite Phase 3 (P3-C): never-leave-DNS-broken crash residue
+	_app_resolver_startupcheck ();
 
 	{
 		R_STRINGREF image_path_sr;
