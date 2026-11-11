@@ -20,3 +20,10 @@ Inherited keys covered:
   profile.xml; runtime cache is memory-only this round.
 - FR-08: leak-prevention rules are packs-data consumed by the existing
   signed-pack machinery (T034) — no hardcoded filters.
+
+- SEC-03 discipline applies to T033: DNS settings machine-writes follow
+  the inventory-before-write + exact-revert + startup crash-check
+  pattern (the audit-inventory pattern reused for the DNS snapshot).
+- RSK-04 (accepted residual): port-53 conflicts are reported, not
+  silently overridden; elevated negation of protections remains a
+  threat-model boundary.
