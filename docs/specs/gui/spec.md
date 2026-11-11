@@ -21,3 +21,11 @@
   packs module; Lockdown -> lockdown module; Log -> ledger + held
   records; Settings -> config gates). A capability without a page is a
   spec violation.
+
+Inherited keys covered: NFR-06 (UI modules carry automated tests runnable
+without elevation where the logic is testable; visual gates run in the
+interactive lane), NFR-01 (upstream editor re-homed, zero regression),
+NFR-05 (every string localized day one), NFR-07 (rendering + idle
+budgets), FR-15 (every capability has a page), DEC-11 (Option A
+architecture), DEC-09 (fork-namespaced UI files), DEC-04 (Lockdown page
+verify-then-commit).
