@@ -67,3 +67,8 @@ VOID _app_publisher_applyall (
 
 // T004: drop stale filter guids after a provider-wide teardown
 VOID _app_publisher_clearfilters (VOID);
+
+// P2-3b: collect materialized publisher filter GUIDs (desired set)
+VOID _app_publisher_collectguids (
+	_In_ PR_ARRAY desired
+);

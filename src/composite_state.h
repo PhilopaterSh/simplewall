@@ -97,3 +97,8 @@ VOID _app_state_releaseallpending (
 
 // T006: total held-pending connections across apps (tray/status surface)
 ULONG _app_state_getheldtotal (VOID);
+
+// P2-3b: collect deployed session filter GUIDs (desired set)
+VOID _app_state_collectguids (
+	_In_ PR_ARRAY desired
+);

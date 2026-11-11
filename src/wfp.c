@@ -7,6 +7,7 @@
 #include "composite_eventlog.h" // composite prompt pipeline (FR-01/DEC-03)
 #include "composite_publisher.h" // composite Phase 1 (T004 publisher materialization)
 #include "composite_state.h" // composite Phase 1 (T005 session decisions)
+#include "composite_apply.h" // composite Phase 2 (FR-11/P2-3b orphan reconcile)
 
 // hardening round 1: degraded-enforcement state. Set when a vital (global)
 // filter fails to install, so a silently incomplete default-deny posture
@@ -2197,6 +2198,33 @@ VOID NTAPI _wfp_applythread (
 		_app_publisher_clearfilters (); // T004 goldfish fix: the full apply just wiped our filters — drop the stale per-path GUID arrays so applyall re-materializes
 		_app_publisher_applyall (context->hwnd);
 		_app_state_applyall (context->hwnd);
+
+		// composite Phase 2 (FR-11/P2-3b): reconcile orphans — every live
+		// provider filter not claimed by the apps table, publisher paths,
+		// or session decisions is a leftover; remove it so the live set
+		// converges exactly on the desired set
+		{
+			PR_ARRAY desired = _r_obj_createarray (sizeof (GUID), 0x100, NULL);
+			PITEM_APP ptr_app = NULL;
+			ULONG_PTR enum_key = 0;
+
+			_r_queuedlock_acquireshared (&lock_apply);
+
+			while (_r_obj_enumhashtablepointer (apps_table, (PVOID_PTR)&ptr_app, NULL, &enum_key))
+			{
+				if (!_r_obj_isempty2 (ptr_app->guids))
+					_r_obj_addarrayitems (desired, ptr_app->guids->items, ptr_app->guids->count);
+			}
+
+			_r_queuedlock_releaseshared (&lock_apply);
+
+			_app_publisher_collectguids (desired);
+			_app_state_collectguids (desired);
+
+			_app_apply_reconcileorphans (engine_handle, desired);
+
+			_r_obj_dereference (desired);
+		}
 	}
 	else
 	{

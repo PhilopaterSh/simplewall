@@ -25,3 +25,9 @@
   into _wfp_filtersapply rejected (apply-path ownership + crash risk); the
   delivered contract (diff core + overflow fallback) stands as the wiring
   prerequisite.
+
+- **2026-11-11 (2)**: P2-3b LANDED — orphan reconcile wired into
+  _wfp_applythread (desired = apps + publisher + state union; live =
+  provider enumeration via the existing _wfp_dumpfilters; FwpmFilterDeleteByKey0
+  for unclaimed filters). x64 build 0/0. Runtime confirmation rides the
+  owner interactive verification round.
