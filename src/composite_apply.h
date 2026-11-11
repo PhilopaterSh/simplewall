@@ -26,3 +26,12 @@ VOID _app_apply_diff (
 	_In_ ULONG desired_count,
 	_Out_ PAPP_APPLY_DIFF diff
 );
+// (compiled after global.h in every project TU — house style; the
+// headless test builds use only the diff core, which needs windows.h)
+
+// P2-3b: remove provider filters that no table claims (orphans) after a
+// full apply; returns the removed count
+ULONG _app_apply_reconcileorphans (
+	_In_ HANDLE engine,
+	_In_ PR_ARRAY desired_guids
+);

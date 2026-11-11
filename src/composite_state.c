@@ -629,3 +629,24 @@ ULONG _app_state_getheldtotal (VOID)
 
 	return count;
 }
+
+
+// P2-3b: collect every deployed session-decision filter GUID into the
+// desired set (lock_state shared)
+VOID _app_state_collectguids (
+	_In_ PR_ARRAY desired
+)
+{
+	PITEM_STATE_DECISION ptr_decision = NULL;
+	ULONG_PTR enum_key = 0;
+
+	_r_queuedlock_acquireshared (&lock_state);
+
+	while (_r_obj_enumhashtablepointer (state_decisions, (PVOID_PTR)&ptr_decision, NULL, &enum_key))
+	{
+		if (!_r_obj_isempty2 (ptr_decision->guids))
+			_r_obj_addarrayitems (desired, ptr_decision->guids->items, ptr_decision->guids->count);
+	}
+
+	_r_queuedlock_releaseshared (&lock_state);
+}

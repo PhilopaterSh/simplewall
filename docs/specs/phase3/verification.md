@@ -16,3 +16,6 @@
   feeding the cache; T033b bypass detection; T034 DoH/DoT schannel
   transport + leak-prevention rules-as-data; resolver-death watchdog
   lands with the owned in-process resolver (T034 dependency).
+
+- **2026-11-11 (2)**: P2-3b orphan reconcile landed on master; the Phase 3
+  T033b bypass detection will reuse the same provider-enumeration seam.

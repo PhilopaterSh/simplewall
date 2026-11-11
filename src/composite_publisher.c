@@ -727,3 +727,24 @@ VOID _app_publisher_uninitialize (VOID)
 
 	_r_queuedlock_releaseexclusive (&lock_publisher);
 }
+
+
+// P2-3b: collect every materialized publisher filter GUID into the
+// desired set (lock_publisher shared)
+VOID _app_publisher_collectguids (
+	_In_ PR_ARRAY desired
+)
+{
+	PITEM_PUBLISHER_PATH ptr_path = NULL;
+	ULONG_PTR enum_key = 0;
+
+	_r_queuedlock_acquireshared (&lock_publisher);
+
+	while (_r_obj_enumhashtablepointer (publisher_paths, (PVOID_PTR)&ptr_path, NULL, &enum_key))
+	{
+		if (!_r_obj_isempty2 (ptr_path->guids))
+			_r_obj_addarrayitems (desired, ptr_path->guids->items, ptr_path->guids->count);
+	}
+
+	_r_queuedlock_releaseshared (&lock_publisher);
+}
