@@ -410,6 +410,7 @@
     <ClCompile Include="src\composite_ledger.c" />
     <ClCompile Include="src\composite_apply.c" />
     <ClCompile Include="src\composite_dnscache.c" />
+    <ClCompile Include="src\composite_resolver.c" />
     <ClCompile Include="src\composite_zones.c" />
     <ClCompile Include="src\composite_packs.c" />
     <ClCompile Include="src\composite_publisher.c" />
@@ -430,6 +431,7 @@
     <ClInclude Include="src\composite_ledger.h" />
     <ClInclude Include="src\composite_apply.h" />
     <ClInclude Include="src\composite_dnscache.h" />
+    <ClInclude Include="src\composite_resolver.h" />
     <ClInclude Include="src\composite_zones.h" />
     <ClInclude Include="src\composite_packs.h" />
     <ClInclude Include="src\composite_publisher.h" />

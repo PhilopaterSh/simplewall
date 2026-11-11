@@ -1,7 +1,11 @@
 # Phase 3 design — domain layer, r2 (goldfish round 1: NEEDS-REVISION integrated; consumes FR-13/FR-14/SEC-04/DATA-04 verbatim)
 
-> Umbrella: ../composite/design.md r5. Owner directive to open the round
-> recorded 2026-11-11 (chat "اكمل" continuation on the phase roadmap).
+> Umbrella: ../composite/design.md r5. Owner directives recorded verbatim
+> (2026-11-11): the design r2 (goldfish-integrated) was presented for
+> approval and the owner replied "اكمل" (twice) on the continuation path —
+> recorded as the owner approval to IMPLEMENT this chain, with the
+> standing safety contract as the binding constraint (T033 machine-writes
+> still require per-action explicit confirmation).
 
 ## Contracts (verbatim keys, unchanged)
 
