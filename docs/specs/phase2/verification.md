@@ -17,3 +17,11 @@
 - **Wiring follow-ups (recorded, not hidden)**: P2-3b wfp.c delta
   execution; P2-2 config-dir ACL hardening; GPO-origin registry
   cross-check refinement.
+
+- **2026-11-11**: P2-2 FR-12 ACL hardening implemented (composite_integrity.c:
+  profile-dir DACL = SYSTEM + Administrators FULL, interactive user READ;
+  GetSecurityDescriptorDacl documented form; non-fatal/non-elevated aware).
+  x64 build 0/0. P2-3b wiring decision recorded in tasks.md: blind insertion
+  into _wfp_filtersapply rejected (apply-path ownership + crash risk); the
+  delivered contract (diff core + overflow fallback) stands as the wiring
+  prerequisite.
