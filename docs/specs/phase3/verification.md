@@ -19,3 +19,9 @@
 
 - **2026-11-11 (2)**: P2-3b orphan reconcile landed on master; the Phase 3
   T033b bypass detection will reuse the same provider-enumeration seam.
+
+- **2026-11-11 (2)**: T033b bypass detection (15-case headless suite ALL
+  PASSED: endpoint verdicts, loopback exemption, port semantics, pack-
+  schema emission) + T032 ETW controller side (compile-verified, gated
+  default OFF, leftover-session crash handling; consumer parse = live-
+  testing round). Full project build 0/0 with all modules. Gate exit 0.
