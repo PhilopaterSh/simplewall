@@ -1,0 +1,17 @@
+LICENSE
+README.md
+pyproject.toml
+goldfish_gate/__init__.py
+goldfish_gate/__main__.py
+goldfish_gate/check.py
+goldfish_gate/cli.py
+goldfish_gate/handoff.py
+goldfish_gate/ids.py
+goldfish_gate/init.py
+goldfish_gate/report.py
+goldfish_gate/waivers.py
+goldfish_gate.egg-info/PKG-INFO
+goldfish_gate.egg-info/SOURCES.txt
+goldfish_gate.egg-info/dependency_links.txt
+goldfish_gate.egg-info/entry_points.txt
+goldfish_gate.egg-info/top_level.txt

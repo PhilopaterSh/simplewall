@@ -195,10 +195,13 @@ static UINT64 _app_eventlog_getnumbervalue (
 
 static BOOLEAN _app_eventlog_rendervalues (
 	_In_ EVT_HANDLE event,
-	_Outptr_result_buffer_ (*out_count) PEVT_VARIANT *out_values,
+	_Outptr_result_buffer_ (*out_count) PEVT_VARIANT *out_values, // always defined: NULL + count 0 on the failure path (in-body init)
 	_Out_ PDWORD out_count
 )
 {
+
+	*out_values = NULL;
+	*out_count = 0; // /analyze C6387: defined even on the failure path
 	PEVT_VARIANT values;
 	DWORD buffer_size;
 	DWORD used = 0;
@@ -347,9 +350,22 @@ static VOID _app_eventlog_processevent (
 	ptr_log->timestamp = _r_unixtime_now ();
 	ptr_log->af = af;
 
-	// ports and protocol (5157: Application -> DestAddress, treat as OUTBOUND)
-	ptr_log->remote_port = (UINT16)dest_port;
-	ptr_log->local_port = (UINT16)source_port;
+	// ports: 5157 names endpoints by network role, not by direction —
+	// DestPort is the remote peer for outbound but the LOCAL machine for
+	// inbound (LayerRTID 44/46); the addresses above already swap on
+	// is_inbound, the ports must follow the same rule (r1 finding: inbound
+	// rows were port-swapped vs the address roles)
+	if (is_inbound)
+	{
+		ptr_log->remote_port = (UINT16)source_port;
+		ptr_log->local_port = (UINT16)dest_port;
+	}
+	else
+	{
+		ptr_log->remote_port = (UINT16)dest_port;
+		ptr_log->local_port = (UINT16)source_port;
+	}
+
 	ptr_log->protocol = (UINT8)protocol;
 
 	_r_str_printf (buffer, RTL_NUMBER_OF (buffer), L"<unknown protocol> (% " TEXT (PRIu8) L")", ptr_log->protocol);

@@ -1,0 +1,34 @@
+{
+ "provenance": {
+  "source": "henrypp/simplewall official v.3.8.7 portable (simplewall-3.8.7-bin.7z)",
+  "sha256_of_archive": "9f5bd16936decf1ace052a0120452cdeef004d5f6563f99bef180e7ae874e2a3",
+  "captured": "2026-11-07",
+  "note": "RSK-01 incident 2026-11-07: WS2_32.dll was added citing 482893bc, but a clean CI-style build of the committed tree produces 24 DLLs - the 25-DLL reading came from an UNCOMMITTED local build in the parallel checkout. Restored to the committed-tree truth (24). Re-apply with the cited diff only when the udpstats enhancement lands as a commit (gate FAIL with EXTRA WS2_32.dll = trigger)."
+ },
+ "dlls": [
+  "KERNEL32.dll",
+  "USER32.dll",
+  "GDI32.dll",
+  "COMDLG32.dll",
+  "ADVAPI32.dll",
+  "SHELL32.dll",
+  "ole32.dll",
+  "OLEAUT32.dll",
+  "WINHTTP.dll",
+  "bcrypt.dll",
+  "XmlLite.dll",
+  "DNSAPI.dll",
+  "CRYPT32.dll",
+  "ntdll.dll",
+  "WINTRUST.dll",
+  "IPHLPAPI.DLL",
+  "COMCTL32.dll",
+  "dbghelp.dll",
+  "SHLWAPI.dll",
+  "UxTheme.dll",
+  "dwmapi.dll",
+  "MSIMG32.dll",
+  "fwpuclnt.dll",
+  "WINMM.dll"
+ ]
+}

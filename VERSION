@@ -1,3 +1,2 @@
-simplewall=3.9.1|https://github.com/henrypp/simplewall/releases/download/v.3.9.1/simplewall-3.9.1-setup.exe;
-language=1792991245|https://raw.githubusercontent.com/henrypp/simplewall/master/bin/simplewall.lng;
-rules_internal=1784741706|https://raw.githubusercontent.com/henrypp/simplewall/master/bin/profile_internal.sp;
+simplewall=3.9.2|https://github.com/PhilopaterSh/simplewall/releases/download/v3.9.2-hardened.1/simplewall-3.9.2-hardened.1-x64.exe|6f3d848b12282d8804fc9ccd7aafc27aaa59a749b176a98508976ceaebb43dc5;
+language=1794066988|https://github.com/PhilopaterSh/simplewall/releases/download/v3.9.2-hardened.1/simplewall.lng|a39aa974534d35953792313ee20c6f220ca7fb586b9b0773a041c3733b48d9ec;

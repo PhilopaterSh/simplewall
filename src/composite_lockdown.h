@@ -11,6 +11,27 @@
 
 #include <windows.h>
 
-NTSTATUS _app_lockdown_enable (_In_ HWND hwnd);
-NTSTATUS _app_lockdown_disable (_In_ HWND hwnd);
-BOOLEAN _app_lockdown_isactive (VOID);
+// module-local status: enable() refused because the audit subcategory is
+// unavailable (or the engine is down) and no owner confirmation was given;
+// re-call with is_confirmed = TRUE to proceed without prompts
+#define STATUS_LOCKDOWN_CONFIRM ((NTSTATUS)0xC05D0001L)
+
+NTSTATUS _app_lockdown_enable (
+	_In_ BOOLEAN is_confirmed
+);
+
+NTSTATUS _app_lockdown_disable (
+	VOID
+);
+
+BOOLEAN _app_lockdown_isactive (
+	VOID
+);
+
+VOID _app_lockdown_startupcheck (
+	VOID
+);
+
+BOOLEAN _app_lockdown_uninstallhook (
+	_In_opt_ HWND hwnd
+);

@@ -3,6 +3,8 @@
 
 #include "global.h"
 
+#include "composite_state.h" // composite Phase 1 (T005): policy changes supersede session decisions
+
 _Success_ (return)
 BOOLEAN _app_getappinfo (
 	_In_ PITEM_APP ptr_app,
@@ -249,6 +251,10 @@ BOOLEAN _app_setappinfo (
 
 				ptr_app->timer = 0;
 				ptr_app->is_enabled = FALSE;
+
+				// composite T005: the expired temporary permit no longer
+				// shields the app — drop any session decision with it
+				_app_state_revokeapp (ptr_app->app_hash);
 			}
 			else
 			{
@@ -267,6 +273,11 @@ BOOLEAN _app_setappinfo (
 
 			_wfp_destroyfilters_array (_wfp_getenginehandle (), ptr_app->guids, DBG_ARG);
 
+			// composite T005: a policy change from the main window (or the
+			// FileMonitor safety revoke) supersedes any session decision —
+			// a leftover session permit must not override a disable
+			_app_state_revokeapp (ptr_app->app_hash);
+
 			_app_listview_updateitemby_param (_r_app_gethwnd (), ptr_app->app_hash, TRUE);
 
 			return TRUE;
@@ -275,6 +286,10 @@ BOOLEAN _app_setappinfo (
 		case INFO_IS_ENABLED:
 		{
 			ptr_app->is_enabled = (PtrToLong (value) ? TRUE : FALSE);
+
+			// composite T005: main-window enable/disable supersedes any
+			// session decision for this app
+			_app_state_revokeapp (ptr_app->app_hash);
 
 			_app_listview_updateitemby_param (_r_app_gethwnd (), ptr_app->app_hash, TRUE);
 
@@ -813,6 +828,10 @@ VOID _app_freeapplication (
 
 		_r_queuedlock_releaseshared (&lock_rules);
 	}
+
+	// composite T005: the app is gone — its session decisions must not
+	// linger as filters for whatever binary may reappear at the path
+	_app_state_revokeapp (app_hash);
 
 	_r_obj_removehashtableitem (apps_table, app_hash);
 }

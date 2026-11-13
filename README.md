@@ -79,6 +79,17 @@ Designed and approved through the gate process (`docs/specs/composite/`), implem
 - Windows 7 SP1 … 11, 64-bit (x64 builds verified; ARM64 project configuration available)
 - SSE2-capable CPU; no external dependencies
 
+## Performance & footprint (measured, honest)
+
+Published as measured, not aspirational (2026-11-10, x64 Release, Win11 26H2, idle with main window loaded):
+
+- Idle working set: **~48 MB** steady across repeated samples (no growth in short-run observation).
+- Zero idle CPU when no connection events fire (event-driven; no polling loops).
+- Long-run soak (#2135-class memory growth) is an open watch item — see `docs/BACKLOG.md`.
+
+Comparison anchors: Portmaster reports 600 MB+ baseline with documented leak issues (safing/portmaster#1870);
+the composite goal is the lowest footprint in the class, and the number above is updated with every release.
+
 ## Build from source
 
 ```bat

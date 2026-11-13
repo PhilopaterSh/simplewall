@@ -5,6 +5,9 @@
 
 #include "composite_audit.h" // composite Phase 1 (SEC-03/DEC-03)
 #include "composite_eventlog.h" // composite prompt pipeline (FR-01/DEC-03)
+#include "composite_publisher.h" // composite Phase 1 (T004 publisher materialization)
+#include "composite_state.h" // composite Phase 1 (T005 session decisions)
+#include "composite_apply.h" // composite Phase 2 (FR-11/P2-3b orphan reconcile)
 
 // hardening round 1: degraded-enforcement state. Set when a vital (global)
 // filter fails to install, so a silently incomplete default-deny posture
@@ -774,6 +777,7 @@ ULONG _wfp_createfilter (
 	LPCWSTR filter_type;
 	UINT64 filter_id;
 	ULONG status;
+	BOOLEAN is_sessionfilter;
 
 	// generate filter guid
 	_r_math_generateguid (&filter.filterKey);
@@ -797,10 +801,19 @@ ULONG _wfp_createfilter (
 	if ((weight == FWW_IMPORTANT) || (action == FWP_ACTION_BLOCK) || (action == FWP_ACTION_CALLOUT_TERMINATING))
 		filter.flags |= FWPM_FILTER_FLAG_CLEAR_ACTION_RIGHT;
 
+	// composite T005/T004 (FR-04/SEC-02): the private FWPCOMPOSITE_FLAG_SESSIONFILTER
+	// sentinel marks composite session-scoped filters (once/until-restart
+	// decisions, publisher materializations) — it suppresses the PERSISTENT
+	// flag so a session decision can never outlive the process/reboot, and
+	// is stripped before the real FwpmFilterAdd0 flags are applied
+	is_sessionfilter = (flags & FWPCOMPOSITE_FLAG_SESSIONFILTER) != 0;
+
+	flags &= ~FWPCOMPOSITE_FLAG_SESSIONFILTER;
+
 	// set filter flags
 	if ((flags & FWPM_FILTER_FLAG_BOOTTIME) == 0)
 	{
-		if (!config.is_filterstemporary)
+		if (!config.is_filterstemporary && !is_sessionfilter)
 			filter.flags |= FWPM_FILTER_FLAG_PERSISTENT;
 
 		// filter is indexed to help enable faster lookup during classification (win8+)
@@ -2177,6 +2190,41 @@ VOID NTAPI _wfp_applythread (
 			if (_r_config_getboolean (L"IsCompositeAuditEnabled", FALSE, NULL))
 				_app_audit_enable ();
 		}
+
+		// composite T004/T005 (FR-03/FR-04/SEC-02): rule-apply point — the
+		// full apply wiped every provider filter; re-materialize publisher
+		// permits (re-validated under WinVerifyTrust) and re-deploy
+		// session-only decisions
+		_app_publisher_clearfilters (); // T004 goldfish fix: the full apply just wiped our filters — drop the stale per-path GUID arrays so applyall re-materializes
+		_app_publisher_applyall (context->hwnd);
+		_app_state_applyall (context->hwnd);
+
+		// composite Phase 2 (FR-11/P2-3b): reconcile orphans — every live
+		// provider filter not claimed by the apps table, publisher paths,
+		// or session decisions is a leftover; remove it so the live set
+		// converges exactly on the desired set
+		{
+			PR_ARRAY desired = _r_obj_createarray (sizeof (GUID), 0x100, NULL);
+			PITEM_APP ptr_app = NULL;
+			ULONG_PTR enum_key = 0;
+
+			_r_queuedlock_acquireshared (&lock_apply);
+
+			while (_r_obj_enumhashtablepointer (apps_table, (PVOID_PTR)&ptr_app, NULL, &enum_key))
+			{
+				if (!_r_obj_isempty2 (ptr_app->guids))
+					_r_obj_addarrayitems (desired, ptr_app->guids->items, ptr_app->guids->count);
+			}
+
+			_r_queuedlock_releaseshared (&lock_apply);
+
+			_app_publisher_collectguids (desired);
+			_app_state_collectguids (desired);
+
+			_app_apply_reconcileorphans (engine_handle, desired);
+
+			_r_obj_dereference (desired);
+		}
 	}
 	else
 	{
@@ -2188,6 +2236,11 @@ VOID NTAPI _wfp_applythread (
 		_wfp_degraded_reset (); // audit fix: intentional-off is a chosen state, not a degraded one — clear the tray/status flag
 		_app_audit_revert (); // composite Phase 1 (SEC-03): exact revert (silent no-op without inventory)
 		_app_eventlog_stop (); // composite prompt pipeline (FR-01): the 5157 feed is disabled with the enforcement
+
+		// composite T004/T005: the stored guids are dead — drop them; the
+		// decision/binding records stay and re-deploy on the next install
+		_app_publisher_clearfilters ();
+		_app_state_clearfilters ();
 	}
 
 	// dropped packets logging (win7+)

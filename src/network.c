@@ -482,6 +482,13 @@ VOID _app_network_generatetable (
 
 				if (ptr_network)
 				{
+					// composite: PID-reuse guard (identity research, 2026-11-07) — a changed
+					// socket-creation timestamp on the same (pid, port) means the port was
+					// re-bound by a different process generation; re-resolve the owner path
+					// (getpath is failure-safe: it leaves the old path on OpenProcess failure)
+					if (ptr_network->udp_created != udp4_table->table[i].liCreateTimestamp.QuadPart)
+						_app_network_getpath (ptr_network, udp4_table->table[i].dwOwningPid, udp4_table->table[i].OwningModuleInfo);
+
 					_app_network_update_udp_stats (ptr_network, network_context, udp4_table->table[i].dwOwningPid, udp4_table->table[i].liCreateTimestamp.QuadPart, 0);
 
 					_r_queuedlock_acquireexclusive (&network_context->lock_checker);
@@ -555,6 +562,10 @@ VOID _app_network_generatetable (
 
 				if (ptr_network)
 				{
+					// composite: PID-reuse guard (see udp4 site)
+					if (ptr_network->udp_created != udp6_table->table[i].liCreateTimestamp.QuadPart)
+						_app_network_getpath (ptr_network, udp6_table->table[i].dwOwningPid, udp6_table->table[i].OwningModuleInfo);
+
 					_app_network_update_udp_stats (ptr_network, network_context, udp6_table->table[i].dwOwningPid, udp6_table->table[i].liCreateTimestamp.QuadPart, udp6_table->table[i].dwLocalScopeId);
 
 					_r_queuedlock_acquireexclusive (&network_context->lock_checker);
