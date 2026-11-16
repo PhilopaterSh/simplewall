@@ -1,19 +1,77 @@
 # Design: Round 2 — Routine Hardening & Secure Updater
 
-> Revision `2026-11-06-r3` — retrospective amendment (2026-11-07): the
-> first interactive run crashed 0xC0000005; root cause = DEC-04 was
-> applied to headers/definitions but NOT to all internal vendor callers
-> (arg-order shuffle class) plus one PR_STRING/PR_STRINGREF layout
-> divergence. This extends DEC-04's scope explicitly: **the fork-ABI
-> contract covers every caller inside the vendored tree, not only the
-> two functions originally aligned** — implemented as T014 (patch set
-> F9-F13 + the parallel-session queryversion fix, commits f4bfda30,
-> ccd618a9, 02d99172) and verified as T015 (two fresh-context goldfish
-> audits: vendor patch-set VERDICT patch-set-sound incl. a 9-function
-> sweep finding zero crash-capable mismatches remaining; full src
-> re-audit with one blocking finding fixed at 015f95ce; cppcheck clean;
-> warnings 60+ -> 18 benign const lints). Prior r2 content unchanged.
+> Revision `2026-11-07-r4` — compliance amendment (2026-11-07): commit
+> 26a69775 (PR #3, "THE DEAD FEED") fixed 5 stacked bugs that made the
+> signed update feed **unverifiable on every machine** — every update
+> attempt was fail-closed forever. Discovered during the owner's
+> site-parity request; shipped BEFORE running the chain (gate bypass,
+> caught by the owner's compliance question) — this amendment + a
+> fresh-context goldfish review of the 26a69775 diff is the mandatory
+> retrospective reconciliation. The five fixes, mapped to decisions:
+>
+> 1. **Byte-exact transport (extends DEC-05, "exact feed bytes"):**
+>    `R_DOWNLOAD_INFO` gains `is_bytes` mode (rtypes.h) — the old path
+>    converted every download through `RtlMultiByteToUnicodeN` (ACP), so
+>    the manifest was hashed as UTF-16LE while update-signer.ps1 signs
+>    raw file bytes; the 64-byte raw r||s signature expanded to 128
+>    bytes of WCHARs (plus lossy ACP undefined bytes) and tripped the
+>    64-byte length check. Manifest AND detached .sig now download
+>    bit-exact; the verified bytes are converted to a parseable string
+>    only AFTER signature success (ASCII feed = 1:1).
+> 2. **Endianness contract (extends DEC-05 blob spec) — CORRECTED by
+>    the follow-up review below:** CNG ECDSA blobs and signatures are
+>    BIG-endian (not little-endian as first assumed); update_key.h
+>    X||Y big-endian and the .NET P1363 r||s signature both copy
+>    VERBATIM — proven by tools/cng-signature-bench.py (see follow-up).
+> 3. **Key integrity from ground truth (extends DEC-05 key spec):** the
+>    committed public key was transcription-corrupted from its very
+>    first commit (db1ef855 — y-half missing one nibble + one inserted
+>    byte → off-curve point, import fails). Header rewritten from
+>    D:\CV\Github\.keys\simplewall-signing.json; **new runbook rule:
+>    key material in-tree is NEVER trusted — it is always re-derived
+>    from the off-repo JSON at keygen/sign/verify-bootstrap time.**
+> 4. **EOL pinning for the feed (extends DEC-03 feed origin):**
+>    VERSION.sig was signed over CRLF worktree bytes while
+>    raw.githubusercontent.com serves LF — re-signed over exact LF
+>    bytes; .gitattributes pins `VERSION eol=lf` + `*.sig binary`.
+> 5. **Verification evidence (extends T015 pattern):** independent
+>    pure-math ECDSA P-256 verification (positive PASS; tampered feed
+>    REJECTED; tampered sig REJECTED) + .NET VerifyData cross-check.
+>    Verified in-binary: corrected BE key bytes embedded, corrupted
+>    bytes absent (exe SHA256 2eba6894…e2c76c, Authenticode Valid).
+>
+> Known deferred item (owner decision pending): feed CONTENT still
+> points at upstream artifacts — repoint to fork releases + re-sign at
+> first release.
+>
+> Prior r3 content unchanged (r3 = retrospective amendment for the
+> crash class: DEC-04 covers every caller in the vendored tree;
+> T014 patch set F9-F13, T015 dual fresh-context goldfish audits).
 > Owner policy input: the updater keeps working, fail-closed and signed.
+>
+> **r4 follow-up — fresh-context goldfish review of 26a69775 (VERDICT:
+> BLOCK, findings integrated the same day):** the review's BLOCKING
+> claim ("CNG wants little-endian signature halves") was REFUTED
+> empirically — a CNG bench (tools/cng-signature-bench.py, RSK-04 gate)
+> proves CNG ECDSA wants BIG-endian for both the ECCPUBLICBLOB (verbatim
+> import = STATUS_SUCCESS; LE halves = 0xC000000D) and the P1363 r||s
+> signature (verbatim verify = STATUS_SUCCESS; LE halves = 0xC000A000;
+> tampered = rejected). Consequence: the r4 "endianness fix" was itself
+> a regression (it broke BCryptImportKeyPair) and is REVERTED — the key
+> copies verbatim, matching the header and the signature convention.
+> The review's MAJOR findings are real and fixed: (a) zero-byte 200
+> response dereferenced a never-allocated buffer in the bytes-mode
+> shrink-to-fit — now fails closed (empty/truncated/Content-Length-unmet
+> responses return STATUS_UNSUCCESSFUL); (b) the stringbuilder leaked
+> ~32KB per bytes-mode download — now initialized only for string mode;
+> (c) Content-Length-derived preallocation is clamped to 1MB (server-
+> controlled value). MINOR findings pinned: union-slot cleanup invariant
+> documented in _r_inet_destroydownload; truncated-download vs
+> signature-fail diagnosis improved; pre-existing _r_update_navigate
+> icon-param misuse (rapp.c, inherited from upstream import) logged as
+> a follow-up. Rebuilt + re-signed: exe SHA256 03c4c0d4631dae927597871d
+> 3a9ce8c08b45cce101bff1f2b835238656b04ec0 (Authenticode Valid). The
+> CNG bench is now the standing RSK-04 gate (exit 0 required).
 
 ## Problem and intended outcomes
 

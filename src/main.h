@@ -288,6 +288,7 @@ typedef struct _ITEM_LOG
 	BOOLEAN is_custom;
 	BOOLEAN is_system;
 	BOOLEAN is_allow;
+	BOOLEAN is_composite; // composite: Security-audit 5157 source (FR-01)
 } ITEM_LOG, *PITEM_LOG;
 
 typedef struct _ITEM_APP

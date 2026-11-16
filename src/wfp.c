@@ -3,6 +3,9 @@
 
 #include "global.h"
 
+#include "composite_audit.h" // composite Phase 1 (SEC-03/DEC-03)
+#include "composite_eventlog.h" // composite prompt pipeline (FR-01/DEC-03)
+
 // hardening round 1: degraded-enforcement state. Set when a vital (global)
 // filter fails to install, so a silently incomplete default-deny posture
 // becomes visible on the tray tooltip and status bar. Reset at the start of
@@ -423,6 +426,8 @@ VOID _wfp_uninitialize (
 	// dropped packets logging (win7+)
 	if (config.is_neteventset)
 		_wfp_logunsubscribe (engine_handle);
+
+	_app_eventlog_stop (); // composite prompt pipeline (FR-01): cancel the Security-channel subscription on teardown
 
 	if (!config.is_neteventenabled && config.is_neteventset)
 	{
@@ -2165,7 +2170,13 @@ VOID NTAPI _wfp_applythread (
 	if (context->is_install)
 	{
 		if (_wfp_initialize (context->hwnd, engine_handle))
+		{
 			_wfp_installfilters (engine_handle);
+
+			// composite Phase 1 (SEC-03/DEC-03): failure-audit events (5157) feed the prompt pipeline
+			if (_r_config_getboolean (L"IsCompositeAuditEnabled", FALSE, NULL))
+				_app_audit_enable ();
+		}
 	}
 	else
 	{
@@ -2175,11 +2186,19 @@ VOID NTAPI _wfp_applythread (
 		_wfp_destroyfilters (engine_handle);
 		_wfp_uninitialize (engine_handle, TRUE);
 		_wfp_degraded_reset (); // audit fix: intentional-off is a chosen state, not a degraded one — clear the tray/status flag
+		_app_audit_revert (); // composite Phase 1 (SEC-03): exact revert (silent no-op without inventory)
+		_app_eventlog_stop (); // composite prompt pipeline (FR-01): the 5157 feed is disabled with the enforcement
 	}
 
 	// dropped packets logging (win7+)
 	if (config.is_neteventset)
 		_wfp_logsubscribe (context->hwnd, engine_handle);
+
+	// composite prompt pipeline (FR-01/DEC-03): feed 5157 Security-audit
+	// events into the shared log pipeline (install only — the disable branch
+	// stops it above)
+	if (context->is_install && _r_config_getboolean (L"IsCompositeEventLogEnabled", FALSE, NULL))
+		_app_eventlog_start (context->hwnd);
 
 	if (_r_sys_isosversiongreaterorequal (WINDOWS_10))
 		_app_wufixenable (context->hwnd, _r_config_getboolean (L"IsWUFixEnabled", FALSE, NULL));

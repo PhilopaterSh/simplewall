@@ -4,6 +4,7 @@
 #include "global.h"
 
 #include "update_key.h" // hardening round 2: update feed verification public key
+#include "composite_audit.h" // composite Phase 1 (SEC-03/DEC-03)
 
 BOOLEAN _app_changefilters (
 	_In_ HWND hwnd,
@@ -1867,6 +1868,11 @@ VOID _app_initialize (
 
 	_app_profile_initialize ();
 
+	// composite Phase 1 (SEC-03): crash-residue check — a leftover audit
+	// inventory without the composite flag means the previous session never
+	// reverted the machine-wide audit change
+	_app_audit_startupcheck ();
+
 	{
 		R_STRINGREF image_path_sr;
 
@@ -3666,7 +3672,13 @@ BOOLEAN NTAPI _app_parseargs (
 				_app_profile_load (NULL, NULL);
 
 				if (_wfp_initialize (NULL, hengine))
+				{
 					_wfp_installfilters (hengine);
+
+					// composite Phase 1 (SEC-03): failure-audit events (5157) feed the prompt pipeline
+					if (_r_config_getboolean (L"IsCompositeAuditEnabled", FALSE, NULL))
+						_app_audit_enable ();
+				}
 
 				_wfp_uninitialize (hengine, FALSE);
 			}
@@ -3682,6 +3694,7 @@ BOOLEAN NTAPI _app_parseargs (
 			{
 				_wfp_destroyfilters (hengine);
 				_wfp_uninitialize (hengine, TRUE);
+				_app_audit_revert (); // composite Phase 1 (SEC-03): exact revert (silent no-op without inventory)
 			}
 
 			return TRUE;

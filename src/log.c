@@ -1537,8 +1537,8 @@ VOID NTAPI _app_logthread (
 		ptr_log->remote_addr_str = _app_formataddress (ptr_log->af, ptr_log->protocol, &ptr_log->remote_addr, 0, 0);
 		ptr_log->local_addr_str = _app_formataddress (ptr_log->af, ptr_log->protocol, &ptr_log->local_addr, 0, 0);
 
-		// display notification
-		if (is_notificationenabled && ptr_app && ptr_log->is_myprovider && !ptr_log->is_allow && is_exludeblocklist)
+		// display notification (composite: Security-audit 5157 source feeds the same gate, FR-01)
+		if (is_notificationenabled && ptr_app && (ptr_log->is_myprovider || ptr_log->is_composite) && !ptr_log->is_allow && is_exludeblocklist)
 		{
 			if (_app_getappinfo (ptr_app, INFO_IS_SILENT, &is_silent, sizeof (BOOLEAN)) && !is_silent)
 				_app_notify_addobject (hwnd, ptr_log, ptr_app);
@@ -1548,8 +1548,8 @@ VOID NTAPI _app_logthread (
 		if (is_logenabled)
 			_app_logwrite (ptr_log);
 
-		// only for my own provider write log to a ui
-		if (ptr_log->is_myprovider && is_loguienabled)
+		// only for my own provider write log to a ui (composite: Security-audit 5157 source included, FR-01)
+		if ((ptr_log->is_myprovider || ptr_log->is_composite) && is_loguienabled)
 			_app_logwrite_ui (hwnd, ptr_log);
 	}
 

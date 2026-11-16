@@ -14503,7 +14503,9 @@ NTSTATUS _r_inet_begindownload (
 	if (status != ERROR_SUCCESS)
 		return status;
 
-	if (!download_info->is_savetofile)
+	// note (r4 review): the stringbuilder is only for string mode — in
+	// bytes mode it would leak ~32KB per download (never finalized)
+	if (!download_info->is_savetofile && !download_info->is_bytes)
 		_r_obj_initializestringbuilder (&sb, PR_SIZE_BUFFER);
 
 	allocated_length = PR_SIZE_BUFFER;
@@ -14530,7 +14532,16 @@ NTSTATUS _r_inet_begindownload (
 			// binary payloads (undefined ACP bytes are unrecoverable)
 			if (!download_info->bytes)
 			{
-				download_info->bytes = _r_obj_createbyte_ex (NULL, max (total_length, allocated_length));
+				ULONG_PTR initial_length;
+
+				// r4 review: clamp the Content-Length-derived preallocation —
+				// the value is server-controlled and unverified at this point
+				initial_length = max (total_length, allocated_length);
+
+				if (initial_length > 0x100000)
+					initial_length = 0x100000;
+
+				download_info->bytes = _r_obj_createbyte_ex (NULL, initial_length);
 			}
 
 			if (total_readed > download_info->bytes->length)
@@ -14577,9 +14588,21 @@ NTSTATUS _r_inet_begindownload (
 
 	if (!download_info->is_savetofile)
 	{
-		if (status == STATUS_SUCCESS)
+		if (download_info->is_bytes)
 		{
-			if (download_info->is_bytes)
+			// r4 review: a zero-byte 200 response must fail closed — the byte
+			// buffer was never allocated and the old shrink-to-fit would
+			// dereference NULL; likewise a dropped connection must not hand
+			// back a truncated buffer as success (Content-Length unmet)
+			if (status != STATUS_SUCCESS || !download_info->bytes || total_readed == 0 ||
+				(total_length != 0 && total_readed < total_length))
+			{
+				SAFE_DELETE_REFERENCE (download_info->bytes);
+
+				if (status == STATUS_SUCCESS)
+					status = STATUS_UNSUCCESSFUL;
+			}
+			else
 			{
 				// shrink-to-fit: downstream length checks (e.g. the 64-byte
 				// signature) rely on length being the exact payload size
@@ -14593,23 +14616,16 @@ NTSTATUS _r_inet_begindownload (
 
 				download_info->bytes = final_bytes;
 			}
-			else
-			{
-				download_info->string = _r_obj_finalstringbuilder (&sb);
-			}
+		}
+		else if (status == STATUS_SUCCESS)
+		{
+			download_info->string = _r_obj_finalstringbuilder (&sb);
 		}
 		else
 		{
-			if (download_info->is_bytes)
-			{
-				SAFE_DELETE_REFERENCE (download_info->bytes);
-			}
-			else
-			{
-				_r_obj_deletestringbuilder (&sb);
+			_r_obj_deletestringbuilder (&sb);
 
-				download_info->string = NULL;
-			}
+			download_info->string = NULL;
 		}
 	}
 
@@ -14627,6 +14643,9 @@ VOID _r_inet_destroydownload (
 	_Inout_ PR_DOWNLOAD_INFO download_info
 )
 {
+	// r4 review invariant: bytes/string share the union slot — both are
+	// plain refcounted allocations with identical header layout, so the
+	// single SAFE_DELETE_REFERENCE below is type-safe for either mode
 	if (download_info->is_savetofile)
 	{
 		SAFE_DELETE_HANDLE (download_info->hfile);
