@@ -39,3 +39,6 @@ desktop.ini
 *.tlog
 
 *PVS-Studio*
+bin/mergetest/
+test_dns.exe
+*.map
