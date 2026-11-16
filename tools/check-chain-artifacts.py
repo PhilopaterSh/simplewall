@@ -67,6 +67,68 @@ def check_chain(chain_dir):
     return name, problems
 
 
+# ---------------------------------------------------------------------------
+# Governance-marker gate (process-audit improvement 1): the AGENTS.md
+# governance file was silently clobbered by a lane merge on 2026-11-10
+# (the rule that kept humans writing the ledger lived in the file the
+# merge machine ate). These markers MUST always be present.
+GOVERNANCE_MARKERS = [
+    "retrospective-ledger",
+    "empirical-arbiter",
+    "goldfish check",
+    "RSK-01",
+    "RESUME.md",
+    "EGM cycle",
+]
+
+TREE_FORBIDDEN_EXTS = {".exe", ".map", ".obj", ".pdb", ".lib", ".dll", ".ilk"}
+TREE_ALLOWLIST = {
+    "bin/profile_internal.bin",   # compiled-in blocklist source (build input)
+}
+
+
+def check_governance(repo_root):
+    problems = []
+    agents_md = os.path.join(repo_root, "AGENTS.md")
+    if not os.path.isfile(agents_md):
+        return ["AGENTS.md missing at repo root - the governance surface is gone"]
+    text = open(agents_md, encoding="utf-8", errors="ignore").read()
+    lowered = text.lower()
+    for marker in GOVERNANCE_MARKERS:
+        if marker.lower() not in lowered:
+            problems.append(f"AGENTS.md lost governance marker: '{marker}' (clobber class - restore from git history)")
+    return problems
+
+
+def check_tree_hygiene(repo_root):
+    # git-tracked files only: local build outputs are untracked and legal
+    import subprocess
+    try:
+        out = subprocess.run(["git", "ls-files"], cwd=repo_root, capture_output=True, text=True, timeout=60).stdout
+    except Exception as exc:
+        return [f"git ls-files failed: {exc}"]
+    problems = []
+    for rel in out.splitlines():
+        rel_norm = rel.replace("\\", "/")
+        if rel_norm in TREE_ALLOWLIST:
+            continue
+        ext = os.path.splitext(rel_norm)[1].lower()
+        base = os.path.basename(rel_norm)
+        if ext in TREE_FORBIDDEN_EXTS:
+            problems.append(f"forbidden committed artifact: {rel}")
+        elif base.startswith("dbg") and ext in (".c", ".cpp"):
+            problems.append(f"scratch file committed: {rel}")
+        elif not rel_norm.startswith(('vendor/', 'tools/vendor/')):
+            # vendored trees are intentionally large text sources - exempt
+            try:
+                size = os.path.getsize(os.path.join(repo_root, rel))
+                if size > 256 * 1024:
+                    problems.append(f'oversize committed file ({size} bytes): {rel}')
+            except OSError:
+                pass
+    return problems
+
+
 def main():
     specs_root = sys.argv[1] if len(sys.argv) > 1 else os.path.join("docs", "specs")
     if not os.path.isdir(specs_root):
@@ -87,6 +149,15 @@ def main():
                 print(f"FAIL: {name}: {p}")
         else:
             print(f"PASS: {name}: artifact-complete")
+
+    repo_root = os.path.abspath(os.path.join(specs_root, os.pardir, os.pardir)) if os.path.basename(os.path.abspath(specs_root)) == "specs" else os.path.abspath(specs_root)
+    for problem in check_governance(repo_root):
+        failures += 1
+        print(f"FAIL: governance: {problem}")
+    if os.path.isfile(os.path.join(repo_root, "AGENTS.md")) or os.path.isdir(repo_root):
+        for problem in check_tree_hygiene(repo_root):
+            failures += 1
+            print(f"FAIL: tree-hygiene: {problem}")
 
     print(f"check-chain-artifacts: {failures} violation(s)")
     return 1 if failures else 0
