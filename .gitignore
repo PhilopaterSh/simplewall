@@ -40,6 +40,8 @@ desktop.ini
 
 *PVS-Studio*
 bin/mergetest/
-bin/imports_master.json
 **/goldfish_gate.egg-info/
 *.egg-info/
+*.map
+bin/imports_master.json
+test_dns.exe
