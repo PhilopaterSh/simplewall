@@ -1,6 +1,6 @@
 // composite_integrity: FR-12 config-directory ACL hardening (P2-2).
 // The profile directory holds every composite sidecar (ledger baseline,
-// pack state, watermarks, lockdown snapshot, audit inventory) ' + EM + ' writable by
+// pack state, watermarks, lockdown snapshot, audit inventory)  —  writable by
 // default, so the DACL is hardened to the DEC-03 policy: Administrators FULL,
 // SYSTEM FULL, process-token user READ, applied PROTECTED (inherited
 // user-writable ACEs are stripped). Applied once per session after the
@@ -49,7 +49,7 @@ NTSTATUS _app_integrity_hardenacl (VOID)
 	}
 
 	// DEC-03: the interactive-user READ ACE is pinned to the PROCESS-TOKEN
-	// user (not the Interactive well-known group ' + EM + ' shared-host widening);
+	// user (not the Interactive well-known group  —  shared-host widening);
 	// review-corrected: SYSTEM is granted FULL (the previous code granted
 	// READ|EXECUTE against its own header)
 	if (!OpenProcessToken (GetCurrentProcess (), TOKEN_QUERY, &token_handle))
@@ -97,7 +97,7 @@ NTSTATUS _app_integrity_hardenacl (VOID)
 	accesses[1].grfAccessPermissions = FILE_ALL_ACCESS;
 	accesses[1].grfAccessMode = GRANT_ACCESS;
 	accesses[1].grfInheritance = SUB_CONTAINERS_AND_OBJECTS_INHERIT;
-	accesses[1].Trustee.TrusteeType = TRUSTEE_IS_USER;
+	accesses[1].Trustee.TrusteeType = TRUSTEE_IS_WELL_KNOWN_GROUP;
 	accesses[1].Trustee.ptstrName = (LPWSTR)system_sid;
 
 	accesses[2].grfAccessPermissions = FILE_GENERIC_READ;
@@ -122,7 +122,7 @@ NTSTATUS _app_integrity_hardenacl (VOID)
 	// security-fixes (FR-3/DEC-03): the SetEntriesInAclW result IS the PACL -
 	// it is passed DIRECTLY to SetNamedSecurityInfoW (the previous code passed
 	// it to GetSecurityDescriptorDacl, which expects a self-relative SECURITY
-	// DESCRIPTOR ' + EM + ' type confusion, hardening silently never applied); the
+	// DESCRIPTOR  —  type confusion, hardening silently never applied); the
 	// PROTECTED flag strips inherited user-writable ACEs; failures are logged
 	// and non-fatal (NFR-01) - an unexpected ACL failure means the hardening
 	// did not apply, never that the app refuses to start
