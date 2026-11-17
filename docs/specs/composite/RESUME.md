@@ -62,7 +62,7 @@
 1. Interactive verification of `bin/64/simplewall.exe` (blocking-first #2161,
    resize-storm #2167, reboot persistence #2163, notification baseline,
    uninstall flow).
-2. Merge clicks: #9 → #11 → #12.
+2. Merge clicks: #9 (merged 2ea0146c) → #11 (merged) → #12 CLOSED as stale (head = master ancestor; content already on master via the composite lane direct-merges — see ledger rows 27/34).
 3. r6 decision (open the goldfish round, or keep frozen).
 4. P1 fixes before any Phase 1 release: S4 FIXED 2026-11-10 (detach-under-
    lock/destroy-outside in composite_state.c + composite_publisher.c),
