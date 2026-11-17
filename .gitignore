@@ -39,3 +39,7 @@ desktop.ini
 *.tlog
 
 *PVS-Studio*
+bin/mergetest/
+bin/imports_master.json
+**/goldfish_gate.egg-info/
+*.egg-info/
