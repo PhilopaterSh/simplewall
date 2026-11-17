@@ -1,5 +1,12 @@
 // headless tests for the FR-11 diff core
+#include "global.h"
 #include "composite_apply.h"
+
+// headless stubs: the reconcile engine's project symbols (the diff core
+// under test never calls them; they satisfy the linker)
+#include "global.h"
+ULONG _wfp_dumpfilters(HANDLE e, LPCGUID p, PR_ARRAY_PTR o) { *o = NULL; return ERROR_NOT_FOUND; }
+
 #include <stdio.h>
 
 static int failures = 0;
