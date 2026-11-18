@@ -79,6 +79,8 @@
 | 40 | 2026-11-18 | PR-head race (GitHub eventual consistency) | PR #18 merge | the merge captured the branch head BEFORE the VERSION/VERSION.sig commit landed - master advertised 3.9.2 while the 3.9.3 release+assets were live; caught by post-merge live verification (raw vs master vs artifact hashes); fixed by cherry-pick PR #19 (b32a458c); raw CDN cache delayed visibility ~5 min (verified consistent-stale meanwhile - fail-safe direction) | REAL - closed | PR #19 + raw verification |
 | 41 | 2026-11-18 | independent pure-math verifier (arbiter rule) | the LIVE feed pair post-CDN | raw VERSION(3.9.3)+sig verified PASS by a from-scratch secp256r1 verifier - the live signed feed is consistent and authentic | REAL | verification output 2026-11-18 |
 
+| 42 | 2026-11-18 | crash-dump symbolication (owner reported 0xC0000005) | bin/mergetest/simplewall.exe (the composite lane scratch build) | 8 dumps ALL at the same RVA: _r_fs_setpos+0x23 <- _r_fs_readbytes+0x1B0 <- _r_app_getlocalepath+0xB (the language/locale file path) — an invalid-handle class crash in the file-IO path of the uncommitted gui-work build; the RELEASED v3.9.3 exe is unaffected (different build, CI-launch verified). Symbolication handed to the composite lane; mergetest rebuilds at 02:43 same-day suggest the lane is actively iterating | REAL | dumps simplewall-1794961299..2163.dmp + mergetest map |
+
 ## Owner-decision tracker (agent-3: the owner-gated queue was prose-scattered)
 
 | # | Decision | Blocking | Source |
@@ -170,6 +172,8 @@
 | 39 | 2026-11-18 | release engineering (G-2+G-3 combined) | v3.9.3-hardened.1 | O-1 CLOSED: signing re-keyed (cert FEC37DA0...83 44D v2, valid 2031-11-18, password generated off-repo, burned cert retired from the gate); O-2 CLOSED: v3.9.3-hardened.1 RELEASED (release id 449359485) - full preflight gate 9/9 PASS on the signed exe (v2 thumbprint match, version 3.9.3, parity 25 DLLs, feed verified via the production verifier) | REAL - release live | release + gate outputs |
 | 40 | 2026-11-18 | PR-head race (GitHub eventual consistency) | PR #18 merge | the merge captured the branch head BEFORE the VERSION/VERSION.sig commit landed - master advertised 3.9.2 while the 3.9.3 release+assets were live; caught by post-merge live verification (raw vs master vs artifact hashes); fixed by cherry-pick PR #19 (b32a458c); raw CDN cache delayed visibility ~5 min (verified consistent-stale meanwhile - fail-safe direction) | REAL - closed | PR #19 + raw verification |
 | 41 | 2026-11-18 | independent pure-math verifier (arbiter rule) | the LIVE feed pair post-CDN | raw VERSION(3.9.3)+sig verified PASS by a from-scratch secp256r1 verifier - the live signed feed is consistent and authentic | REAL | verification output 2026-11-18 |
+
+| 42 | 2026-11-18 | crash-dump symbolication (owner reported 0xC0000005) | bin/mergetest/simplewall.exe (the composite lane scratch build) | 8 dumps ALL at the same RVA: _r_fs_setpos+0x23 <- _r_fs_readbytes+0x1B0 <- _r_app_getlocalepath+0xB (the language/locale file path) — an invalid-handle class crash in the file-IO path of the uncommitted gui-work build; the RELEASED v3.9.3 exe is unaffected (different build, CI-launch verified). Symbolication handed to the composite lane; mergetest rebuilds at 02:43 same-day suggest the lane is actively iterating | REAL | dumps simplewall-1794961299..2163.dmp + mergetest map |
 
 ## Owner-decision tracker (agent-3: the owner-gated queue was prose-scattered)
 
