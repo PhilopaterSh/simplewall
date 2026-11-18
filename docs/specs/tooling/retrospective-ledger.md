@@ -75,12 +75,16 @@
 > ratifying a regression).
 
 
+| 39 | 2026-11-18 | release engineering (G-2+G-3 combined) | v3.9.3-hardened.1 | O-1 CLOSED: signing re-keyed (cert FEC37DA0...83 44D v2, valid 2031-11-18, password generated off-repo, burned cert retired from the gate); O-2 CLOSED: v3.9.3-hardened.1 RELEASED (release id 449359485) - full preflight gate 9/9 PASS on the signed exe (v2 thumbprint match, version 3.9.3, parity 25 DLLs, feed verified via the production verifier) | REAL - release live | release + gate outputs |
+| 40 | 2026-11-18 | PR-head race (GitHub eventual consistency) | PR #18 merge | the merge captured the branch head BEFORE the VERSION/VERSION.sig commit landed - master advertised 3.9.2 while the 3.9.3 release+assets were live; caught by post-merge live verification (raw vs master vs artifact hashes); fixed by cherry-pick PR #19 (b32a458c); raw CDN cache delayed visibility ~5 min (verified consistent-stale meanwhile - fail-safe direction) | REAL - closed | PR #19 + raw verification |
+| 41 | 2026-11-18 | independent pure-math verifier (arbiter rule) | the LIVE feed pair post-CDN | raw VERSION(3.9.3)+sig verified PASS by a from-scratch secp256r1 verifier - the live signed feed is consistent and authentic | REAL | verification output 2026-11-18 |
+
 ## Owner-decision tracker (agent-3: the owner-gated queue was prose-scattered)
 
 | # | Decision | Blocking | Source |
 |---|---|---|---|
-| O-1 | PFX re-key (password public @ bfe26cc3; burned cert still signs releases) | next release | audit-2 F-1; RESUME item 6 |
-| O-2 | Re-release after the 3 MAJOR product fixes (install-window TOCTOU et al.) | next release | audit-1 rows (product audit) |
+| O-1 | ~~PFX re-key~~ CLOSED 2026-11-18: cert v2 FEC37DA0...83 44D signs everything; burned cert retired | - | row 39 |
+| O-2 | ~~Re-release~~ CLOSED 2026-11-18: v3.9.3-hardened.1 live (id 449359485, exe 0a1d5f44...85ff0) with the 3 MAJOR fixes | - | rows 39-40 |
 | O-3 | r6 decision (open the goldfish amendment round or keep frozen) | composite Phase 2 | RESUME frozen-decision |
 | O-4 | Product naming (Portcullis / Husn / simplewall CE / defer) | branding only | RESUME item 5 |
 | O-5 | goldfish pin upgrade 0.2.0 → 0.3.2 + full gate re-run | CI consistency | audit-2 F-4; PIN.md |
@@ -163,12 +167,16 @@
 > ratifying a regression).
 
 
+| 39 | 2026-11-18 | release engineering (G-2+G-3 combined) | v3.9.3-hardened.1 | O-1 CLOSED: signing re-keyed (cert FEC37DA0...83 44D v2, valid 2031-11-18, password generated off-repo, burned cert retired from the gate); O-2 CLOSED: v3.9.3-hardened.1 RELEASED (release id 449359485) - full preflight gate 9/9 PASS on the signed exe (v2 thumbprint match, version 3.9.3, parity 25 DLLs, feed verified via the production verifier) | REAL - release live | release + gate outputs |
+| 40 | 2026-11-18 | PR-head race (GitHub eventual consistency) | PR #18 merge | the merge captured the branch head BEFORE the VERSION/VERSION.sig commit landed - master advertised 3.9.2 while the 3.9.3 release+assets were live; caught by post-merge live verification (raw vs master vs artifact hashes); fixed by cherry-pick PR #19 (b32a458c); raw CDN cache delayed visibility ~5 min (verified consistent-stale meanwhile - fail-safe direction) | REAL - closed | PR #19 + raw verification |
+| 41 | 2026-11-18 | independent pure-math verifier (arbiter rule) | the LIVE feed pair post-CDN | raw VERSION(3.9.3)+sig verified PASS by a from-scratch secp256r1 verifier - the live signed feed is consistent and authentic | REAL | verification output 2026-11-18 |
+
 ## Owner-decision tracker (agent-3: the owner-gated queue was prose-scattered)
 
 | # | Decision | Blocking | Source |
 |---|---|---|---|
-| O-1 | PFX re-key (password public @ bfe26cc3; burned cert still signs releases) | next release | audit-2 F-1; RESUME item 6 |
-| O-2 | Re-release after the 3 MAJOR product fixes (install-window TOCTOU et al.) | next release | audit-1 rows (product audit) |
+| O-1 | ~~PFX re-key~~ CLOSED 2026-11-18: cert v2 FEC37DA0...83 44D signs everything; burned cert retired | - | row 39 |
+| O-2 | ~~Re-release~~ CLOSED 2026-11-18: v3.9.3-hardened.1 live (id 449359485, exe 0a1d5f44...85ff0) with the 3 MAJOR fixes | - | rows 39-40 |
 | O-3 | r6 decision (open the goldfish amendment round or keep frozen) | composite Phase 2 | RESUME frozen-decision |
 | O-4 | Product naming (Portcullis / Husn / simplewall CE / defer) | branding only | RESUME item 5 |
 | O-5 | goldfish pin upgrade 0.2.0 → 0.3.2 + full gate re-run | CI consistency | audit-2 F-4; PIN.md |
