@@ -50,7 +50,7 @@
 // Constants (parity with tools/release-preflight.py)
 //
 
-#define DEFAULT_THUMBPRINT L"DC91477AF1415F6D7C3B181B1EB2EC45FF907ED0"
+#define DEFAULT_THUMBPRINT L"FEC37DA0431A6F7F0122B8FA4B2F0C02BE98344D" // v2 cert (re-keyed 2026-11-18, O-1 closed)
 
 // Known-bad artifacts that must never reappear in any shipped binary
 // (docs/specs/routine-hardening/design.md r2: the transcription-corrupted
