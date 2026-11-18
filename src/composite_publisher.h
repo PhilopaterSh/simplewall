@@ -72,3 +72,17 @@ VOID _app_publisher_clearfilters (VOID);
 VOID _app_publisher_collectguids (
 	_In_ PR_ARRAY desired
 );
+
+// DEC-11 query API (GUI Rules page): enumerate publisher anchors with
+// their materialized-path counts
+ULONG _app_publisher_queryanchorcount (
+	VOID
+);
+
+BOOLEAN _app_publisher_queryanchor (
+	_In_ ULONG index,
+	_Out_writes_ (name_chars) WCHAR *name_buffer,
+	_In_ ULONG name_chars,
+	_Out_ PULONG path_count,
+	_Out_ PBOOLEAN is_valid
+);

@@ -29,3 +29,17 @@ NTSTATUS _app_packs_disable (
 VOID _app_packs_startupcheck (
 	VOID
 );
+
+// DEC-11 query API (GUI Packs page): enumerate enabled/known packs
+ULONG _app_packs_querycount (
+	VOID
+);
+
+BOOLEAN _app_packs_query (
+	_In_ ULONG index,
+	_Out_writes_ (id_chars) WCHAR *id_buffer,
+	_In_ ULONG id_chars,
+	_Out_writes_ (ver_chars) WCHAR *version_buffer,
+	_In_ ULONG ver_chars,
+	_Out_ PBOOLEAN is_enabled
+);

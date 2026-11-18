@@ -98,7 +98,26 @@ VOID _app_state_releaseallpending (
 // T006: total held-pending connections across apps (tray/status surface)
 ULONG _app_state_getheldtotal (VOID);
 
+// composite shell (G-2): live session-decision count (lock_state shared)
+ULONG _app_state_querycount (VOID);
+
 // P2-3b: collect deployed session filter GUIDs (desired set)
 VOID _app_state_collectguids (
 	_In_ PR_ARRAY desired
+);
+
+// DEC-11 query API (GUI Rules/Apps pages): enumerate live session
+// decisions with the remaining seconds (0 for until-restart)
+ULONG _app_state_querycount (
+	VOID
+);
+
+BOOLEAN _app_state_query (
+	_In_ ULONG index,
+	_Out_ ULONG *app_hash,
+	_Out_writes_ (name_chars) WCHAR *name_buffer,
+	_In_ ULONG name_chars,
+	_Out_ PBOOLEAN is_block,
+	_Out_ PBOOLEAN is_once,
+	_Out_ PULONG remaining_seconds
 );

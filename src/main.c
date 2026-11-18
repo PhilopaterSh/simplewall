@@ -13,6 +13,7 @@
 #include "composite_dnsetw.h" // composite Phase 3 (T032)
 #include "composite_bypass.h" // composite Phase 3 (T033b) // composite Phase 3 (P3-C) // composite Phase 2 (FR-12) // composite Phase 2 (FR-10/DATA-03) // composite Phase 1 (FR-08/DATA-02) // composite Phase 1 (FR-06/DEC-04)
 #include "composite_state.h" // composite Phase 1 (T005 durations/T006 single-flight)
+#include "gui/composite_shell.h" // composite shell (G-1): -gui replaces the main window
 #include "composite_publisher.h" // composite Phase 1 (T004 publisher rules)
 
 BOOLEAN _app_changefilters (
@@ -3767,6 +3768,14 @@ INT APIENTRY wWinMain (
 
 	if (!_r_app_initialize (&_app_parseargs))
 		return ERROR_APP_INIT_FAILURE;
+
+	// composite shell (G-1): -gui replaces the main window. Runs AFTER
+	// _r_app_initialize (apps_table/config populated) and BEFORE
+	// _r_app_createwindow; engine/filters are NOT started in -gui mode
+	// (read-mostly shell — Lockdown actions go through the module APIs
+	// with their own elevation semantics)
+	if (_r_sys_getopt (_r_sys_getcommandline (), L"gui", NULL))
+		return _app_shell_run (hinst);
 
 	hwnd = _r_app_createwindow (hinst, MAKEINTRESOURCE (IDD_MAIN), MAKEINTRESOURCE (IDI_MAIN), &DlgProc);
 
