@@ -25,3 +25,10 @@
   schema emission) + T032 ETW controller side (compile-verified, gated
   default OFF, leftover-session crash handling; consumer parse = live-
   testing round). Full project build 0/0 with all modules. Gate exit 0.
+
+- **2026-11-19**: T034 DoH implemented + LIVE-VERIFIED: real query to
+  cloudflare-dns.com resolved example.com (104.20.23.154, ttl 14s -> clamped
+  17s, auto-cached). 10-case suite ALL PASSED. The suite caught a REAL
+  wire-format defect pre-live: a 10-byte DNS header (missing an/ns/ar
+  words) that every resolver rejects. DoT (port 853 stream transport)
+  documented as the follow-up behind the same module contract.

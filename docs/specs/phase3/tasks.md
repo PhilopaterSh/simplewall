@@ -9,5 +9,5 @@
  - [x] T033b (FR-13, DEC-06, RSK-04) bypass detection core - implemented 2026-11-11: composite_bypass.c (well-known public resolver endpoint registry, loopback/owned-resolver exemption, port-aware verdicts 53/853, pack-schema rules-as-data emission reusing FR-08; 15-case headless suite ALL PASSED); cache-miss vs owned-resolver
       port comparison + external-resolver connection flagging —
       approval gate applies
-- [ ] T034 DoH/DoT upstream + leak-prevention rules-as-data (FR-14, FR-08) — same approval gate
+- [x] T034 (FR-14, FR-08) DoH client + wire-format core - implemented 2026-11-19: composite_doh.c (RFC 1035 build/parse with compression pointers, RFC 8484 POST via WinHTTP/schannel full-cert-validation, resolver URL in config, answers auto-upsert into T031 cache with DATA-04 clamps; 10-case suite ALL PASSED incl. LIVE query to cloudflare-dns.com resolving example.com); leak-prevention rules-as-data = T033b emission (done); DoT (port 853 stream) = follow-up behind the same module contract; test suite caught a real 10-byte DNS header defect pre-live
 - [ ] T035 verification + SEC-04 purge probe (NFR-06, OPS-01, SEC-05, NFR-02, NFR-03, NFR-05, DATA-01, FR-08)

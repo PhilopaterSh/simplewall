@@ -411,6 +411,7 @@
     <ClCompile Include="src\composite_apply.c" />
     <ClCompile Include="src\composite_bypass.c" />
     <ClCompile Include="src\composite_dnscache.c" />
+    <ClCompile Include="src\composite_doh.c" />
     <ClCompile Include="src\composite_dnsetw.c" />
     <ClCompile Include="src\gui\composite_shell.c" />
     <ClCompile Include="src\composite_resolver.c" />
@@ -439,6 +440,7 @@
     <ClInclude Include="src\composite_apply.h" />
     <ClInclude Include="src\composite_bypass.h" />
     <ClInclude Include="src\composite_dnscache.h" />
+    <ClInclude Include="src\composite_doh.h" />
     <ClInclude Include="src\composite_dnsetw.h" />
     <ClInclude Include="src\gui\composite_shell.h" />
     <ClInclude Include="src\composite_resolver.h" />
