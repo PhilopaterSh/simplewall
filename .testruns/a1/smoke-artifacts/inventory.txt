@@ -1,5 +1,0 @@
-
-FullName                                                 Length
---------                                                 ------
-D:\a\simplewall\simplewall\smoke-artifacts\inventory.txt      0
-
