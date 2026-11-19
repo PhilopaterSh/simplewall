@@ -2153,6 +2153,7 @@ NTSTATUS _r_update_downloadupdate (
 	PR_STRING path;
 	HANDLE hfile;
 	BOOLEAN is_renamed;
+	LARGE_INTEGER verify_pos = {0}; // security-fixes FIX-5 (DEC-07): PLARGE_INTEGER ABI
 	NTSTATUS status;
 
 	path = _r_app_getcachedirectory (TRUE);
@@ -2211,7 +2212,7 @@ NTSTATUS _r_update_downloadupdate (
 	{
 		PR_STRING hash_string;
 
-		_r_fs_setpos (hfile, 0);
+		_r_fs_setpos (hfile, &verify_pos);
 
 		status = _r_crypt_getfilehash (&hash_string, BCRYPT_SHA256_ALGORITHM, NULL, hfile);
 
@@ -2237,7 +2238,7 @@ NTSTATUS _r_update_downloadupdate (
 			return status;
 		}
 
-		_r_fs_setpos (hfile, 0);
+		_r_fs_setpos (hfile, &verify_pos);
 	}
 
 	is_renamed = FALSE;
@@ -3142,6 +3143,7 @@ VOID _r_update_install (
 	PR_STRING cmd_string;
 	PR_STRING hash_string;
 	HANDLE hfile;
+	LARGE_INTEGER install_pos = {0}; // security-fixes FIX-5 (DEC-07): PLARGE_INTEGER ABI
 	NTSTATUS status;
 
 	if (!_r_fs_exists (&update_component->cache_path->sr))
@@ -3204,7 +3206,7 @@ VOID _r_update_install (
 		return;
 	}
 
-	_r_fs_setpos (hfile, 0);
+	_r_fs_setpos (hfile, &install_pos);
 
 	status = _r_crypt_getfilehash (&hash_string, BCRYPT_SHA256_ALGORITHM, NULL, hfile);
 
@@ -3228,7 +3230,7 @@ VOID _r_update_install (
 		return;
 	}
 
-	_r_fs_setpos (hfile, 0);
+	_r_fs_setpos (hfile, &install_pos);
 
 	// hardening round 2 (F8/FR-08): the NSIS /D flag consumes everything
 	// after it verbatim — a quote inside the target path would inject

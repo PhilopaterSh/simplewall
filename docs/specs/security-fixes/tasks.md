@@ -9,3 +9,4 @@ explicitly approved supporting work. The enabling budget defaults to 2. -->
 - [x] T004 implements FR-05: FIX-4 update_key.h endianness comment correction (FR-05, DEC-05, NFR-02)
 - [x] T005 routes the audit minors (incl. NFR-02 the /W4+/analyze gate) to docs/BACKLOG.md with the evidence location (DEC-06, NFR-02, design r2 BACKLOG deliverable) [enabling]
 - [x] T006 executes verification: build clean, CI dispatch green on feat/security-fixes, gates exit 0, merge per the ledger row 34 protocol (AS1-AS8 evidence) [enabling]
+- [x] T007 implements FIX-5 (r3): the _r_fs_setpos ABI sweep — rapp.c 2214/2240/3207/3231 pass a zeroed LARGE_INTEGER by pointer; re-release v3.9.4 (FR-01, FR-03, DEC-07, RSK-06)
