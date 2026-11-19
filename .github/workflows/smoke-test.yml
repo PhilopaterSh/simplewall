@@ -145,6 +145,8 @@ jobs:
             $bmp.Save("gui-screens-selftest-hang.png", [System.Drawing.Imaging.ImageFormat]::Png)
             $bmp.Dispose()
             Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+            Write-Host '--- breadcrumbs (stage trace):'
+            if (Test-Path bin/64/breadcrumb.txt) { Get-Content bin/64/breadcrumb.txt } else { Write-Host 'NO breadcrumb.txt — hung BEFORE init:enter' }
             Write-Error 'selftest hung (dump at dumps/selftest-hang.dmp)'; exit 1
           }
           $code = $p.ExitCode
