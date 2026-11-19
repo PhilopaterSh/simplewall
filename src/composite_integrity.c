@@ -33,6 +33,36 @@ NTSTATUS _app_integrity_hardenacl (VOID)
 	if (!profile_dir)
 		return STATUS_UNSUCCESSFUL;
 
+	// CI-hang finding (2026-11-19, testing-record.md Finding 8): when the
+	// profile directory IS the running image's directory (the portable
+	// model), SetNamedSecurityInfoW's inheritable-ACE propagation rewrites
+	// every child SD — including the RUNNING EXE's — and deadlocks on the
+	// image section lock (observed on Windows Server 2025 CI runners: the
+	// process hangs inside SetNamedSecurityInfoW forever; the smoke gate's
+	// "alive 20s" check could not see it). On the portable model the FR-12
+	// asset (config/sidecars) lives inside the exe's own trust boundary
+	// anyway; harden only in the installed model where the profile tree
+	// contains no image. Non-fatal by NFR-01.
+	{
+		WCHAR exe_path[MAX_PATH];
+
+		if (GetModuleFileNameW (NULL, exe_path, RTL_NUMBER_OF (exe_path)))
+		{
+			PWSTR slash = wcsrchr (exe_path, L'\\');
+
+			if (slash)
+			{
+				*slash = UNICODE_NULL;
+
+				if (_wcsicmp (exe_path, profile_dir->buffer) == 0)
+				{
+					_r_log (LOG_LEVEL_INFO, NULL, L"composite_integrity", L"portable profile (== exe dir): DACL hardening skipped to avoid the running-image propagation deadlock", (LONG)0);
+					return STATUS_SUCCESS;
+				}
+			}
+		}
+	}
+
 	if (!AllocateAndInitializeSid (&nt_authority, 2, SECURITY_BUILTIN_DOMAIN_RID, DOMAIN_ALIAS_RID_ADMINS, 0, 0, 0, 0, 0, 0, &admins_sid))
 	{
 		status = HRESULT_FROM_WIN32 (GetLastError ());
