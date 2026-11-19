@@ -128,6 +128,11 @@ jobs:
           if (Test-Path bin/64/selftest-result.txt) { Get-Content bin/64/selftest-result.txt }
           else { Write-Host 'FAIL: selftest-result.txt was not produced (process died before any flush)'; if (-not $code) { $code = 99 } }
           if ($code -ne 0) { Write-Error "composite selftest failed (exit=$code)"; exit 1 }
+          # collect the app's own SEH dumps (Desktop\simplewall_crash) +
+          # the symbolized crash report (crash-report.txt) when present
+          if (Test-Path "$env:USERPROFILE\Desktop\simplewall_crash") { Copy-Item "$env:USERPROFILE\Desktop\simplewall_crash\*" gui-screens/ -Force -ErrorAction SilentlyContinue }
+          if (Test-Path bin/64/crash-report.txt) { Copy-Item bin/64/crash-report.txt gui-screens/ -Force; Get-Content bin/64/crash-report.txt }
+          else { Write-Host 'no crash-report.txt (no SEH exception this run)' }
 
       # composite GUI chain G-1/G-2: drive the shell on the runner desktop
       # (SAC-free) — one screenshot per rail page + search + theme paths;
