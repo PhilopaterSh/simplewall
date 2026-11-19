@@ -11,7 +11,8 @@
 #include "composite_integrity.h"
 #include "composite_resolver.h"
 #include "composite_dnsetw.h" // composite Phase 3 (T032)
-#include "composite_bypass.h" // composite Phase 3 (T033b) // composite Phase 3 (P3-C) // composite Phase 2 (FR-12) // composite Phase 2 (FR-10/DATA-03) // composite Phase 1 (FR-08/DATA-02) // composite Phase 1 (FR-06/DEC-04)
+#include "composite_bypass.h" // composite Phase 3 (T033b)
+#include "gui/composite_shell.h" // composite GUI chain G-1 (DEC-11) // composite Phase 3 (T033b) // composite Phase 3 (P3-C) // composite Phase 2 (FR-12) // composite Phase 2 (FR-10/DATA-03) // composite Phase 1 (FR-08/DATA-02) // composite Phase 1 (FR-06/DEC-04)
 #include "composite_state.h" // composite Phase 1 (T005 durations/T006 single-flight)
 #include "gui/composite_shell.h" // composite shell (G-1): -gui replaces the main window
 #include "composite_publisher.h" // composite Phase 1 (T004 publisher rules)
@@ -3765,6 +3766,15 @@ INT APIENTRY wWinMain (
 )
 {
 	HWND hwnd;
+
+	// composite GUI chain G-1 (DEC-11): `-gui` launches the experimental
+	// composite shell standalone (no engine/session needed for the
+	// scaffold; pages consume query APIs once G-2 lands)
+	if (_r_sys_getopt (_r_sys_getcommandline (), L"gui", NULL))
+	{
+		_app_shell_run (hinst);
+		return ERROR_SUCCESS;
+	}
 
 	if (!_r_app_initialize (&_app_parseargs))
 		return ERROR_APP_INIT_FAILURE;
