@@ -155,6 +155,7 @@ jobs:
             gui-screens/
             dumps/
             bin/64/simplewall.pdb
+            bin/64/simplewall.exe
 
       - name: Verdict
         shell: pwsh

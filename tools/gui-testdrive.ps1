@@ -172,6 +172,12 @@ Save-Shot '6-settings-light'
 [GuiDrive]::PostMessageW($script:hwnd, 0x0200, [IntPtr]0, [IntPtr](($boxY -shl 16) -bor ($boxX -band 0xFFFF))) | Out-Null
 
 Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+
+# collect crash evidence whatever happened: the SEH filter writes
+# crash-report.txt next to the exe + its own minidumps on the Desktop
+Copy-Item (Join-Path (Split-Path $ExePath -Parent) 'crash-report.txt') $OutDir -Force -ErrorAction SilentlyContinue
+if (Test-Path "$env:USERPROFILE\Desktop\simplewall_crash") { Copy-Item "$env:USERPROFILE\Desktop\simplewall_crash\*" $OutDir -Force -ErrorAction SilentlyContinue }
+
 $manifest | ConvertTo-Json | Set-Content (Join-Path $OutDir 'manifest.json')
 Write-Host "DONE: $($manifest.shots.Count) shots; errors: $($manifest.errors.Count)"
 exit 0
