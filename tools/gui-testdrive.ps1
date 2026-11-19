@@ -130,6 +130,10 @@ if ($script:hwnd -eq [IntPtr]::Zero) {
 	} catch { $manifest.errors += "screen capture failed: $_" }
 	$manifest | ConvertTo-Json | Set-Content (Join-Path $OutDir 'manifest.json')
 	Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+	# crash evidence on the FAILURE path too: the SEH filter wrote
+	# crash-report.txt next to the exe + its own minidumps on the Desktop
+	Copy-Item (Join-Path (Split-Path $ExePath -Parent) 'crash-report.txt') $OutDir -Force -ErrorAction SilentlyContinue
+	if (Test-Path "$env:USERPROFILE\Desktop\simplewall_crash") { Copy-Item "$env:USERPROFILE\Desktop\simplewall_crash\*" $OutDir -Force -ErrorAction SilentlyContinue }
 	Write-Host 'FAIL: shell window not found'
 	Write-Host ("desktop: " + $manifest.desktop)
 	Write-Host ("process windows: " + $manifest.process_windows)
