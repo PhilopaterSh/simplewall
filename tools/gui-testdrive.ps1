@@ -129,6 +129,11 @@ if ($script:hwnd -eq [IntPtr]::Zero) {
 		$manifest.shots += 'screen'
 	} catch { $manifest.errors += "screen capture failed: $_" }
 	$manifest | ConvertTo-Json | Set-Content (Join-Path $OutDir 'manifest.json')
+	# dump the hung process BEFORE killing it (the hanging stack is the
+	# answer; comsvcs MiniDump is a system built-in)
+	if (-not $proc.HasExited) {
+		Start-Process -FilePath rundll32.exe -ArgumentList "C:\Windows\System32\comsvcs.dll, MiniDump $($proc.Id) $OutDir\gui-hang.dmp full" -Wait -NoNewWindow
+	}
 	Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
 	# crash evidence on the FAILURE path too: the SEH filter wrote
 	# crash-report.txt next to the exe + its own minidumps on the Desktop

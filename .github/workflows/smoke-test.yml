@@ -129,7 +129,11 @@ jobs:
           $deadline = (Get-Date).AddSeconds(75)
           while (-not $p.HasExited -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 2 }
           if (-not $p.HasExited) {
-            Write-Host 'HANG: selftest still running after 75s - capturing desktop evidence'
+            Write-Host 'HANG: selftest still running after 75s - dumping + desktop evidence'
+            New-Item -ItemType Directory -Path "dumps" -Force | Out-Null
+            # system-built-in dump (no procdump dependency): the hanging
+            # stack IS the answer
+            Start-Process -FilePath rundll32.exe -ArgumentList "C:\Windows\System32\comsvcs.dll, MiniDump $($p.Id) $env:GITHUB_WORKSPACE\dumps\selftest-hang.dmp full" -Wait -NoNewWindow
             Add-Type -AssemblyName System.Drawing
             Add-Type -AssemblyName System.Windows.Forms
             $sw = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds.Width
@@ -141,7 +145,7 @@ jobs:
             $bmp.Save("gui-screens-selftest-hang.png", [System.Drawing.Imaging.ImageFormat]::Png)
             $bmp.Dispose()
             Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
-            Write-Error 'selftest hung (see gui-screens-selftest-hang.png)'; exit 1
+            Write-Error 'selftest hung (dump at dumps/selftest-hang.dmp)'; exit 1
           }
           $code = $p.ExitCode
           Write-Host "selftest process exit code: $code (0xC0000409 = -1073740791 = fail-fast)"
