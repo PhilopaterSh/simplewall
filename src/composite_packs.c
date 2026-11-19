@@ -2278,13 +2278,23 @@ static VOID _app_packs_queryrebuild (_In_ LONG64 mtime)
 	if (path)
 		_r_obj_dereference (path);
 
-	// TORN/CORRUPT sidecar (verify/parse failed): keep the previous
-	// snapshot and DO NOT record the mtime — the next call retries;
-	// a MISSING or successfully-parsed sidecar is committed as-is
-	if (list || !contents)
+	// r4 G2-M1 refinement (r3 finding 6 + G2-M3 combined): THREE failure
+	// classes, three behaviors —
+	//   torn    (stat succeeded, open/read failed: the in-place
+	//           truncate-then-write window)   -> keep previous, retry later
+	//   corrupt (contents present, verify/parse failed: tamper posture)
+	//                                          -> fail-closed EMPTY commit
+	//   missing (stat failed: legitimate revert state) -> empty commit
 	{
-		packs_query_rows_count = count;
-		packs_query_mtime = mtime;
+		BOOLEAN is_corrupt = (contents != NULL && !list);
+
+		if (list || is_corrupt || mtime == -1)
+		{
+			packs_query_rows_count = (list ? count : 0);
+			packs_query_mtime = mtime;
+		}
+		// else: torn — keep the previous snapshot; the mtime stays
+		// uncommitted so the next call retries
 	}
 
 	_r_queuedlock_releaseexclusive (&lock_packs_query);
@@ -2372,6 +2382,54 @@ ULONG _app_packs_queryfiltercount (
 		return 0;
 
 	return packs_query_rows[index].filter_count;
+}
+
+// ---- TEST INSTRUMENTS (r4 G2-M1 verification additions; NFR-06) ----
+// Used ONLY by `simplewall.exe -gui-selftest`. They expose the REAL
+// internal serializer/path logic so fixtures can never drift from the
+// production format. Not called from any production path.
+
+VOID _app_packs_selftest_getstatepath (
+	_Out_ PR_STRING_PTR out_path
+)
+{
+	*out_path = NULL;
+
+	_app_packs_getpath (COMPOSITE_SIDECAR_PACKSTATE, out_path);
+}
+
+BOOLEAN _app_packs_selftest_writestate (
+	_In_ LPCWSTR pack_id,
+	_In_ LPCWSTR version,
+	_In_ ULONG filter_count
+)
+{
+	PR_LIST list;
+	PACK_STATE_ENTRY *ptr_entry;
+	BOOLEAN is_success;
+
+	list = _r_obj_createlist (0x04, _app_packs_stateentrycleanup);
+
+	ptr_entry = (PACK_STATE_ENTRY *)_r_mem_allocate (sizeof (PACK_STATE_ENTRY));
+	RtlZeroMemory (ptr_entry, sizeof (PACK_STATE_ENTRY));
+	_r_str_copy (ptr_entry->pack_id, RTL_NUMBER_OF (ptr_entry->pack_id), pack_id);
+	_r_str_copy (ptr_entry->version, RTL_NUMBER_OF (ptr_entry->version), version);
+	ptr_entry->guids = _r_obj_createarray (sizeof (GUID), 0x04, NULL);
+
+	for (ULONG i = 0; i < filter_count; i++)
+	{
+		GUID guid = {i + 1, 0x2a2b, 0x3c3d, {0x4e, 0x4f, 0x50, 0x51, 0x52, 0x53, 0x54, 0x55}};
+
+		_r_obj_addarrayitem (ptr_entry->guids, &guid, NULL);
+	}
+
+	_r_obj_addlistitem (list, ptr_entry, NULL); // list owns the entry
+
+	is_success = NT_SUCCESS (_app_packs_statewrite (list)); // the REAL serializer
+
+	_r_obj_dereference (list);
+
+	return is_success;
 }
 
 NTSTATUS _app_packs_import (

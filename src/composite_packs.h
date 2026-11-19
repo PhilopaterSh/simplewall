@@ -50,3 +50,15 @@ BOOLEAN _app_packs_query (
 ULONG _app_packs_queryfiltercount (
 	_In_ ULONG index
 );
+
+// TEST INSTRUMENTS (r4 G2-M1; NFR-06): real-serializer fixtures for
+// the packstate sidecar. Used only by -gui-selftest.
+VOID _app_packs_selftest_getstatepath (
+	_Out_ PR_STRING_PTR out_path
+);
+
+BOOLEAN _app_packs_selftest_writestate (
+	_In_ LPCWSTR pack_id,
+	_In_ LPCWSTR version,
+	_In_ ULONG filter_count
+);

@@ -816,6 +816,86 @@ BOOLEAN _app_publisher_queryanchor (
 	return found;
 }
 
+// TEST INSTRUMENT (r4 G2-M2 verification additions; NFR-06): seed a
+// path + its anchor DIRECTLY (no WinVerifyTrust, no filesystem) so the
+// anchor validity semantics — including the red state's reachability
+// after the r3 finding-2 retain fix — are testable headlessly. Not
+// called from any production path.
+BOOLEAN _app_publisher_selftest_seedpath (
+	_In_ LPCWSTR path,
+	_In_ LPCWSTR signer_hash_hex,
+	_In_ LPCWSTR signer_name,
+	_In_ BOOLEAN is_valid
+)
+{
+	R_STRINGREF path_sr;
+	PITEM_PUBLISHER_PATH ptr_path;
+	PITEM_PUBLISHER ptr_anchor;
+	PR_STRING path_string;
+	ULONG path_hash;
+
+	if (!path || !path[0])
+		return FALSE;
+
+	path_string = _r_obj_createstring (path);
+	_r_obj_initializestringref2 (&path_sr, &path_string->sr);
+	path_hash = _r_str_gethash (&path_sr, TRUE);
+
+	_r_queuedlock_acquireexclusive (&lock_publisher);
+
+	ptr_path = (PITEM_PUBLISHER_PATH)_r_obj_findhashtablepointer (publisher_paths, path_hash);
+
+	if (!ptr_path)
+	{
+		ptr_path = (PITEM_PUBLISHER_PATH)_r_obj_allocate (sizeof (ITEM_PUBLISHER_PATH), &_app_publisher_dereferencepath);
+
+		ptr_path->path = _r_obj_createstring2 (&path_sr);
+		ptr_path->path_hash = path_hash;
+		ptr_path->guids = _r_obj_createarray (sizeof (GUID), 0x04, NULL);
+
+		_r_obj_addhashtablepointer (publisher_paths, ptr_path->path_hash, ptr_path);
+	}
+
+	if (ptr_path->signer_hash)
+		_r_obj_clearreference ((PVOID_PTR)&ptr_path->signer_hash);
+
+	if (ptr_path->signer_name)
+		_r_obj_clearreference ((PVOID_PTR)&ptr_path->signer_name);
+
+	if (signer_hash_hex && signer_hash_hex[0])
+		ptr_path->signer_hash = _r_obj_createstring (signer_hash_hex);
+
+	if (signer_name && signer_name[0])
+		ptr_path->signer_name = _r_obj_createstring (signer_name);
+
+	ptr_path->is_valid = is_valid;
+	ptr_path->is_selfsigned = FALSE;
+	ptr_path->mtime = 0;
+	ptr_path->validated_mtime = 0;
+
+	// anchor upsert — the exact production pattern (bind path)
+	if (ptr_path->signer_hash)
+	{
+		ptr_anchor = (PITEM_PUBLISHER)_r_obj_findhashtablepointer (publisher_anchors, _app_publisher_anchork (&ptr_path->signer_hash->sr));
+
+		if (!ptr_anchor)
+		{
+			ptr_anchor = (PITEM_PUBLISHER)_r_obj_allocate (sizeof (ITEM_PUBLISHER), &_app_publisher_dereferenceanchor);
+
+			ptr_anchor->signer_hash = _r_obj_reference (ptr_path->signer_hash);
+			ptr_anchor->signer_name = ptr_path->signer_name ? _r_obj_reference (ptr_path->signer_name) : NULL;
+
+			_r_obj_addhashtablepointer (publisher_anchors, _app_publisher_anchork (&ptr_path->signer_hash->sr), ptr_anchor);
+		}
+	}
+
+	_r_queuedlock_releaseexclusive (&lock_publisher);
+
+	_r_obj_dereference (path_string);
+
+	return TRUE;
+}
+
 VOID _app_publisher_uninitialize (VOID)
 {
 	PITEM_PUBLISHER_PATH ptr_path = NULL;

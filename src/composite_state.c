@@ -826,6 +826,66 @@ BOOLEAN _app_state_query (
 	return TRUE;
 }
 
+// TEST INSTRUMENT (r4 G2-M1 verification additions; NFR-06): seed a
+// decision WITHOUT WFP — the query layer is the surface under test;
+// the deploy path is exercised by CI smoke on the real engine. "once"
+// seeds get the REAL threadpool timer exactly like decide, so expiry
+// removal is verified end-to-end. Not called from any production path.
+BOOLEAN _app_state_selftest_seed (
+	_In_ ULONG app_hash,
+	_In_ BOOLEAN is_block,
+	_In_ BOOLEAN is_once,
+	_In_ ULONG expires_seconds
+)
+{
+	PITEM_STATE_DECISION ptr_decision;
+	LONG64 current_time;
+
+	if (!state_decisions)
+		return FALSE;
+
+	if (is_once && !expires_seconds)
+		return FALSE; // "once" without a lifetime cannot exist (decide's contract)
+
+	ptr_decision = (PITEM_STATE_DECISION)_r_obj_allocate (sizeof (ITEM_STATE_DECISION), &_app_state_dereferencedecision);
+
+	current_time = _r_unixtime_now ();
+	ptr_decision->app_hash = app_hash;
+	ptr_decision->is_block = is_block;
+	ptr_decision->is_once = is_once;
+	ptr_decision->expires = is_once ? (current_time + expires_seconds) : 0;
+
+	if (is_once)
+	{
+		FILETIME file_time;
+		LARGE_INTEGER timestamp;
+		PTP_TIMER htimer;
+
+		_r_unixtime_to_filetime (&file_time, ptr_decision->expires);
+		_r_calc_filetime2largeinteger (&timestamp, &file_time);
+
+		if (NT_SUCCESS (TpAllocTimer (&htimer, &_app_state_expired_callback, ULongToPtr (app_hash), NULL)))
+		{
+			TpSetTimer (htimer, &timestamp, 0, 0);
+
+			ptr_decision->htimer = htimer;
+		}
+		else
+		{
+			ptr_decision->expires = 0; // degrade to "until restart" lifetime
+		}
+	}
+
+	_r_queuedlock_acquireexclusive (&lock_state);
+
+	state_gen++;
+	_r_obj_addhashtablepointer (state_decisions, app_hash, ptr_decision);
+
+	_r_queuedlock_releaseexclusive (&lock_state);
+
+	return TRUE;
+}
+
 
 // P2-3b: collect every deployed session-decision filter GUID into the
 // desired set (lock_state shared)

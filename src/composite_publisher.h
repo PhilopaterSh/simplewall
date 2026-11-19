@@ -86,3 +86,13 @@ BOOLEAN _app_publisher_queryanchor (
 	_Out_ PULONG path_count,
 	_Out_ PBOOLEAN is_valid
 );
+
+// TEST INSTRUMENT (r4 G2-M2; NFR-06): seed a path + anchor directly
+// (no WinVerifyTrust) — anchor validity semantics incl. red
+// reachability testable headlessly. Used only by -gui-selftest.
+BOOLEAN _app_publisher_selftest_seedpath (
+	_In_ LPCWSTR path,
+	_In_ LPCWSTR signer_hash_hex,
+	_In_ LPCWSTR signer_name,
+	_In_ BOOLEAN is_valid
+);

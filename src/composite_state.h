@@ -119,3 +119,13 @@ BOOLEAN _app_state_query (
 	_Out_ PBOOLEAN is_once,
 	_Out_ PULONG remaining_seconds
 );
+
+// TEST INSTRUMENT (r4 G2-M1; NFR-06): seed a decision without WFP —
+// the query layer under test; real threadpool timer for "once" seeds.
+// Used only by -gui-selftest; never called from production paths.
+BOOLEAN _app_state_selftest_seed (
+	_In_ ULONG app_hash,
+	_In_ BOOLEAN is_block,
+	_In_ BOOLEAN is_once,
+	_In_ ULONG expires_seconds
+);

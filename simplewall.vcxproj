@@ -424,6 +424,9 @@
     <ClCompile Include="src\gui\composite_shell_a11y.c">
       <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
+    <ClCompile Include="src\gui\composite_shell_selftest.c">
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\gui\composite_shell.h" />

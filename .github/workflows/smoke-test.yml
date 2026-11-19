@@ -110,6 +110,26 @@ jobs:
         shell: pwsh
         run: bin/64/dnsrig.exe -selftest
 
+      # composite GUI chain G-2 (NFR-06/r4): the six DEC-11 query-API
+      # enumerators verified INSIDE the real binary (fixtures via the real
+      # serializer; REAL threadpool-timer expiry). Exit code = failure count.
+      - name: Composite selftest (query APIs, -gui-selftest)
+        shell: pwsh
+        run: |
+          & bin/64/simplewall.exe -gui-selftest
+          $code = $LASTEXITCODE
+          if (Test-Path bin/64/selftest-result.txt) { Get-Content bin/64/selftest-result.txt }
+          else { Write-Host 'FAIL: selftest-result.txt was not produced'; $code = 99 }
+          if ($code -ne 0) { Write-Error "composite selftest failed ($code failures)"; exit 1 }
+
+      # composite GUI chain G-1/G-2: drive the shell on the runner desktop
+      # (SAC-free) — one screenshot per rail page + search + theme paths;
+      # the PNGs are the acceptance evidence read by the implementer
+      - name: GUI testdrive (shell screenshots)
+        if: always()
+        shell: pwsh
+        run: powershell -ExecutionPolicy Bypass -File tools/gui-testdrive.ps1 -ExePath "bin/64/simplewall.exe" -OutDir "gui-screens"
+
       - name: Upload artifacts
         if: always()
         uses: actions/upload-artifact@v4
@@ -120,6 +140,7 @@ jobs:
             smoke-result.txt
             preflight.json
             smoke-artifacts/
+            gui-screens/
 
       - name: Verdict
         shell: pwsh

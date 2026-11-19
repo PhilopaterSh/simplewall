@@ -13,6 +13,7 @@
 #include "composite_dnsetw.h" // composite Phase 3 (T032)
 #include "composite_bypass.h" // composite Phase 3 (T033b)
 #include "gui/composite_shell.h" // composite shell (G-1): -gui replaces the main window (DEC-11)
+#include "gui/composite_shell_selftest.h" // composite shell selftest (G-2, NFR-06): -gui-selftest
 #include "composite_state.h" // composite Phase 1 (T005 durations/T006 single-flight)
 #include "composite_publisher.h" // composite Phase 1 (T004 publisher rules)
 
@@ -3768,6 +3769,16 @@ INT APIENTRY wWinMain (
 
 	if (!_r_app_initialize (&_app_parseargs))
 		return ERROR_APP_INIT_FAILURE;
+
+	// composite GUI chain G-2 (NFR-06/r4): headless selftest instrument —
+	// verifies the six DEC-11 query-API enumerators INSIDE the real
+	// binary (fixtures via the real serializer; real threadpool-timer
+	// expiry), writes selftest-result.txt and exits with the failure
+	// count. MUST be checked BEFORE the `-gui` verb: _r_sys_getopt
+	// matches by PREFIX (_r_str_isstartswith), so "gui" would otherwise
+	// also fire on "-gui-selftest"
+	if (_r_sys_getopt (_r_sys_getcommandline (), L"gui-selftest", NULL))
+		return _app_shell_selftest_run ();
 
 	// composite shell (G-1): -gui replaces the main window. Runs AFTER
 	// _r_app_initialize (locale/config populated — required for the
