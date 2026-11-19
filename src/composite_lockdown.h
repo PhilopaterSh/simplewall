@@ -35,3 +35,10 @@ VOID _app_lockdown_startupcheck (
 BOOLEAN _app_lockdown_uninstallhook (
 	_In_opt_ HWND hwnd
 );
+
+// DEC-11 query API (GUI Lockdown page): run the audit pre-flight +
+// engine-health check WITHOUT committing anything; surfaces what enable
+// would report
+NTSTATUS _app_lockdown_preflight (
+	VOID
+);

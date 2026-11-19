@@ -630,6 +630,24 @@ ULONG _app_state_getheldtotal (VOID)
 	return count;
 }
 
+// composite shell (G-2): number of live session decisions (lock_state shared)
+ULONG _app_state_querycount (VOID)
+{
+	ULONG count = 0;
+	ULONG_PTR enum_key = 0;
+
+	if (!state_decisions || _r_obj_isempty2 (state_decisions))
+		return 0;
+
+	_r_queuedlock_acquireshared (&lock_state);
+
+	count = (ULONG)state_decisions->count; // hashtable body count (routine object)
+
+	_r_queuedlock_releaseshared (&lock_state);
+
+	return count;
+}
+
 
 // P2-3b: collect every deployed session-decision filter GUID into the
 // desired set (lock_state shared)

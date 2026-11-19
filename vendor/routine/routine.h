@@ -2743,7 +2743,7 @@ FORCEINLINE BOOLEAN _r_str_isnullterminated (
 	_In_ PR_STRINGREF string
 )
 {
-	return (string->buffer[_r_str_getlength2 (string)] == UNICODE_NULL);
+	return (string->length != 0 && string->buffer[_r_str_getlength2 (string)] == UNICODE_NULL); // security-fixes follow-up: empty-stringref guard (AV 0xC0000005, 4 dumps 2026-11-18)
 }
 
 FORCEINLINE BOOLEAN _r_str_isendsswith2 (
