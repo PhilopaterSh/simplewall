@@ -1829,6 +1829,41 @@ VOID _app_tabs_init (
 	}
 }
 
+// TEMP DIAGNOSTIC (CI hang round): stage breadcrumbs to
+// <exedir>\breadcrumb.txt — REMOVE after the hang is identified
+static VOID _app_init_breadcrumb (
+	_In_ LPCSTR stage
+)
+{
+	WCHAR bc_path[MAX_PATH];
+	HANDLE hbc;
+	DWORD written = 0;
+	CHAR bc_line[160];
+
+	if (!GetModuleFileNameW (NULL, bc_path, RTL_NUMBER_OF (bc_path)))
+		return;
+
+	{
+		PWSTR bslash = wcsrchr (bc_path, L'\\');
+
+		if (!bslash)
+			return;
+
+		*bslash = UNICODE_NULL;
+		wcscat_s (bc_path, RTL_NUMBER_OF (bc_path), L"\\breadcrumb.txt");
+	}
+
+	hbc = CreateFileW (bc_path, FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_ALWAYS, 0, NULL);
+
+	if (hbc == INVALID_HANDLE_VALUE)
+		return;
+
+	SetFilePointer (hbc, 0, NULL, FILE_END);
+	_snprintf_s (bc_line, RTL_NUMBER_OF (bc_line), _TRUNCATE, "%s\n", stage);
+	WriteFile (hbc, bc_line, (DWORD)strlen (bc_line), &written, NULL);
+	CloseHandle (hbc);
+}
+
 VOID _app_initialize (
 	_In_opt_ HWND hwnd
 )
@@ -1847,12 +1882,16 @@ VOID _app_initialize (
 	R_STRINGREF wusvc_sr = PR_STRINGREF_INIT (PATH_WUSVC);
 	R_ENVIRONMENT environment;
 
+	_app_init_breadcrumb ("init:enter");
+
 	// hardening round 2 (FR-03/DEC-05): embed the update feed verification
 	// public key (the private key is held off-repository by the fork owner)
 	_r_update_setpublickey (UPDATE_PUBLIC_KEY, RTL_NUMBER_OF (UPDATE_PUBLIC_KEY));
 
 	// set privileges
 	_r_sys_setprocessprivilege (hwnd, NtCurrentProcess (), privileges, RTL_NUMBER_OF (privileges), TRUE);
+
+	_app_init_breadcrumb ("init:priv");
 
 	// set process priority
 	_r_sys_setenvironment (&environment, PROCESS_PRIORITY_CLASS_HIGH, IoPriorityHigh, MEMORY_PRIORITY_NORMAL);
@@ -1873,6 +1912,8 @@ VOID _app_initialize (
 	_r_sys_setenvironment (&environment, THREAD_PRIORITY_HIGHEST, IoPriorityHigh, MEMORY_PRIORITY_NORMAL);
 
 	_r_workqueue_initialize (&wfp_queue, 1, &environment, L"FiltersQueue");
+
+	_app_init_breadcrumb ("init:queues");
 
 	// static initializer
 	_r_sys_getsystemroot (&config.windows_dir);
@@ -1956,8 +1997,12 @@ VOID _app_initialize (
 
 	_app_generate_credentials ();
 
+	_app_init_breadcrumb ("init:credentials");
+
 	// load default icons
 	_app_icons_getdefault ();
+
+	_app_init_breadcrumb ("init:icons");
 
 	// initialize global filters array object
 	filter_ids = _r_obj_createarray (sizeof (GUID), 0x10, NULL);
@@ -1984,10 +2029,15 @@ VOID _app_initialize (
 	_app_state_initialize ();
 	_app_publisher_initialize ();
 
+	_app_init_breadcrumb ("init:tables+state+publisher");
+
 	NtCreateEvent (&config.hnotify_evt, EVENT_ALL_ACCESS, NULL, NotificationEvent, TRUE);
 
 	if (hwnd)
 		_r_sys_createthread (NULL, NtCurrentProcess (), (PUSER_THREAD_START_ROUTINE)&_app_package_threadproc, hwnd, &environment, L"ServicesMonitor");
+
+
+	_app_init_breadcrumb ("init:done");
 }
 
 INT FirstDriveFromMask (
