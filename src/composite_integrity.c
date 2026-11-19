@@ -28,6 +28,20 @@ NTSTATUS _app_integrity_hardenacl (VOID)
 	ULONG result;
 	NTSTATUS status;
 
+	// CI freeze finding (2026-11-19, testing-record.md Finding 8): the
+	// SetNamedSecurityInfoW call can deadlock on a worker thread while
+	// HOLDING the heap lock (its propagation retry loop contends the
+	// app's own write-excluding log handle) - the whole process then
+	// freezes on the next allocation. Until a dedicated by-handle design
+	// (O-8) coordinates the log sharing, the hardening is CONFIG-GATED
+	// and defaults OFF: NFR-01 (non-fatal) explicitly outranks a
+	// hardening that can freeze the process it protects. Logged loudly.
+	if (!_r_config_getboolean (L"IsProfileDaclHardeningEnabled", FALSE, NULL))
+	{
+		_r_log (LOG_LEVEL_INFO, NULL, L"composite_integrity", L"profile DACL hardening deferred (IsProfileDaclHardeningEnabled=false; see O-8)", (LONG)0);
+		return STATUS_SUCCESS;
+	}
+
 	profile_dir = _r_app_getprofiledirectory ();
 
 	if (!profile_dir)
