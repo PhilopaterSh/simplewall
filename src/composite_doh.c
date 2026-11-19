@@ -197,7 +197,6 @@ BOOLEAN _app_doh_query (
 	BYTE response[DOH_MAX_MSG];
 	BYTE addrs[DOH_MAX_ADDRS * 16];
 	ULONG query_len;
-	ULONG msg_len;
 	ULONG addr_len = qtype == 28 ? 16 : 4;
 	ULONG answer_count;
 	HINTERNET session = NULL;
@@ -209,7 +208,7 @@ BOOLEAN _app_doh_query (
 	DWORD header_size = sizeof (status_code);
 	LPWSTR headers = L"Content-Type: application/dns-message\r\nAccept: application/dns-message\r\n";
 
-	*out_addr = NULL;
+	ZeroMemory (out_addr, qtype == 28 ? 16 : 4);
 	*is_v6 = FALSE;
 	*ttl = 0;
 
