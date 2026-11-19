@@ -3770,6 +3770,18 @@ INT APIENTRY wWinMain (
 	if (!_r_app_initialize (&_app_parseargs))
 		return ERROR_APP_INIT_FAILURE;
 
+	// composite verbs (G-1/G-2) run OUTSIDE the upstream dialog path:
+	// _r_app_initialize dispatches cmd_callback ONLY for the four known
+	// classes (Help/Clean/Install/Uninstall — routine rapp.c), so for
+	// `-gui`/`-gui-selftest` _app_parseargs NEVER runs and
+	// _app_initialize (the global-tables creator: apps_table/rules_config/
+	// state/publisher/credentials/icons) never runs either. CI-proven:
+	// WM_CREATE → _app_profile_load → _r_obj_clearhashtable (apps_table =
+	// NULL) → AV +0x40. The upstream dialog path was unaffected because
+	// WM_INITDIALOG calls _app_initialize itself.
+	if (!apps_table)
+		_app_initialize (NULL);
+
 	// composite GUI chain G-2 (NFR-06/r4): headless selftest instrument —
 	// verifies the six DEC-11 query-API enumerators INSIDE the real
 	// binary (fixtures via the real serializer; real threadpool-timer
