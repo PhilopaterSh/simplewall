@@ -1882,6 +1882,24 @@ INT_PTR CALLBACK NotificationProc (
 
 				case IDM_OPENRULESEDITOR:
 				{
+					// security-fixes (FR-4/DEC-4): gated like the sibling action
+					// branches via the FR-07 proxy control — the mint+apply must not
+					// run outside the safety window; refusal is rate-limited-logged
+					static ULONG last_editor_refuse_tick = 0;
+
+					if (!_r_ctrl_isenabled (hwnd, IDC_ALLOW_BTN))
+					{
+						ULONG tick = GetTickCount ();
+
+						if (!last_editor_refuse_tick || (tick - last_editor_refuse_tick) > 10000)
+						{
+							_r_log (LOG_LEVEL_WARNING, NULL, L"_app_notify_command", L"IDM_OPENRULESEDITOR refused outside the safety window", STATUS_ACCESS_DENIED);
+							last_editor_refuse_tick = tick;
+						}
+
+						break;
+					}
+
 					PR_STRING app_name, rule_name, rule_string;
 					PEDITOR_CONTEXT context;
 					PITEM_RULE ptr_rule;

@@ -128,3 +128,13 @@ Vision completion: ~4/14 done (rows 1, 3 full; 2, 4 partial) - Phase 1 is the
 trust/stability chassis; rows 5-13 are the actual feature merge, scheduled
 Phase 2/3 + release-prep. Do not market the merged vision before rows 5+8
 land.
+
+
+## Audit minors routed to backlog (security-fixes chain, 2026-11-17; evidence: docs/specs/tooling/retrospective-ledger.md rows 31-38)
+
+- [ ] hashless FILE-component manifests still verify by signature alone (install path is already fail-closed by this chain)
+- [ ] log-file DACL: add PROTECTED_DACL_SECURITY_INFORMATION + log the create-then-ACL window
+- [ ] /W4 + /analyze as a reproducible build gate (NFR-02; currently a one-off run)
+- [ ] WM_DROPFILES is UIPI-allowed on the elevated main window (adds persisted-but-disabled app entries)
+- [ ] _r_update_navigate icon/title/content argument misuse (cosmetic)
+- [ ] notification editor-cancel does NOT undo the minted PERMIT rule (upstream behavior c21b5a14; UX decision owed)

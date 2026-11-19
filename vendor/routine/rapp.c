@@ -2153,6 +2153,7 @@ NTSTATUS _r_update_downloadupdate (
 	PR_STRING path;
 	HANDLE hfile;
 	BOOLEAN is_renamed;
+	LARGE_INTEGER verify_pos = {0}; // security-fixes FIX-5 (DEC-07): PLARGE_INTEGER ABI
 	NTSTATUS status;
 
 	path = _r_app_getcachedirectory (TRUE);
@@ -2211,7 +2212,7 @@ NTSTATUS _r_update_downloadupdate (
 	{
 		PR_STRING hash_string;
 
-		_r_fs_setpos (hfile, 0);
+		_r_fs_setpos (hfile, &verify_pos);
 
 		status = _r_crypt_getfilehash (&hash_string, BCRYPT_SHA256_ALGORITHM, NULL, hfile);
 
@@ -2237,7 +2238,7 @@ NTSTATUS _r_update_downloadupdate (
 			return status;
 		}
 
-		_r_fs_setpos (hfile, 0);
+		_r_fs_setpos (hfile, &verify_pos);
 	}
 
 	is_renamed = FALSE;
@@ -3140,10 +3141,96 @@ VOID _r_update_install (
 )
 {
 	PR_STRING cmd_string;
+	PR_STRING hash_string;
+	HANDLE hfile;
+	LARGE_INTEGER install_pos = {0}; // security-fixes FIX-5 (DEC-07): PLARGE_INTEGER ABI
 	NTSTATUS status;
 
 	if (!_r_fs_exists (&update_component->cache_path->sr))
 		return;
+
+	// security-fixes (FR-1/FR-2/DEC-1/DEC-2): the verify-execute window is
+	// closed - the cached installer is opened WRITE-EXCLUDING (share
+	// read+delete: a concurrent writer gets a sharing violation for the whole
+	// window while the OS loader is unaffected), the sha256 is re-verified on
+	// the held handle (REQUIRED for installer components - fail-closed on a
+	// hashless manifest, closing audit finding 4), a reparse point refuses,
+	// and the handle is held through the elevated execution (DEC-1: hold
+	// spans the blocking ShellExecuteEx call; after spawn the image section
+	// keeps writers excluded for the process lifetime). This also fail-closes
+	// the stale-partial-download case: a download error path leaves the
+	// partial file at cache_path, which today would be elevated-executed.
+	status = _r_fs_openfile (
+		&hfile,
+		&update_component->cache_path->sr,
+		FILE_GENERIC_READ,
+		FILE_SHARE_READ | FILE_SHARE_DELETE,
+		0,
+		FALSE
+	);
+
+	if (!NT_SUCCESS (status))
+	{
+		_r_log (LOG_LEVEL_ERROR, NULL, L"_r_update_install", L"cannot open the cached installer write-excluding (fail-closed)", status);
+		return;
+	}
+
+	// reparse-point refusal (mirrors the download-path F6/FR-07 guard)
+	{
+		FILE_ATTRIBUTE_TAG_INFORMATION tag_info;
+		IO_STATUS_BLOCK isb_check;
+
+		if (NT_SUCCESS (NtQueryInformationFile (hfile, &isb_check, &tag_info, sizeof (tag_info), FileAttributeTagInformation)) &&
+			(tag_info.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT))
+		{
+			NtClose (hfile);
+
+			_r_fs_deletefile (&update_component->cache_path->sr, NULL);
+
+			_r_log (LOG_LEVEL_ERROR, NULL, L"_r_update_install", L"cached installer is a reparse point (fail-closed)", STATUS_INVALID_PARAMETER);
+			return;
+		}
+	}
+
+	// security-fixes (FR-2/DEC-2): installer-component hash is REQUIRED for
+	// the install step - a hashless manifest refuses to install
+	if (_r_str_isempty (update_component->hash->buffer))
+	{
+		NtClose (hfile);
+
+		_r_fs_deletefile (&update_component->cache_path->sr, NULL);
+
+		status = STATUS_INVALID_PARAMETER;
+
+		_r_log (LOG_LEVEL_ERROR, NULL, L"_r_update_install", L"install refused: manifest provides no artifact hash (fail-closed)", status);
+		return;
+	}
+
+	_r_fs_setpos (hfile, &install_pos);
+
+	status = _r_crypt_getfilehash (&hash_string, BCRYPT_SHA256_ALGORITHM, NULL, hfile);
+
+	if (!NT_SUCCESS (status))
+	{
+		NtClose (hfile);
+		return;
+	}
+
+	status = _r_str_isequal (&hash_string->sr, &update_component->hash->sr, TRUE) ? STATUS_SUCCESS : STATUS_DATA_ERROR;
+
+	_r_obj_dereference (hash_string);
+
+	if (status != STATUS_SUCCESS)
+	{
+		NtClose (hfile);
+
+		_r_fs_deletefile (&update_component->cache_path->sr, NULL);
+
+		_r_log (LOG_LEVEL_ERROR, NULL, L"_r_update_install", L"cached installer sha256 mismatch (fail-closed)", status);
+		return;
+	}
+
+	_r_fs_setpos (hfile, &install_pos);
 
 	// hardening round 2 (F8/FR-08): the NSIS /D flag consumes everything
 	// after it verbatim — a quote inside the target path would inject
@@ -3154,7 +3241,10 @@ VOID _r_update_install (
 	else
 		cmd_string = _r_format_string (L"\"%s\" /u /S", update_component->cache_path->buffer);
 
+	// execute elevated while the write-excluding handle is held (DEC-1)
 	status = _r_sys_runasadmin (update_component->cache_path->buffer, cmd_string->buffer, NULL);
+
+	NtClose (hfile);
 
 	if (status != STATUS_SUCCESS)
 		_r_show_errormessage (hwnd, L"Could not install update!", update_component->cache_path->buffer, status, ET_NATIVE);
