@@ -1873,7 +1873,7 @@ static VOID NTAPI _app_integrity_hardenacl_thread (
 	_In_ PVOID arglist
 )
 {
-	_r_workqueue_queueitem (&file_queue, &_app_integrity_hardenacl_thread, NULL);
+	_app_integrity_hardenacl ();
 }
 
 VOID _app_initialize (
@@ -1952,8 +1952,10 @@ VOID _app_initialize (
 	_app_init_breadcrumb ("cs:ledger-sc");
 
 	// composite Phase 2 (FR-12/P2-2): profile-directory DACL hardening
-	// (non-fatal; non-elevated sessions log and skip)
-	_app_integrity_hardenacl ();
+	// (non-fatal; non-elevated sessions log and skip) - runs on the FILES
+	// workqueue (CI-proven: SetNamedSecurityInfoW can deadlock; init must
+	// never block on external systems, S4 discipline)
+	_r_workqueue_queueitem (&file_queue, &_app_integrity_hardenacl_thread, NULL);
 	_app_init_breadcrumb ("cs:hardenacl");
 
 	// composite Phase 3 (P3-C): never-leave-DNS-broken crash residue
