@@ -637,12 +637,12 @@ PR_STRING _r_app_getprofiledirectory ()
 
 		if (GetModuleFileNameW (NULL, bc_path, RTL_NUMBER_OF (bc_path)))
 		{
-			PWSTR bslash = wcsrchr (bc_path, L'\');
+			PWSTR bslash = wcsrchr (bc_path, L'\\');
 
 			if (bslash)
 			{
 				*bslash = UNICODE_NULL;
-				wcscat_s (bc_path, RTL_NUMBER_OF (bc_path), L"\breadcrumb.txt");
+				wcscat_s (bc_path, RTL_NUMBER_OF (bc_path), L"\\breadcrumb.txt");
 
 				hbc = CreateFileW (bc_path, FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_ALWAYS, 0, NULL);
 
