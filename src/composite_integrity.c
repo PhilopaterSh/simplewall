@@ -36,9 +36,13 @@ NTSTATUS _app_integrity_hardenacl (VOID)
 	// (O-8) coordinates the log sharing, the hardening is CONFIG-GATED
 	// and defaults OFF: NFR-01 (non-fatal) explicitly outranks a
 	// hardening that can freeze the process it protects. Logged loudly.
-	if (!_r_config_getboolean (L"IsProfileDaclHardeningEnabled", FALSE, NULL))
+	// NOTE: the gate is a HARDCODED deferral for now - a config READ at
+	// this point (before config init) would trigger a config-write at
+	// first boot, which is the prime suspect for the string-lifetime
+	// corruption class (testing-record.md Finding 8)
+	if (TRUE)
 	{
-		_r_log (LOG_LEVEL_INFO, NULL, L"composite_integrity", L"profile DACL hardening deferred (IsProfileDaclHardeningEnabled=false; see O-8)", (LONG)0);
+		_r_log (LOG_LEVEL_INFO, NULL, L"composite_integrity", L"profile DACL hardening deferred (O-8 by-handle redesign owed)", (LONG)0);
 		return STATUS_SUCCESS;
 	}
 
