@@ -1956,6 +1956,8 @@ VOID _app_initialize (
 		config.my_path = _r_obj_createstring2 (&image_path_sr);
 	}
 
+	_app_init_breadcrumb ("init:paths-b");
+
 	config.svchost_path = _r_obj_concatstringrefs (
 		2,
 		_r_sys_getsystemdirectory (),
@@ -1969,6 +1971,8 @@ VOID _app_initialize (
 	);
 
 	config.system_path = _r_obj_createstring (PROC_SYSTEM_NAME);
+	_app_init_breadcrumb ("init:kernelfile");
+
 	config.ntoskrnl_path = _r_sys_getkernelfilename (TRUE);
 
 	if (!config.ntoskrnl_path)
@@ -1978,6 +1982,8 @@ VOID _app_initialize (
 	config.svchost_hash = _r_str_gethash (&config.svchost_path->sr, TRUE);
 	config.wusvc_hash = _r_str_gethash (&config.wusvc_path->sr, TRUE);
 	config.my_hash = _r_str_gethash (&config.my_path->sr, TRUE);
+
+	_app_init_breadcrumb ("init:hashes");
 
 	// initialize free list
 	_r_freelist_initialize (&listview_free_list, sizeof (ITEM_LISTVIEW_CONTEXT), 0x800);
