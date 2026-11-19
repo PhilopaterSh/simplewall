@@ -116,9 +116,15 @@ jobs:
       - name: Composite selftest (query APIs, -gui-selftest)
         shell: pwsh
         run: |
+          # crash evidence: full LocalDumps for simplewall.exe (the selftest
+          # fastfailed 0xC0000409 in the first CI run before any flush)
+          New-Item -ItemType Directory -Path "$env:GITHUB_WORKSPACE\dumps" -Force | Out-Null
+          reg add "HKLM\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps\simplewall.exe" /v DumpFolder /t REG_EXPAND_SZ /d "$env:GITHUB_WORKSPACE\dumps" /f | Out-Null
+          reg add "HKLM\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps\simplewall.exe" /v DumpType /t REG_DWORD /d 2 /f | Out-Null
+          reg add "HKLM\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps\simplewall.exe" /v DumpCount /t REG_DWORD /d 3 /f | Out-Null
           & bin/64/simplewall.exe -gui-selftest | Out-Host
           $code = $LASTEXITCODE
-          Write-Host "selftest process exit code: $code"
+          Write-Host "selftest process exit code: $code (0xC0000409 = -1073740791 = fail-fast)"
           if (Test-Path bin/64/selftest-result.txt) { Get-Content bin/64/selftest-result.txt }
           else { Write-Host 'FAIL: selftest-result.txt was not produced (process died before any flush)'; if (-not $code) { $code = 99 } }
           if ($code -ne 0) { Write-Error "composite selftest failed (exit=$code)"; exit 1 }
@@ -142,6 +148,8 @@ jobs:
             preflight.json
             smoke-artifacts/
             gui-screens/
+            dumps/
+            bin/64/simplewall.pdb
 
       - name: Verdict
         shell: pwsh

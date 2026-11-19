@@ -1,0 +1,61 @@
+PASS: ground-truth-load — D:\a\simplewall\simplewall\tools\preflight-ground-truth
+SKIP: (a) authenticode — release profile — runner builds are unsigned
+PASS: (b1) embedded key == in-tree update_key.h — embedded key found at 0xd6990
+SKIP: (b2) key vs off-repo JSON — release profile — JSON never leaves owner machine
+PASS: (b-feed) feed signature (production verifier) — production verifier OK on repo pair (VERSION 378B, VERSION.sig 64B); tamper-witness: flipped-byte signature correctly rejected (status 0xc000a000)
+PASS: (c) import parity — 26 DLLs
+PASS: (d) version resource — ProductVersion 3.9.4 vs APP_VERSION 3.9.4
+PASS: (e) SWC1 container + blocklist parity — flag=0x31 fmt=LZNT1 plaintext 92364B sha256 OK blocklist 1496/1496 (RSK-01 if drift)
+PASS: (f) PE security flags parity — DllCharacteristics 0xc160 vs parity 0xc160 (HIGH-ENTROPY-VA, DYNAMIC-BASE, NX-COMPAT, GUARD-CF, TERMINAL-SERVER-AWARE)
+{
+  "exe": "D:\\a\\simplewall\\simplewall\\bin\\64\\simplewall.exe",
+  "ci_profile": true,
+  "ok": true,
+  "checks": [
+    {
+      "name": "ground-truth-load",
+      "status": "PASS",
+      "evidence": "D:\\a\\simplewall\\simplewall\\tools\\preflight-ground-truth"
+    },
+    {
+      "name": "(a) authenticode",
+      "status": "SKIP",
+      "evidence": "release profile — runner builds are unsigned"
+    },
+    {
+      "name": "(b1) embedded key == in-tree update_key.h",
+      "status": "PASS",
+      "evidence": "embedded key found at 0xd6990"
+    },
+    {
+      "name": "(b2) key vs off-repo JSON",
+      "status": "SKIP",
+      "evidence": "release profile — JSON never leaves owner machine"
+    },
+    {
+      "name": "(b-feed) feed signature (production verifier)",
+      "status": "PASS",
+      "evidence": "production verifier OK on repo pair (VERSION 378B, VERSION.sig 64B); tamper-witness: flipped-byte signature correctly rejected (status 0xc000a000)"
+    },
+    {
+      "name": "(c) import parity",
+      "status": "PASS",
+      "evidence": "26 DLLs"
+    },
+    {
+      "name": "(d) version resource",
+      "status": "PASS",
+      "evidence": "ProductVersion 3.9.4 vs APP_VERSION 3.9.4"
+    },
+    {
+      "name": "(e) SWC1 container + blocklist parity",
+      "status": "PASS",
+      "evidence": "flag=0x31 fmt=LZNT1 plaintext 92364B sha256 OK blocklist 1496/1496 (RSK-01 if drift)"
+    },
+    {
+      "name": "(f) PE security flags parity",
+      "status": "PASS",
+      "evidence": "DllCharacteristics 0xc160 vs parity 0xc160 (HIGH-ENTROPY-VA, DYNAMIC-BASE, NX-COMPAT, GUARD-CF, TERMINAL-SERVER-AWARE)"
+    }
+  ]
+}

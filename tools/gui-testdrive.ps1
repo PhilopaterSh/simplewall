@@ -14,15 +14,42 @@ $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Drawing
 Add-Type @"
 using System;
+using System.Text;
 using System.Runtime.InteropServices;
 public static class GuiDrive {
+	public delegate bool EnumProc(IntPtr hwnd, IntPtr lparam);
+	[DllImport("user32.dll")] public static extern bool EnumWindows(EnumProc proc, IntPtr lparam);
+	[DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint pid);
+	[DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetWindowTextW(IntPtr hwnd, StringBuilder sb, int max);
+	[DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetClassNameW(IntPtr hwnd, StringBuilder sb, int max);
+	[DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hwnd);
 	[DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern IntPtr FindWindowW(string cls, string title);
 	[DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern IntPtr FindWindowExW(IntPtr parent, IntPtr after, string cls, string title);
 	[DllImport("user32.dll")] public static extern bool PostMessageW(IntPtr hwnd, uint msg, IntPtr wp, IntPtr lp);
 	[DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hwnd, out RECT r);
 	[DllImport("user32.dll")] public static extern bool GetClientRect(IntPtr hwnd, out RECT r);
 	[DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hwnd);
+	[DllImport("user32.dll")] public static extern IntPtr GetProcessWindowStation();
+	[DllImport("user32.dll")] public static extern bool GetUserObjectInformationW(IntPtr h, int index, StringBuilder sb, int max, out uint needed);
 	[StructLayout(LayoutKind.Sequential)] public struct RECT { public int L, T, R, B; }
+	public static string DesktopName() {
+		var sb = new StringBuilder(256); uint n;
+		GetUserObjectInformationW(GetProcessWindowStation(), 2, sb, 256, out n); // UOI_NAME
+		return sb.ToString();
+	}
+	public static string WindowsOfPid(uint pid) {
+		var sb = new StringBuilder();
+		EnumWindows((h, l) => {
+			uint wpid; GetWindowThreadProcessId(h, out wpid);
+			if (wpid == pid) {
+				var t = new StringBuilder(128); GetWindowTextW(h, t, 128);
+				var c = new StringBuilder(128); GetClassNameW(h, c, 128);
+				sb.Append("[").Append(c).Append("] '").Append(t).Append("' visible=").Append(IsWindowVisible(h)).Append("; ");
+			}
+			return true;
+		}, IntPtr.Zero);
+		return sb.ToString();
+	}
 }
 "@
 
@@ -73,9 +100,13 @@ for ($try = 0; $try -lt 20; $try++) {
 if ($script:hwnd -eq [IntPtr]::Zero) {
 	$manifest.errors += 'window quietwall_shell not found'
 	if ($proc.HasExited) { $manifest.errors += "process exited early, code $($proc.ExitCode)" }
+	$manifest.desktop = [GuiDrive]::DesktopName()
+	$manifest.process_windows = [GuiDrive]::WindowsOfPid($proc.Id)
 	$manifest | ConvertTo-Json | Set-Content (Join-Path $OutDir 'manifest.json')
 	Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
 	Write-Host 'FAIL: shell window not found'
+	Write-Host ("desktop: " + $manifest.desktop)
+	Write-Host ("process windows: " + $manifest.process_windows)
 	exit 1
 }
 
