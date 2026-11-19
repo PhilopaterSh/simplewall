@@ -19,6 +19,19 @@
 > MAJOR findings + one documentation fix. Everything else from the audit
 > (minors, NFR-02 /W4+/analyze gate) routes to BACKLOG, not this chain.
 
+> Revision `2026-11-19-r3` — **FIX-5 ADDED: the _r_fs_setpos ABI sweep** (live crash
+> evidence: 8 dumps from the composite lane scratch build ALL crashing at
+> `_r_fs_setpos+0x23` with a NULL-pointer READ, symbolicated via the mergetest
+> map). Root cause: the vendored signature is `_r_fs_setpos (HANDLE,
+> PLARGE_INTEGER)` but FOUR rapp.c callers pass the scalar `0` (rapp.c:2214,
+> 2240 in `_r_update_downloadupdate` — a ROUND-2 era miss: the DEC-04 ABI sweep
+> covered createfile/setprocessprivilege/reg_queryvalue/renamefilebyhandle but
+> NOT setpos/setsize; and rapp.c:3207/3231 in FIX-1's own T001 implementation
+> — the owner's mergetest build inherited both). The correct pointer-call
+> idiom already exists in the same file (rapp.c:3305, log.c:146). v3.9.3 is
+> affected on every language-download verify and every install; re-release
+> (v3.9.4) owed. Goldfish delta review per the tiered-review protocol.
+
 ## Problem and intended outcomes
 
 The 2026-11-17 full-scope audit (fresh-context, file:line-evidenced, claim
@@ -90,6 +103,10 @@ In scope:
   `src/notifications.c` (mirroring the sibling-branch gate pattern).
 - FIX-4: `src/update_key.h` comment correction (BIG-endian verbatim; bench
   reference).
+- FIX-5 (r3): the `_r_fs_setpos` ABI sweep — all four scalar callers in
+  `vendor/routine/rapp.c` (2214/2240 download-verify, 3207/3231 install-verify)
+  pass a zeroed LARGE_INTEGER by pointer, matching the vendored PLARGE_INTEGER
+  contract (log.c:146 + rapp.c:3305 idiom).
 - Chain docs under `docs/specs/security-fixes/`.
 - **BACKLOG routing deliverable** (review MINOR-8): append the six routed
   audit minors to `docs/BACKLOG.md` (hashless FILE manifests, log-DACL
@@ -178,6 +195,10 @@ Out of scope (prohibited adjacent work):
   arbiter of the convention.
 - DEC-06 (S-6): this chain does NOT touch `src/gui/`, the composite modules
   beyond `composite_integrity.c`, or the feed format.
+- DEC-7 (r3): FIX-5 is the DEC-04 ABI-alignment class applied mechanically:
+  every `_r_fs_setpos` caller is swept by grep against the vendored signature;
+  `_r_fs_setsize` callers verified clean (single caller, correct form). The
+  sweep becomes the standing ABI-check for every future vendor call site.
 
 ## Risks and open questions
 
@@ -229,3 +250,5 @@ Out of scope (prohibited adjacent work):
 | RSK-05 | Vendor-lane coordination (imported from tooling chain) — FIX-1 is a single-function minimal diff |
 | FR-12 | Imported from the composite chain (the broken hardening this chain repairs) |
 | RSK-04 | Vendor-lane stale state — measured before FIX-1 (last vendor commit 999a9294, owner lane) |
+| RSK-06 | v3.9.3 is LIVE with the setpos crash on every language-verify/install path — re-release v3.9.4 owed immediately after this chain; the raw feed pair stays consistent-stale meanwhile (fail-safe) |
+| DEC-07 | The setpos ABI sweep becomes the standing mechanical ABI-check for every future vendor call site (grep against the vendored signature, not trust) |
