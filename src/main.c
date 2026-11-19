@@ -1919,30 +1919,38 @@ VOID _app_initialize (
 	_r_sys_getsystemroot (&config.windows_dir);
 
 	_app_profile_initialize ();
+	_app_init_breadcrumb ("cs:profile-init");
 
 	// composite Phase 1 (SEC-03): crash-residue check — a leftover audit
 	// inventory without the composite flag means the previous session never
 	// reverted the machine-wide audit change
 	_app_audit_startupcheck ();
+	_app_init_breadcrumb ("cs:audit-sc");
 
 	// composite Phase 1 (FR-06): crash-residue check for the lockdown seal
 	_app_lockdown_startupcheck ();
+	_app_init_breadcrumb ("cs:lockdown-sc");
 
 	// composite Phase 1 (FR-08): packs state hash-check at load
 	_app_packs_startupcheck ();
+	_app_init_breadcrumb ("cs:packs-sc");
 
 	// composite Phase 2 (FR-12): ledger baseline integrity
 	_app_ledger_startupcheck ();
+	_app_init_breadcrumb ("cs:ledger-sc");
 
 	// composite Phase 2 (FR-12/P2-2): profile-directory DACL hardening
 	// (non-fatal; non-elevated sessions log and skip)
 	_app_integrity_hardenacl ();
+	_app_init_breadcrumb ("cs:hardenacl");
 
 	// composite Phase 3 (P3-C): never-leave-DNS-broken crash residue
 	_app_resolver_startupcheck ();
+	_app_init_breadcrumb ("cs:resolver-sc");
 
 	// composite Phase 3 (T033b): seed the external-resolver detector
 	_app_bypass_seeddefaults ();
+	_app_init_breadcrumb ("cs:bypass-seed");
 
 	// composite Phase 3 (T032): ETW DNS attribution (gated, default OFF)
 	if (_r_config_getboolean (L"IsCompositeDnsAttributionEnabled", FALSE, NULL))
