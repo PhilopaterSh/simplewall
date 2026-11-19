@@ -1,0 +1,18 @@
+# Tasks: Hardening Round 1 (Trust-Boundary Fixes)
+
+- [x] T001 Convert `_wfp_transact_start` to tri-state (TXN_STARTED / TXN_IN_PROGRESS / TXN_FAILED); on TXN_FAILED release `lock_transaction`, call `FwpmTransactionAbort0` only if a transaction opened, never commit, abort apply with error (FR-02, NFR-03)
+- [x] T002 Aggregate `_wfp_createglobalfilters` add failures into a degraded-enforcement flag cleared by successful re-apply (FR-01, SEC-01, DEC-02)
+- [x] T003 Surface the degraded state on tray icon and status text and write one aggregated error-log entry per apply (FR-01, OPS-01, NFR-01)
+- [x] T004 Remove the on-disk internal-rules override preference in `_app_profile_load_internal`; log a foreign `profile_internal.xml` as ignored (FR-03, SEC-02, DEC-03)
+- [x] T005 Unregister the "Internal rules" update component (`_r_update_addcomponent` at main.c:2029) (FR-03, DEC-03, RSK-02)
+- [x] T006 Move LogViewer launch to shell-token delegation (IShellDispatch2::ShellExecute or Explorer token + CreateProcessWithTokenW); refuse and log when no unelevated shell is available (FR-04, SEC-03, DEC-04)
+- [x] T007 Remove SE_SECURITY, SE_TAKE_OWNERSHIP, SE_BACKUP, SE_RESTORE, SE_DEBUG from startup privilege enabling; keep SE_INC_BASE_PRIORITY (FR-05, SEC-04, DEC-05)
+- [x] T008 Add enable-on-demand SE_DEBUG helper around the kill path's PROCESS_TERMINATE opens if implementation confirms the need; drop immediately after (FR-05, SEC-04, NFR-03)
+- [x] T009 wufix: persist original ImagePath before writing; on disable restore it only if the current value still equals the value we wrote, else warn and leave (FR-06, DATA-01, RSK-03)
+- [x] T010 Gate the notification KILL and special-rules message branches with the same enabled/visible check as ALLOW/BLOCK (FR-07, SEC-05)
+- [x] T011 Validate `WM_NOTIFICATION` by re-acquiring the object via the apps-table lookup; ignore and log unknown pointers (FR-08)
+- [x] T012 Create the connection log with an explicit user+admins DACL and a `SetNamedSecurityInfoW` migration for pre-existing log files at startup (FR-09, SEC-06) *(implementation note: routine audit proved _r_fs_createfile has no SECURITY_ATTRIBUTES parameter — its last arg is the allocation size — so the DACL is applied via SetNamedSecurityInfoW immediately after creation; SA plumbing removed)*
+- [x] T013 Mark the profile "encrypted" mode as obfuscation-only in a code comment; no format change (DEC-06, RSK-01)
+- [x] T014 Write the automated smoke-test procedures (planted internal file, posted KILL/special-rules messages, bogus WM_NOTIFICATION pointer, idle-token privilege audit) as a runnable helper + doc (FR-03, FR-07, FR-08, FR-05) *(delivered as tools/hardening-smoke-tests.ps1: FR-08 automated, FR-07 semi-automated, FR-03 semi-automated; FR-05 audit is manual per verification.md)*
+- [x] T015 Write the manual verification procedures (degraded-state observation, tri-state transaction contract review, medium-IL viewer check, happy-path regression pass) into docs/specs/hardening-round-1/verification.md (RSK-00, FR-01, FR-02, FR-04, NFR-01, NFR-03)
+- [ ] T016 Compile all touched files with `/W4` + `/analyze` and fix every warning; keep the MSVC build green (NFR-02) *(blocked on environment: MSVC + ..\routine submodule absent in authoring environment — exact steps in verification.md § NFR-02)*

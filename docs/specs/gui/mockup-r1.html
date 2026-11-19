@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<!-- Visual blueprint for G-1..G-4 (committed artifact) -->
+<title>quietwall composite shell — GUI mockup r2 (DEC-11)</title>
+<style>
+  :root{
+    --bg:#0b1220; --panel:#111a2e; --panel2:#16203a; --line:#223052;
+    --text:#dbe6f5; --muted:#8aa0c0; --accent:#2dd4bf; --accent2:#38bdf8;
+    --danger:#f87171; --warn:#fbbf24; --ok:#34d399; --purple:#a78bfa;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;font-family:'Segoe UI',Tahoma,sans-serif}
+  body{background:var(--bg);color:var(--text);display:flex;height:100vh;overflow:hidden}
+
+  /* ===== navigation rail ===== */
+  .rail{width:210px;background:var(--panel);border-inline-start:3px solid var(--accent);
+    display:flex;flex-direction:column;padding:14px 0}
+  .logo{padding:4px 18px 18px;font-size:19px;font-weight:700;color:var(--accent)}
+  .logo small{display:block;font-size:10px;color:var(--muted);font-weight:400;margin-top:2px}
+  .nav{flex:1}
+  .nav button{display:flex;align-items:center;gap:10px;width:100%;background:none;border:none;
+    color:var(--muted);padding:11px 18px;font-size:14px;cursor:pointer;text-align:start;
+    border-inline-start:3px solid transparent}
+  .nav button.active{color:var(--text);background:var(--panel2);border-inline-start-color:var(--accent)}
+  .nav .badge{margin-inline-start:auto;background:var(--danger);color:#fff;font-size:10px;
+    padding:2px 7px;border-radius:10px}
+  .nav .badge.teal{background:var(--accent);color:#062020}
+  .railfoot{padding:12px 18px;font-size:11px;color:var(--muted);border-top:1px solid var(--line)}
+  .traystates span{display:inline-block;padding:2px 8px;border-radius:4px;margin:3px 3px 0 0;font-size:10px}
+  .st-lock{background:#3b1d1d;color:var(--danger)}
+  .st-deg{background:#3b301d;color:var(--warn)}
+  .st-held{background:#1d3b30;color:var(--ok)}
+
+  /* ===== main ===== */
+  .main{flex:1;display:flex;flex-direction:column;overflow:hidden}
+  .topbar{display:flex;align-items:center;gap:12px;padding:12px 20px;background:var(--panel);border-bottom:1px solid var(--line)}
+  .search{flex:1;max-width:420px;background:var(--panel2);border:1px solid var(--line);color:var(--text);
+    padding:8px 14px;border-radius:8px;font-size:13px}
+  .topbar .chip{font-size:11px;padding:4px 10px;border-radius:6px;background:var(--panel2);color:var(--muted)}
+  .content{flex:1;overflow:auto;padding:20px 24px}
+  .page{display:none}
+  .page.active{display:block}
+  h2{font-size:17px;margin-bottom:4px}
+  .sub{color:var(--muted);font-size:12px;margin-bottom:16px}
+
+  /* ===== cards (Apps) ===== */
+  .appcard{display:flex;align-items:center;gap:14px;background:var(--panel);border:1px solid var(--line);
+    border-radius:10px;padding:12px 16px;margin-bottom:10px;transition:border .15s}
+  .appcard:hover{border-color:var(--accent2)}
+  .appicon{width:38px;height:38px;border-radius:8px;background:var(--panel2);display:flex;
+    align-items:center;justify-content:center;font-size:18px;flex-shrink:0}
+  .appmeta{flex:1;min-width:0}
+  .appname{font-weight:600;font-size:14px}
+  .appsub{font-size:11px;color:var(--muted);margin-top:2px}
+  .pub{display:inline-block;font-size:10px;color:var(--purple);border:1px solid var(--purple);
+    padding:1px 6px;border-radius:4px;margin-inline-start:6px}
+  .state{font-size:12px;padding:4px 12px;border-radius:6px;flex-shrink:0}
+  .allow{background:#0f2b22;color:var(--ok);border:1px solid #1c5a45}
+  .block{background:#2b1212;color:var(--danger);border:1px solid #6b2727}
+  .session{background:#1d2b0f;color:#a3e635;border:1px solid #4a6b1c}
+  .dur{font-size:10px;color:var(--muted);display:block;margin-top:3px}
+
+  /* ===== panels ===== */
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px;margin-bottom:14px}
+  .panel h3{font-size:14px;margin-bottom:10px;color:var(--accent2)}
+  .kv{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px dashed var(--line);font-size:13px}
+  .kv:last-child{border-bottom:none}
+  .kv b{color:var(--text);font-weight:600}
+  .kv span{color:var(--muted)}
+  .btn{background:var(--accent);color:#062020;border:none;padding:9px 20px;border-radius:8px;
+    font-size:13px;font-weight:600;cursor:pointer;margin-inline-start:8px}
+  .btn.danger{background:var(--danger);color:#2b0505}
+  .btn.warn{background:var(--warn);color:#2b2005}
+  .btn.ghost{background:transparent;border:1px solid var(--line);color:var(--muted);font-weight:400}
+  .row{display:flex;align-items:center;justify-content:space-between;gap:10px}
+
+  /* ===== tables (Log/Rules) ===== */
+  table{width:100%;border-collapse:collapse;font-size:12.5px}
+  th{color:var(--muted);text-align:start;padding:8px 10px;border-bottom:1px solid var(--line);font-size:11px}
+  td{padding:8px 10px;border-bottom:1px dashed var(--line)}
+  .filters span{display:inline-block;padding:4px 12px;border-radius:14px;font-size:11px;cursor:pointer;
+    background:var(--panel2);color:var(--muted);margin-inline-end:6px;margin-bottom:8px}
+  .filters span.on{background:var(--accent);color:#062020}
+  .verdict{font-size:11px;padding:2px 8px;border-radius:4px}
+  .v-blk{background:#2b1212;color:var(--danger)}
+  .v-alm{background:#0f2b22;color:var(--ok)}
+  .v-hld{background:#1d3b30;color:var(--ok)}
+  .decide a{color:var(--accent2);font-size:11px;text-decoration:none;margin-inline-start:5px}
+
+  /* ===== toggle ===== */
+  .tg{position:relative;width:42px;height:22px;flex-shrink:0}
+  .tg input{opacity:0;width:0;height:0}
+  .tg i{position:absolute;inset:0;background:var(--line);border-radius:22px;transition:.2s;cursor:pointer}
+  .tg i:before{content:'';position:absolute;width:16px;height:16px;border-radius:50%;background:var(--muted);top:3px;inset-inline-start:3px;transition:.2s}
+  .tg input:checked + i{background:var(--accent)}
+  .tg input:checked + i:before{transform:translateX(-19px);background:#062020}
+
+  /* ===== prompt window mockup ===== */
+  .prompt{position:fixed;bottom:24px;inset-inline-start:24px;width:390px;background:var(--panel);
+    border:1px solid var(--accent);border-radius:12px;padding:16px;box-shadow:0 8px 40px rgba(0,0,0,.6);z-index:50}
+  .prompt .t{font-weight:700;color:var(--accent);font-size:13px;margin-bottom:8px}
+  .prompt .who{font-size:15px;font-weight:600;margin-bottom:2px}
+  .prompt .to{font-size:11.5px;color:var(--muted);margin-bottom:10px}
+  .prompt .held{font-size:11px;color:var(--ok);background:#1d3b30;border-radius:6px;padding:5px 10px;margin-bottom:10px}
+  .prompt .tiers{font-size:10.5px;color:var(--muted);margin-bottom:10px;line-height:1.7}
+  .prompt .actions{display:flex;gap:8px;flex-wrap:wrap}
+  .prompt .actions button{flex:1;padding:8px;border-radius:7px;border:none;font-size:12px;font-weight:600;cursor:pointer}
+  .a-alw{background:#14532d;color:#bbf7d0}
+  .a-onc{background:#1e3a5f;color:#bfdbfe}
+  .a-un{background:#1e3a5f;color:#bfdbfe}
+  .a-blk{background:#7f1d1d;color:#fecaca}
+</style>
+</head>
+<body>
+
+<!-- ===== navigation rail ===== -->
+<div class="rail">
+  <div class="logo">quietwall<small>composite shell · v3.9.2-hardened</small></div>
+  <div class="nav">
+    <button class="active" data-p="apps">🖥️ التطبيقات</button>
+    <button data-p="rules">📜 القواعد <span class="badge teal">3</span></button>
+    <button data-p="packs">📦 الحزم</button>
+    <button data-p="lock">🔒 Lockdown</button>
+    <button data-p="log">📊 السجل <span class="badge">4</span></button>
+    <button data-p="settings">⚙️ الإعدادات</button>
+  </div>
+  <div class="railfoot">
+    حالة الشريط (tray) — T011:
+    <div class="traystates">
+      <span class="st-lock">[LOCKDOWN]</span>
+      <span class="st-deg">degraded</span>
+      <span class="st-held">4 held</span>
+    </div>
+  </div>
+</div>
+
+<!-- ===== main ===== -->
+<div class="main">
+  <div class="topbar">
+    <input class="search" placeholder="🔍 بحث شامل: تطبيق / قاعدة / نطاق…">
+    <span class="chip">الوضع: whitelist</span>
+    <span class="chip">Core Isolation: ON ✅</span>
+    <span class="chip">WFP user-mode · بلا driver</span>
+  </div>
+  <div class="content">
+
+    <!-- ============ APPS ============ -->
+    <div class="page active" id="p-apps">
+      <h2>التطبيقات</h2>
+      <div class="sub">بطاقة لكل تطبيق: أيقونة + شارة الناشر (T004) + الحالة + قواعد الجلسة المتبقية (T005) — البطاقة تتوسع لمحرر القواعد الكامل (صفر تراجع UX)</div>
+      <div class="appcard">
+        <div class="appicon">🌐</div>
+        <div class="appmeta"><div class="appname">Firefox</div>
+          <div class="appsub">C:\Program Files\Mozilla Firefox\firefox.exe</div></div>
+        <span class="pub">✓ Mozilla Corp (T004)</span>
+        <span class="state allow">Allow</span>
+        <button class="btn ghost">القواعد</button>
+      </div>
+      <div class="appcard">
+        <div class="appicon">💬</div>
+        <div class="appmeta"><div class="appname">telemetry-agent.exe</div>
+          <div class="appsub">\Device\…\telemetry-agent.exe — اتصال جديد</div></div>
+        <span class="state block">Block (pack: vendor-blockers)</span>
+        <button class="btn ghost">القواعد</button>
+      </div>
+      <div class="appcard">
+        <div class="appicon">🎮</div>
+        <div class="appmeta"><div class="appname">GameLauncher.exe</div>
+          <div class="appsub">قرار جلسة — ينتهي بعد <b>14:22</b> (T005 durations)</div></div>
+        <span class="state session">Allow · until restart</span>
+        <button class="btn ghost">القواعد</button>
+      </div>
+      <div class="appcard">
+        <div class="appicon">📦</div>
+        <div class="appmeta"><div class="appname">svchost.exe <span class="pub">service: CryptSvc</span></div>
+          <div class="appsub">قاعدة survival — تُستثنى من أي seal (DEC-04)</div></div>
+        <span class="state allow">System</span>
+      </div>
+    </div>
+
+    <!-- ============ RULES ============ -->
+    <div class="page" id="p-rules">
+      <h2>القواعد</h2>
+      <div class="sub">قرارات الجلسة + مراسِ الناشر (T004) + القواعد الدائمة + معالج الاستيراد (simplewall/WFC بـ schema مؤكد)</div>
+      <div class="panel">
+        <h3>قرارات الجلسة (T005 — session-only، لا تُكتب في profile.xml)</h3>
+        <table><tr><th>التطبيق</th><th>القرار</th><th>المدة</th><th>المتبقي</th><th></th></tr>
+        <tr><td>GameLauncher.exe</td><td>Permit</td><td>until restart</td><td>14:22</td><td><a>إلغاء</a></td></tr>
+        <tr><td>updater.exe</td><td>Permit</td><td>once</td><td>انتهى (TTL floor 17s)</td><td><a>حذف</a></td></tr></table>
+      </div>
+      <div class="panel">
+        <h3>مراسِ الناشر (T004 — signer anchors + materialized paths)</h3>
+        <table><tr><th>الناشر</th><th>المسارات المادة</th><th>الحالة</th><th>التحقق الأخير</th></tr>
+        <tr><td>Mozilla Corporation</td><td>3 paths</td><td><span class="verdict v-alm">valid</span></td><td>قبل 4 د (10-min loop)</td></tr>
+        <tr><td>Vendor X</td><td>1 path</td><td><span class="verdict v-blk">revoked (SEC-02 drop-out)</span></td><td>—</td></tr></table>
+      </div>
+      <div class="panel">
+        <h3>القواعد الدائمة</h3>
+        <table><tr><th>الاسم</th><th>الاتجاه</th><th>الإجراء</th><th>الوزن</th></tr>
+        <tr><td>Block telemetry.net</td><td>out</td><td>Block</td><td>FWW_RULE_USER</td></tr>
+        <tr><td>Allow local backup</td><td>out</td><td>Permit</td><td>FWW_RULE_USER</td></tr></table>
+        <div style="margin-top:10px"><button class="btn">➕ قاعدة جديدة</button><button class="btn ghost">📥 استيراد (simplewall SWC / WFC .wpw)</button></div>
+      </div>
+    </div>
+
+    <!-- ============ PACKS ============ -->
+    <div class="page" id="p-packs">
+      <h2>الحزم الموقّعة (T008/T009)</h2>
+      <div class="sub">ECDSA P-256 + key-id epoch + anti-rollback watermarks (DATA-02) — تُطبَّق كوحدة واحدة بـ delta دقيق</div>
+      <div class="panel">
+        <h3>Telemetry-Refresh <span class="pub">v1.2.0 · epoch qw-packs-2026-11</span></h3>
+        <div class="kv"><span>التوقيع</span><b style="color:var(--ok)">✓ صالح (P-256)</b></div>
+        <div class="kv"><span>الـ watermark</span><b>1.2.0 (لن يُقبل أقدم — anti-rollback)</b></div>
+        <div class="kv"><span>الفلاتر النشطة</span><b>delta: +14 filters</b></div>
+        <div class="kv"><span>الحالة</span><b>enabled</b></div>
+        <div style="margin-top:10px"><button class="btn danger">تعطيل</button></div>
+      </div>
+      <div class="panel">
+        <h3>Vendor-blockers <span class="pub">v0.9.0</span></h3>
+        <div class="kv"><span>الحالة</span><b style="color:var(--warn)">⏳ يرفض حتى تضمين مفتاح الإصدار (placeholder key = safe refuse)</b></div>
+        <div style="margin-top:10px"><button class="btn warn" disabled>استيراد</button></div>
+      </div>
+      <div class="panel">
+        <h3>AI-Agents <span class="pub">v0.9.0</span></h3>
+        <div class="kv"><span>الحالة</span><b style="color:var(--muted)">غير مستوردة</b></div>
+      </div>
+      <button class="btn">📥 استيراد حزمة (pack.json + pack.sig)</button>
+    </div>
+
+    <!-- ============ LOCKDOWN ============ -->
+    <div class="page" id="p-lock">
+      <h2>Lockdown — الختم الدفاعي (T007، DEC-04)</h2>
+      <div class="sub">WFAS-layer backstop: عندما يعمل المحرك، حكمه يتقدم؛ عند تعطله، الختم يحكم — ولا يترك DNS/الشبكة مكسورين أبدًا</div>
+      <div class="panel">
+        <div class="row">
+          <div><h3 style="margin:0">الحالة: <span style="color:var(--muted)">غير مفعل</span></h3>
+            <div class="sub" style="margin:4px 0 0">Snapshot مسجل ✓ · verify-then-commit ✓ · rollback جاهز ✓</div></div>
+          <div><button class="btn">تفعيل Lockdown</button><button class="btn ghost">الإعدادات المتقدمة</button></div>
+        </div>
+        <div class="kv"><span>قبل التفعيل — audit pre-flight (RSK-01)</span><b>يُفحص تلقائيًا؛ فشل = تأكيد صريح (confirm-without-prompts)</b></div>
+        <div class="kv"><span>survival rules</span><b>svchost: Dhcp / CryptSvc + WSL ICS (port-wide مرفوض بالتصميم)</b></div>
+        <div class="kv"><span>التراجع</span><b>snapshot مسجل — أبداً ليس ALLOW غير مشروط</b></div>
+        <div class="kv"><span>Uninstall أثناء التفعيل</span><b>keep-or-release (الافتراضي release)</b></div>
+        <div class="kv"><span>RSK-04</span><b>تعارض port-53 يُبلَّغ — لا override صامت</b></div>
+      </div>
+      <div class="panel">
+        <h3>P3-C ملكية الـ resolver (T033 — عقد never-leave-DNS-broken)</h3>
+        <div class="kv"><span>الحالة</span><b>غير مفعل (opt-in لكل interface — أبدًا default-on)</b></div>
+        <div class="kv"><span>التسلسل</span><b>snapshot → verify-then-commit → exact revert → crash-residue check</b></div>
+        <div class="kv"><span>موت الـ resolver</span><b>watchdog يعيد الإعدادات المسجلة خلال 10 ثوان</b></div>
+      </div>
+    </div>
+
+    <!-- ============ LOG ============ -->
+    <div class="page" id="p-log">
+      <h2>السجل الحي + الفحص (Little Snitch inspector للويندوز)</h2>
+      <div class="sub">صف = اتصال: التطبيق + الـ endpoint + الحكم + الـ tier الذي قرر — صفوف held تحمل أزرار قرار (يغلق حلقة FR-05)</div>
+      <div class="filters">
+        <span class="on">الكل</span><span>محجوب</span><span>مسموح</span><span>held (4)</span><span>مُعزول (ledger)</span>
+      </div>
+      <div class="panel" style="padding:0">
+        <table>
+          <tr><th>التطبيق</th><th>الـ endpoint</th><th>الحكم</th><th>الـ tier</th><th>القرار</th></tr>
+          <tr><td>svchost (CryptSvc)</td><td>168.63.129.16:443</td><td><span class="verdict v-alm">Permit</span></td><td>survival rule</td><td>—</td></tr>
+          <tr><td>updater.exe</td><td>104.21.x.x:443</td><td><span class="verdict v-alm">Permit</span></td><td>publisher (T004)</td><td>—</td></tr>
+          <tr><td>unknown-app.exe</td><td>185.60.x.x:443</td><td><span class="verdict v-blk">Block</span></td><td>single-flight hold</td><td class="decide"><a>Allow</a><a>Block</a></td></tr>
+          <tr><td>game.exe</td><td>52.114.x.x:443</td><td><span class="verdict v-hld">held</span></td><td>prompt مرئي</td><td class="decide"><a>Allow once</a><a>Deny</a></td></tr>
+          <tr><td>vendor-telemetry.exe</td><td>8.8.8.8:53</td><td><span class="verdict v-blk">BYPASS flagged</span></td><td>T033b (external resolver)</td><td><a>حجر (ledger)</a></td></tr>
+          <tr><td>app-X.exe</td><td>1.2.3.4:80</td><td><span class="verdict v-blk">quarantined</span></td><td>ledger (FR-10)</td><td class="decide"><a>استعادة</a><a>رفض نهائي</a></td></tr>
+        </table>
+      </div>
+    </div>
+
+    <!-- ============ SETTINGS ============ -->
+    <div class="page" id="p-settings">
+      <h2>الإعدادات</h2>
+      <div class="sub">بوابات الـ composite كلها لها بيت مسمى (لا toggles مخفية — goldfish finding 7)</div>
+      <div class="panel">
+        <h3>المحرك والـ composite</h3>
+        <div class="kv"><span>Auto-tiers (T003)</span><label class="tg"><input type="checkbox" checked><i></i></label></div>
+        <div class="kv"><span>Single-flight (T006)</span><label class="tg"><input type="checkbox" checked><i></i></label></div>
+        <div class="kv"><span>Publisher rules (T004)</span><label class="tg"><input type="checkbox" checked><i></i></label></div>
+        <div class="kv"><span>Audit lifecycle 5157 (T001)</span><label class="tg"><input type="checkbox"><i></i></label></div>
+        <div class="kv"><span>DNS attribution ETW (T032 — gated default OFF)</span><label class="tg"><input type="checkbox"><i></i></label></div>
+        <div class="kv"><span>Audit ledger + quarantine (P2-1)</span><label class="tg"><input type="checkbox"><i></i></label></div>
+      </div>
+      <div class="panel">
+        <h3>المظهر</h3>
+        <div class="kv"><span>الثيم</span><b>داكن (owner-selectable) · RTL جاهز M1</b></div>
+        <div class="kv"><span>اللغة</span><b>عربي / English (NFR-05 pipeline)</b></div>
+        <div class="kv"><span>بصمة الذاكرة idle</span><b>~16 MB مقاسة (bench page صادق)</b></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ===== prompt window mockup (same-process, SEC-05) ===== -->
+<div class="prompt">
+  <div class="t">🔔 اتصال جديد — smart prompt (T003-T006)</div>
+  <div class="who">📷 PhotosApp.exe</div>
+  <div class="to">→ api.photos.example.com:443 (outbound · TCP)</div>
+  <div class="held">🔒 3 اتصالات held for review (single-flight)</div>
+  <div class="tiers">الـ tier المحسوب: <b>لا قاعدة</b> (auto-tier لم يطابق، الناشر غير موقّع)
+    <br>الناشر: غير موقّع — لا publisher anchor</div>
+  <div class="actions">
+    <button class="a-alw">Allow<br><small>دائم</small></button>
+    <button class="a-onc">Allow once<br><small>17s+ TTL</small></button>
+    <button class="a-un">Until restart</button>
+    <button class="a-blk">Block</button>
+  </div>
+</div>
+
+<script>
+  document.querySelectorAll('.nav button').forEach(b=>{
+    b.onclick=()=>{
+      document.querySelectorAll('.nav button').forEach(x=>x.classList.remove('active'));
+      document.querySelectorAll('.page').forEach(x=>x.classList.remove('active'));
+      b.classList.add('active');
+      document.getElementById('p-'+b.dataset.p).classList.add('active');
+    };
+  });
+</script>
+</body>
+</html>
