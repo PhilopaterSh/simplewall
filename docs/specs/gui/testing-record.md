@@ -172,6 +172,18 @@
   (comsvcs MiniDump via the watchdog) + thread-stack scans (the dump
   parser, extended to Memory64) + dbghelp symbolization against the CI PDB
   (SymLoadModuleEx + SymFromAddrW pattern).
+- Chain DECODED (dbghelp symbolization of the a10 full dump against the
+  CI PDB — the exact blocking chain, function by function):
+  packscases -> _app_packs_getpath -> _app_getprofiledirectory ->
+  _r_fs_exists(cached_path) = FALSE -> _r_fs_createdirectory ->
+  _r_fs_dospathnametontpathname+0x344 -> kernel wait. AND the breadcrumb
+  evidence: cached_path contained the LITERAL STRING "false" (len=5) —
+  a config-boolean value string. That is a STRING-OBJECT LIFETIME/
+  heap-corruption class (the cached path object was overwritten by a
+  config "false" value), NOT a plain filesystem stall: NtCreateFile on a
+  corrupted path enters the object-manager/MUP wait. The hang points
+  moving across runs fit the same class (wherever the corrupted object
+  is consumed first).
 - Root-cause state: OPEN. The hang point moves with call order across runs
   -> a race/environment interaction, not a single fixed line. The
   corrupted-string observation (getprofiledirectory returned the literal
