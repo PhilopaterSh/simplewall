@@ -5,8 +5,11 @@
       r3-integrated 2026-11-19 (research-grounded + goldfish round 2
       integrated; compile 0/0 local, runtime verdict = CI/owner lane;
       see design-gui-draft.md r3 + post-review record)
-- [ ] G-2 (M2) Rules/Packs/Lockdown pages over the query APIs (FR-15,
-      DEC-11)
+- [x] G-2 (M2) Rules/Packs/Lockdown pages over the query APIs (FR-15,
+      DEC-11) — IMPLEMENTED r4-integrated 2026-11-19 (the six DEC-11
+      enumerators became REAL code; Lockdown page was functional since
+      G-1, its live survival-rule panel deferred honestly; see
+      design-gui-draft.md r4 + r3-integration record)
 - [ ] G-3 (M3) prompting redesign + Log page with decide actions
       (FR-15, FR-05, NFR-01)
 - [ ] G-4 (M4) i18n + RTL mirror + upstream dialog phase-out (NFR-05,

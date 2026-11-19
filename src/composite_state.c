@@ -37,6 +37,23 @@ static R_QUEUED_LOCK lock_state = PR_QUEUED_LOCK_INIT;
 static PR_HASHTABLE state_decisions = NULL; // app_hash -> PITEM_STATE_DECISION (pointer table owns the allocation ref)
 static PR_HASHTABLE state_held = NULL; // app_hash -> ULONG (held-pending count, T006)
 
+// DEC-11 query API snapshot (r4 G2-M1, r3 goldfish finding 1): the GUI
+// reads decisions under lock_state ALONE through this generation-checked
+// cache; names resolve via _app_getappitem AFTER release (zero nesting)
+typedef struct _STATE_QUERY_ROW
+{
+	ULONG app_hash;
+	BOOLEAN is_block;
+	BOOLEAN is_once;
+	LONG64 expires; // unix time; 0 = until restart
+} STATE_QUERY_ROW;
+
+static ULONG state_gen = 0; // bumped under exclusive lock on every mutation
+static STATE_QUERY_ROW *state_query_rows = NULL;
+static ULONG state_query_cap = 0;
+static ULONG state_query_rows_count = 0;
+static ULONG state_query_gen = (ULONG)-1;
+
 static VOID NTAPI _app_state_dereferencedecision (
 	_In_ PVOID entry
 )
@@ -115,6 +132,8 @@ VOID _app_state_uninitialize (VOID)
 	detached = _r_obj_createlist (0x04, NULL);
 
 	_r_queuedlock_acquireexclusive (&lock_state);
+
+	state_gen++; // decision-set mutation marker (query-cache invalidation)
 
 	if (state_decisions)
 	{
@@ -322,6 +341,8 @@ static VOID NTAPI _app_state_expired_callback (
 	// connection re-prompts through the normal pipeline (FR-04)
 	_r_queuedlock_acquireexclusive (&lock_state);
 
+	state_gen++; // decision-set mutation marker (query-cache invalidation)
+
 	ptr_decision = (PITEM_STATE_DECISION)_r_obj_findhashtablepointer (state_decisions, app_hash);
 
 	if (ptr_decision)
@@ -401,6 +422,8 @@ BOOLEAN _app_state_decide (
 
 	_r_queuedlock_acquireexclusive (&lock_state);
 
+	state_gen++; // decision-set mutation marker (query-cache invalidation)
+
 	// the allocation reference becomes the table's ownership reference
 	// (vendor pointer-table contract: add stores the raw pointer, cleanup
 	// derefs on removal — same pattern as _app_addapplication/apps_table)
@@ -476,6 +499,8 @@ VOID _app_state_revokeapp (
 
 	_r_queuedlock_acquireexclusive (&lock_state);
 
+	state_gen++; // decision-set mutation marker (query-cache invalidation)
+
 	ptr_decision = (PITEM_STATE_DECISION)_r_obj_findhashtablepointer (state_decisions, app_hash);
 
 	if (ptr_decision)
@@ -502,13 +527,20 @@ VOID _app_state_applyall (
 	_In_opt_ HWND hwnd
 )
 {
-	PITEM_APP ptr_app;
 	PITEM_STATE_DECISION ptr_decision = NULL;
+	PITEM_APP ptr_app;
 	ULONG_PTR enum_key = 0;
+	ULONG *hashes = NULL;
+	ULONG hash_count = 0;
+	ULONG hash_cap = 0;
+	ULONG i;
 
 	if (!state_decisions || _r_obj_isempty2 (state_decisions))
 		return;
 
+	// phase 1 (r3 goldfish finding 1): snapshot the non-once hashes under
+	// lock_state SHARED with NO other lock inside — this was the module's
+	// ONLY state→apps edge (in-lock _app_getappitem), now removed
 	_r_queuedlock_acquireshared (&lock_state);
 
 	while (_r_obj_enumhashtablepointer (state_decisions, (PVOID_PTR)&ptr_decision, NULL, &enum_key))
@@ -520,18 +552,52 @@ VOID _app_state_applyall (
 		if (ptr_decision->is_once)
 			continue;
 
-		ptr_app = _app_getappitem (ptr_decision->app_hash);
+		if (hash_count == hash_cap)
+		{
+			ULONG new_cap = hash_cap ? hash_cap * 2 : 16;
+			ULONG *grown = (ULONG *)HeapReAlloc (GetProcessHeap (), HEAP_ZERO_MEMORY, hashes, new_cap * sizeof (ULONG));
+
+			if (!grown)
+				break;
+
+			hashes = grown;
+			hash_cap = new_cap;
+		}
+
+		hashes[hash_count++] = ptr_decision->app_hash;
+	}
+
+	_r_queuedlock_releaseshared (&lock_state);
+
+	// phase 2+3: apps resolution OUTSIDE every lock (referenced return),
+	// then redeploy under a shared re-acquire that RE-FINDS each decision
+	// (it may have expired or been revoked between the phases)
+	for (i = 0; i < hash_count; i++)
+	{
+		ptr_app = _app_getappitem (hashes[i]);
 
 		if (!ptr_app)
 			continue;
 
-		// re-deploy after the full apply wiped every provider filter
-		_app_state_deploy (ptr_decision, ptr_app, NULL);
+		_r_queuedlock_acquireshared (&lock_state);
+
+		ptr_decision = (PITEM_STATE_DECISION)_r_obj_findhashtablepointer (state_decisions, hashes[i]);
+
+		if (ptr_decision)
+		{
+			if (!ptr_decision->is_once)
+				_app_state_deploy (ptr_decision, ptr_app, NULL); // re-deploy after the full apply wiped every provider filter
+
+			_r_obj_dereference (ptr_decision); // findhashtablepointer returns a referenced item
+		}
+
+		_r_queuedlock_releaseshared (&lock_state);
 
 		_r_obj_dereference (ptr_app);
 	}
 
-	_r_queuedlock_releaseshared (&lock_state);
+	if (hashes)
+		HeapFree (GetProcessHeap (), 0, hashes);
 }
 
 VOID _app_state_clearfilters (VOID)
@@ -543,6 +609,8 @@ VOID _app_state_clearfilters (VOID)
 		return;
 
 	_r_queuedlock_acquireexclusive (&lock_state);
+
+	state_gen++; // decision-set mutation marker (query-cache invalidation)
 
 	while (_r_obj_enumhashtablepointer (state_decisions, (PVOID_PTR)&ptr_decision, NULL, &enum_key))
 	{
@@ -566,6 +634,8 @@ VOID _app_state_holdpending (
 
 	_r_queuedlock_acquireexclusive (&lock_state);
 
+	state_gen++; // decision-set mutation marker (query-cache invalidation)
+
 	ptr_value = _r_obj_findhashtable (state_held, app_hash);
 
 	count = ptr_value ? *(PULONG)ptr_value : 0;
@@ -586,6 +656,8 @@ VOID _app_state_releasepending (
 
 	_r_queuedlock_acquireexclusive (&lock_state);
 
+	state_gen++; // decision-set mutation marker (query-cache invalidation)
+
 	_r_obj_removehashtableitem (state_held, app_hash);
 
 	_r_queuedlock_releaseexclusive (&lock_state);
@@ -605,6 +677,8 @@ VOID _app_state_releaseallpending (
 		return;
 
 	_r_queuedlock_acquireexclusive (&lock_state);
+
+	state_gen++; // decision-set mutation marker (query-cache invalidation)
 
 	_r_obj_clearhashtable (state_held);
 
@@ -630,22 +704,126 @@ ULONG _app_state_getheldtotal (VOID)
 	return count;
 }
 
-// composite shell (G-2): number of live session decisions (lock_state shared)
-ULONG _app_state_querycount (VOID)
+// composite shell (G-2, r4 G2-M1): rebuild the generation-checked
+// snapshot under lock_state SHARED, ALONE (no other lock is ever taken
+// inside — r3 goldfish finding 1)
+static VOID _app_state_queryrefresh (VOID)
 {
-	ULONG count = 0;
+	PITEM_STATE_DECISION ptr_decision = NULL;
 	ULONG_PTR enum_key = 0;
-
-	if (!state_decisions || _r_obj_isempty2 (state_decisions))
-		return 0;
+	ULONG count = 0;
 
 	_r_queuedlock_acquireshared (&lock_state);
 
-	count = (ULONG)state_decisions->count; // hashtable body count (routine object)
+	if (state_query_gen != state_gen)
+	{
+		if (state_decisions && !_r_obj_isempty2 (state_decisions))
+		{
+			while (_r_obj_enumhashtablepointer (state_decisions, (PVOID_PTR)&ptr_decision, NULL, &enum_key))
+			{
+				if (count == state_query_cap)
+				{
+					ULONG new_cap = state_query_cap ? state_query_cap * 2 : 16;
+					STATE_QUERY_ROW *grown = (STATE_QUERY_ROW *)HeapReAlloc (GetProcessHeap (), HEAP_ZERO_MEMORY, state_query_rows, new_cap * sizeof (STATE_QUERY_ROW));
+
+					if (!grown)
+						break; // OOM: serve the partial snapshot
+
+					state_query_rows = grown;
+					state_query_cap = new_cap;
+				}
+
+				state_query_rows[count].app_hash = ptr_decision->app_hash;
+				state_query_rows[count].is_block = ptr_decision->is_block;
+				state_query_rows[count].is_once = ptr_decision->is_once;
+				state_query_rows[count].expires = ptr_decision->expires;
+				count++;
+			}
+		}
+
+		state_query_rows_count = count;
+		state_query_gen = state_gen;
+	}
 
 	_r_queuedlock_releaseshared (&lock_state);
+}
 
-	return count;
+// composite shell (G-2): number of live session decisions (served from
+// the generation-checked snapshot; lock_state shared, ALONE)
+ULONG _app_state_querycount (VOID)
+{
+	if (state_query_gen != state_gen)
+		_app_state_queryrefresh ();
+
+	return state_query_rows_count;
+}
+
+// DEC-11 query API (GUI Rules/Apps pages): enumerate live session
+// decisions with the remaining seconds (0 for until-restart). The name
+// resolves from apps_table AFTER the state lock is released (zero
+// nesting — r3 goldfish finding 1).
+BOOLEAN _app_state_query (
+	_In_ ULONG index,
+	_Out_ ULONG *app_hash,
+	_Out_writes_ (name_chars) WCHAR *name_buffer,
+	_In_ ULONG name_chars,
+	_Out_ PBOOLEAN is_block,
+	_Out_ PBOOLEAN is_once,
+	_Out_ PULONG remaining_seconds
+)
+{
+	STATE_QUERY_ROW row;
+	PITEM_APP ptr_app;
+	LPCWSTR name;
+	LONG64 current_time;
+
+	if (!app_hash || !name_buffer || !name_chars || !is_block || !is_once || !remaining_seconds)
+		return FALSE;
+
+	name_buffer[0] = UNICODE_NULL;
+	*app_hash = 0;
+	*is_block = FALSE;
+	*is_once = FALSE;
+	*remaining_seconds = 0;
+
+	if (state_query_gen != state_gen)
+		_app_state_queryrefresh ();
+
+	if (index >= state_query_rows_count)
+		return FALSE;
+
+	row = state_query_rows[index];
+
+	*app_hash = row.app_hash;
+	*is_block = row.is_block;
+	*is_once = row.is_once;
+
+	// remaining from the stored ABSOLUTE expiry (upstream's timer
+	// pattern — never ticking accumulation); 0 = until restart per the
+	// declared contract
+	if (row.expires)
+	{
+		current_time = _r_unixtime_now ();
+
+		if (row.expires > current_time)
+			*remaining_seconds = (ULONG)(row.expires - current_time);
+	}
+
+	ptr_app = _app_getappitem (row.app_hash); // referenced return
+
+	if (ptr_app)
+	{
+		name = _r_obj_getstring (ptr_app->display_name);
+
+		if (!name)
+			name = _r_obj_getstringordefault (ptr_app->short_name, L"<composite>");
+
+		_r_str_copy (name_buffer, name_chars, name);
+
+		_r_obj_dereference (ptr_app);
+	}
+
+	return TRUE;
 }
 
 

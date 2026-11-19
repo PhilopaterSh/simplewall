@@ -107,11 +107,9 @@ VOID _app_state_collectguids (
 );
 
 // DEC-11 query API (GUI Rules/Apps pages): enumerate live session
-// decisions with the remaining seconds (0 for until-restart)
-ULONG _app_state_querycount (
-	VOID
-);
-
+// decisions with the remaining seconds (0 for until-restart); the
+// count lives in the single _app_state_querycount declaration above
+// (r3 finding 4: the duplicate declaration collapsed)
 BOOLEAN _app_state_query (
 	_In_ ULONG index,
 	_Out_ ULONG *app_hash,

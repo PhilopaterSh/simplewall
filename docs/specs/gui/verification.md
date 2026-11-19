@@ -31,3 +31,17 @@
   - Pending: the r3 verification additions list (fresh-profile i18n,
     150% DPI, preflight-outcome-then-commit, Narrator pass, 5k-row
     budget) runs in the CI/owner lane — locally blocked by SAC.
+
+- **2026-11-19 (G-2, r4-integrated)**: the six DEC-11 query-API
+  enumerators implemented (measured header-only first; only
+  `_app_state_querycount` existed). Rules page = session decisions
+  (verdict pill + adaptive countdown, 1s tick owns the text churn,
+  signature excludes it) + publisher anchors (4-state, red reachable
+  after the invalidate-retains-signer_hash fix). Packs page = the
+  packstate sidecar snapshot (mtime-checked, stat-without-open,
+  torn-file keeps previous). Lock-order: applyall restructured to
+  3-phase (its in-lock `_app_getappitem` nesting — the module's only
+  state→apps edge — removed; r3 finding 1). Owner verdict queue:
+  seeded 2-minute decision renders 2m 00s→1m 59s and the row
+  disappears at expiry; an anchor with an invalid member renders red;
+  a corrupted sidecar renders fail-closed empty, not fabrications.

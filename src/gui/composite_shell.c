@@ -39,8 +39,10 @@ LRESULT _app_shell_a11y_getobject (
 #define SHELL_CLASSNAME L"quietwall_shell"
 #define SHELL_TIMER_REFRESH 1
 #define SHELL_TIMER_FILTER 2
+#define SHELL_TIMER_COUNTDOWN 3
 #define SHELL_TIMER_REFRESH_MS 2000
 #define SHELL_TIMER_FILTER_MS 250 // System Informer SearchDelayMs precedent
+#define SHELL_TIMER_COUNTDOWN_MS 1000 // r4 G2-M4 urgency cadence
 
 #define SHELL_ID_SEARCH 1
 
@@ -51,6 +53,7 @@ LRESULT _app_shell_a11y_getobject (
 #define SHELL_CARD_H 56
 #define SHELL_CARD_GAP 8
 #define SHELL_ROW_PITCH (SHELL_CARD_H + SHELL_CARD_GAP)
+#define SHELL_RULES_ROW_PITCH 40
 #define SHELL_PILL_W 72
 #define SHELL_PILL_H 24
 #define SHELL_CHECKBOX_SIZE 16
@@ -211,6 +214,28 @@ static ULONG *shell_view = NULL;
 static ULONG shell_view_cap = 0;
 static ULONG shell_view_count = 0;
 static WCHAR shell_filter[SHELL_FILTER_MAX] = {0};
+
+// rules page data (r4 G2-M2/M4): decisions snapshot (names resolved by
+// the module query API; remaining computed from the ABSOLUTE expiry) +
+// anchor count. The remaining[] display string is recomputed by the 1s
+// countdown tick ONLY — it is excluded from every change signature
+// (r3 finding 5 rule i)
+typedef struct _SHELL_DECISION_ROW
+{
+	ULONG app_hash;
+	WCHAR name[SHELL_NAME_MAX];
+	BOOLEAN is_block;
+	BOOLEAN is_once;
+	LONG64 expires; // unix time; 0 = until restart
+	ULONG remaining_cached; // seconds at last tick (color threshold)
+	WCHAR remaining[48]; // displayed countdown text
+} SHELL_DECISION_ROW;
+
+static SHELL_DECISION_ROW *shell_decisions = NULL;
+static ULONG shell_decisions_cap = 0;
+static ULONG shell_decisions_count = 0;
+static ULONG shell_anchors_count = 0;
+static ULONG64 shell_decisions_sig = 0; // EXCLUDES remaining[] text
 
 static INT shell_page = SHELL_PAGE_APPS;
 static INT shell_rail_focus = SHELL_PAGE_APPS;
@@ -498,19 +523,45 @@ static VOID _app_shell_appsrowsrect (
 	}
 }
 
-static LONG _app_shell_scrollmax (_In_ HWND hwnd)
+// rows region for the ACTIVE page (apps cards or rules rows) — the
+// scrollbar machinery is shared (r4 G2-M2); rules rows start below the
+// page title (no search/chips offsets on that page)
+static VOID _app_shell_listrowsrect (
+	_In_ HWND hwnd,
+	_Out_ PRECT rows
+)
 {
-	RECT rows;
-	LONG total_height;
+	RECT rail;
+	RECT content;
 
-	_app_shell_appsrowsrect (hwnd, &rows);
+	if (shell_page != SHELL_PAGE_RULES)
+	{
+		_app_shell_appsrowsrect (hwnd, rows);
+		return;
+	}
 
-	total_height = (LONG)shell_view_count * SHELL_ROW_PITCH;
+	_app_shell_frame (hwnd, &rail, &content);
 
-	if (total_height)
-		total_height -= SHELL_CARD_GAP; // no trailing gap
+	rows->top = content.top + 60;
+	rows->bottom = content.bottom;
 
-	return max (0, total_height - (rows.bottom - rows.top));
+	if (shell_is_rtl)
+	{
+		rows->left = content.left + SHELL_SCROLLBAR_W + 6;
+		rows->right = content.right;
+	}
+	else
+	{
+		rows->left = content.left;
+		rows->right = content.right - SHELL_SCROLLBAR_W - 6;
+	}
+}
+
+// combined render-row count of the rules page (2 section headers +
+// decisions + anchors)
+static ULONG _app_shell_rules_totalrows (VOID)
+{
+	return 2 + shell_decisions_count + shell_anchors_count;
 }
 
 static VOID _app_shell_scrollclamp (_In_ HWND hwnd)
@@ -534,9 +585,27 @@ static LONG _app_shell_pagedelta (_In_ HWND hwnd)
 {
 	RECT rows;
 
-	_app_shell_appsrowsrect (hwnd, &rows);
+	_app_shell_listrowsrect (hwnd, &rows);
 
 	return max (SHELL_ROW_PITCH, (rows.bottom - rows.top) - SHELL_ROW_PITCH);
+}
+
+static LONG _app_shell_scrollmax (_In_ HWND hwnd)
+{
+	RECT rows;
+	LONG total_height;
+
+	_app_shell_listrowsrect (hwnd, &rows);
+
+	if (shell_page == SHELL_PAGE_RULES)
+		total_height = (LONG)_app_shell_rules_totalrows () * SHELL_RULES_ROW_PITCH;
+	else
+		total_height = (LONG)shell_view_count * SHELL_ROW_PITCH;
+
+	if (total_height)
+		total_height -= SHELL_CARD_GAP; // no trailing gap
+
+	return max (0, total_height - (rows.bottom - rows.top));
 }
 
 // DPI awareness prerequisite (r3 G1-M1, goldfish finding 2): the
@@ -751,6 +820,190 @@ static VOID _app_shell_applyfilter (VOID)
 			shell_view[shell_view_count++] = i;
 		}
 	}
+}
+
+// countdown display rule (r4 G2-M4; the research synthesis): adaptive
+// precision — >60m "3h 05m" · 10-60m "42m" · 1-10m "m:ss" · <=60s "38s";
+// until-restart = static badge
+static VOID _app_shell_remainingtext (
+	_In_ LONG64 expires,
+	_Out_ WCHAR *buffer,
+	_In_ ULONG cch,
+	_Out_opt_ PULONG out_seconds
+)
+{
+	WCHAR fmt[64];
+	LONG64 now;
+	ULONG rem;
+
+	buffer[0] = UNICODE_NULL;
+
+	if (out_seconds)
+		*out_seconds = 0;
+
+	if (!expires)
+	{
+		_app_shell_locale (buffer, cch, IDS_SHELL_UNTIL_RESTART);
+		return;
+	}
+
+	now = _r_unixtime_now ();
+	rem = expires > now ? (ULONG)(expires - now) : 0;
+
+	if (out_seconds)
+		*out_seconds = rem;
+
+	if (rem >= 3600)
+	{
+		_app_shell_locale (fmt, RTL_NUMBER_OF (fmt), IDS_SHELL_CD_HM);
+		_r_str_printf (buffer, cch, fmt, rem / 3600, (rem % 3600) / 60);
+	}
+	else if (rem >= 600)
+	{
+		_app_shell_locale (fmt, RTL_NUMBER_OF (fmt), IDS_SHELL_CD_M);
+		_r_str_printf (buffer, cch, fmt, rem / 60);
+	}
+	else if (rem >= 60)
+	{
+		_r_str_printf (buffer, cch, L"%lu:%02lu", rem / 60, rem % 60);
+	}
+	else
+	{
+		_app_shell_locale (fmt, RTL_NUMBER_OF (fmt), IDS_SHELL_CD_S);
+		_r_str_printf (buffer, cch, fmt, rem);
+	}
+}
+
+// rules page data refresh (2s tick + create): decisions via the module
+// query API (lock_state ALONE inside the module; names resolved with
+// zero nesting) + the anchor count. Change signature EXCLUDES the
+// countdown text (r3 finding 5 rule i)
+static VOID _app_shell_rulesrefresh (_Out_opt_ PBOOLEAN out_changed)
+{
+	SHELL_DECISION_ROW *rows;
+	ULONG count;
+	ULONG64 sig;
+	ULONG i;
+
+	if (out_changed)
+		*out_changed = FALSE;
+
+	count = _app_state_querycount ();
+
+	if (count > shell_decisions_cap)
+	{
+		ULONG new_cap = count ? count * 2 : 8;
+		SHELL_DECISION_ROW *grown = (SHELL_DECISION_ROW *)HeapReAlloc (GetProcessHeap (), HEAP_ZERO_MEMORY, shell_decisions, new_cap * sizeof (SHELL_DECISION_ROW));
+
+		if (!grown)
+			return; // OOM: keep the previous snapshot
+
+		shell_decisions = grown;
+		shell_decisions_cap = new_cap;
+	}
+
+	rows = shell_decisions;
+	sig = 0xcbf29ce484222325ull;
+
+	for (i = 0; i < count; i++)
+	{
+		SHELL_DECISION_ROW *row = &rows[i];
+		ULONG hash = 0;
+		WCHAR name[SHELL_NAME_MAX];
+		BOOLEAN is_block;
+		BOOLEAN is_once;
+		ULONG rem;
+
+		if (!_app_state_query (i, &hash, name, RTL_NUMBER_OF (name), &is_block, &is_once, &rem))
+			break;
+
+		row->app_hash = hash;
+		row->is_block = is_block;
+		row->is_once = is_once;
+		row->remaining_cached = rem;
+
+		// keep the ABSOLUTE expiry as the query API derives it: re-query
+		// gives remaining only, so derive expires back from now (the
+		// absolute value is the module's truth; our tick recomputes from
+		// this derived value and self-corrects on the next refresh)
+		row->expires = rem ? (_r_unixtime_now () + (LONG64)rem) : 0;
+
+		_r_str_copy (row->name, SHELL_NAME_MAX, name);
+
+		_app_shell_remainingtext (row->expires, row->remaining, RTL_NUMBER_OF (row->remaining), NULL);
+
+		// signature: identity + verdict + expiry bucket — NOT remaining
+		// text, NOT the per-second churn
+		sig ^= (ULONG64)hash;
+		sig *= 0x100000001b3ull;
+		sig ^= row->expires ? (ULONG64)(row->expires / 60) : 1; // minute bucket
+		sig *= 0x100000001b3ull;
+		sig ^= is_block ? 0x2 : 0x1;
+		sig *= 0x100000001b3ull;
+	}
+
+	shell_decisions_count = count;
+	shell_anchors_count = _app_publisher_queryanchorcount ();
+
+	if (out_changed && sig != shell_decisions_sig)
+		*out_changed = TRUE;
+
+	shell_decisions_sig = sig;
+}
+
+// countdown tick (1s, r4 G2-M4 + r3 finding 5 rules ii/iii): recompute
+// ONLY the displayed strings; invalidate the rules rows region ONLY
+// when a displayed string actually changed
+static VOID _app_shell_countdowntick (_In_ HWND hwnd)
+{
+	RECT rows;
+	BOOLEAN changed = FALSE;
+
+	for (ULONG i = 0; i < shell_decisions_count; i++)
+	{
+		SHELL_DECISION_ROW *row = &shell_decisions[i];
+		WCHAR text[48];
+		ULONG rem;
+
+		if (!row->expires)
+			continue; // until-restart badge never ticks
+
+		_app_shell_remainingtext (row->expires, text, RTL_NUMBER_OF (text), &rem);
+
+		if (wcscmp (text, row->remaining) != 0)
+		{
+			_r_str_copy (row->remaining, RTL_NUMBER_OF (row->remaining), text);
+			row->remaining_cached = rem;
+			changed = TRUE;
+		}
+	}
+
+	if (changed && shell_page == SHELL_PAGE_RULES)
+	{
+		_app_shell_listrowsrect (hwnd, &rows);
+		InvalidateRect (hwnd, &rows, FALSE);
+	}
+}
+
+// countdown timer lifecycle (r3 finding 5 rule ii): runs only while a
+// countdown row is visible on the rules page
+static VOID _app_shell_countdowntimer_update (_In_ HWND hwnd)
+{
+	BOOLEAN has_countdown = (shell_page == SHELL_PAGE_RULES);
+
+	if (has_countdown)
+	{
+		for (ULONG i = 0; i < shell_decisions_count && has_countdown; i++)
+		{
+			if (!shell_decisions[i].expires)
+				has_countdown = FALSE;
+		}
+	}
+
+	if (has_countdown)
+		SetTimer (hwnd, SHELL_TIMER_COUNTDOWN, SHELL_TIMER_COUNTDOWN_MS, NULL);
+	else
+		KillTimer (hwnd, SHELL_TIMER_COUNTDOWN);
 }
 
 // position the search edit + show/hide it per active page
@@ -979,6 +1232,7 @@ static VOID _app_shell_drawapps (
 }
 
 static VOID _app_shell_drawrules (
+	_In_ HWND hwnd,
 	_In_ HDC hdc,
 	_In_ PRECT content
 )
@@ -986,65 +1240,260 @@ static VOID _app_shell_drawrules (
 	WCHAR buffer[SHELL_LINE_MAX];
 	WCHAR fmt[SHELL_LINE_MAX];
 	RECT rect;
-	ULONG decisions;
+	RECT rows;
+	RECT card;
+	LONG y;
+	ULONG first_visible;
+	ULONG total_rows;
+	ULONG row_index;
 
-	decisions = _app_state_querycount ();
+	_app_shell_pagetitle (hdc, content, IDS_SHELL_RAIL_RULES, IDS_SHELL_RULES_SUB2);
 
-	_app_shell_pagetitle (hdc, content, IDS_SHELL_RAIL_RULES, IDS_SHELL_SUB_RULES);
+	_app_shell_listrowsrect (hwnd, &rows);
+	total_rows = _app_shell_rules_totalrows ();
 
-	_app_shell_locale (fmt, RTL_NUMBER_OF (fmt), IDS_SHELL_RULES_LINE);
-	_r_str_printf (buffer, RTL_NUMBER_OF (buffer), fmt, decisions);
+	if (!total_rows)
+		return;
 
-	rect.left = content->left;
-	rect.right = content->right;
-	rect.top = content->top + 60;
-	rect.bottom = rect.top + 48;
+	first_visible = (ULONG)(shell_scroll / SHELL_RULES_ROW_PITCH);
+	y = rows.top - (shell_scroll % SHELL_RULES_ROW_PITCH);
 
-	_app_shell_fillround (hdc, &rect, shell_pal->card, shell_pal->line, 10);
+	for (row_index = first_visible; row_index < total_rows; row_index++)
+	{
+		card.left = rows.left;
+		card.right = rows.right;
+		card.top = y;
+		card.bottom = y + SHELL_RULES_ROW_PITCH;
 
-	rect.left += SHELL_MARGIN;
-	rect.right -= SHELL_MARGIN;
-	_app_shell_drawtext (hdc, buffer, &rect, shell_font_main, shell_pal->text, (shell_is_rtl ? DT_RIGHT : DT_LEFT) | DT_VCENTER);
+		if (card.bottom > rows.bottom)
+			break; // virtualized: render only the visible window
+
+		rect = card;
+
+		if (row_index == 0)
+		{
+			// section header: live session decisions (n) — the upstream
+			// count-in-header pattern
+			_app_shell_locale (fmt, RTL_NUMBER_OF (fmt), IDS_SHELL_SEC_SESSION);
+			_r_str_printf (buffer, RTL_NUMBER_OF (buffer), fmt, shell_decisions_count);
+			_app_shell_drawtext (hdc, buffer, &rect, shell_font_small, shell_pal->muted, (shell_is_rtl ? DT_RIGHT : DT_LEFT) | DT_VCENTER);
+		}
+		else if (row_index <= shell_decisions_count)
+		{
+			// session-decision row: verdict PILL (color + text always
+			// paired, WCAG) at the inline-end, countdown chip at the
+			// inline-start, name between
+			SHELL_DECISION_ROW *row = &shell_decisions[row_index - 1];
+			ULONG state_id = row->is_block ? IDS_SHELL_VERDICT_BLOCK : IDS_SHELL_VERDICT_ALLOW;
+			COLORREF pill_fg = row->is_block ? shell_pal->danger : shell_pal->ok;
+			COLORREF pill_bg = row->is_block ? shell_pal->dangerbg : shell_pal->okbg;
+			COLORREF pill_line = row->is_block ? shell_pal->dangerline : shell_pal->okline;
+			RECT pill;
+			RECT chip;
+
+			rect.top += 3;
+			rect.bottom -= 3;
+
+			_app_shell_fillround (hdc, &rect, shell_pal->card, shell_pal->line, 8);
+
+			pill.top = rect.top + (rect.bottom - rect.top - SHELL_PILL_H) / 2;
+			pill.bottom = pill.top + SHELL_PILL_H;
+
+			if (shell_is_rtl)
+			{
+				pill.right = rect.right - SHELL_MARGIN;
+				pill.left = pill.right - SHELL_PILL_W;
+			}
+			else
+			{
+				pill.left = rect.left + SHELL_MARGIN;
+				pill.right = pill.left + SHELL_PILL_W;
+			}
+
+			_app_shell_locale (buffer, RTL_NUMBER_OF (buffer), state_id);
+			_app_shell_drawpill (hdc, &pill, buffer, pill_fg, pill_bg, pill_line);
+
+			// countdown chip (inline-start); red under 10s (the
+			// Authenticator urgency precedent)
+			chip = pill;
+			if (shell_is_rtl)
+			{
+				chip.left = rect.left + SHELL_MARGIN;
+				chip.right = chip.left + 96;
+			}
+			else
+			{
+				chip.right = rect.right - SHELL_MARGIN;
+				chip.left = chip.right - 96;
+			}
+
+			_app_shell_drawpill (hdc, &chip, row->remaining, row->expires && row->remaining_cached < 10 ? shell_pal->danger : shell_pal->muted, shell_pal->card, shell_pal->line);
+
+			// name (between chip and pill)
+			rect.left = shell_is_rtl ? (chip.right + 8) : (pill.right + 8);
+			rect.right = shell_is_rtl ? (pill.left - 8) : (chip.left - 8);
+
+			_app_shell_drawtext (hdc, row->name, &rect, shell_font_main, shell_pal->text, (shell_is_rtl ? DT_RIGHT : DT_LEFT) | DT_VCENTER);
+		}
+		else if (row_index == shell_decisions_count + 1)
+		{
+			// section header: publisher anchors (n)
+			_app_shell_locale (fmt, RTL_NUMBER_OF (fmt), IDS_SHELL_SEC_ANCHORS);
+			_r_str_printf (buffer, RTL_NUMBER_OF (buffer), fmt, shell_anchors_count);
+			_app_shell_drawtext (hdc, buffer, &rect, shell_font_small, shell_pal->muted, (shell_is_rtl ? DT_RIGHT : DT_LEFT) | DT_VCENTER);
+		}
+		else
+		{
+			// publisher-anchor row: "Verified publisher: X" (the UAC
+			// vocabulary) + filters + 4-state pill (Valid / Invalid-red /
+			// Not-checked-gray; staleness = contract-deferred, r3 f7)
+			ULONG anchor_index = row_index - shell_decisions_count - 2;
+			WCHAR aname[SHELL_LINE_MAX];
+			WCHAR pub_line[SHELL_LINE_MAX];
+			ULONG acount = 0;
+			BOOLEAN aval = FALSE;
+			ULONG pill_id;
+			COLORREF pill_fg;
+			COLORREF pill_bg;
+			COLORREF pill_line;
+			RECT pill;
+
+			rect.top += 3;
+			rect.bottom -= 3;
+
+			_app_shell_fillround (hdc, &rect, shell_pal->card, shell_pal->line, 8);
+
+			pill = rect;
+			pill.top = rect.top + (rect.bottom - rect.top - SHELL_PILL_H) / 2;
+			pill.bottom = pill.top + SHELL_PILL_H;
+
+			if (shell_is_rtl)
+			{
+				pill.right = rect.right - SHELL_MARGIN;
+				pill.left = pill.right - SHELL_PILL_W;
+			}
+			else
+			{
+				pill.left = rect.left + SHELL_MARGIN;
+				pill.right = pill.left + SHELL_PILL_W;
+			}
+
+			if (_app_publisher_queryanchor (anchor_index, aname, RTL_NUMBER_OF (aname), &acount, &aval))
+			{
+				if (aname[0])
+				{
+					_app_shell_locale (fmt, RTL_NUMBER_OF (fmt), IDS_SHELL_ANCHOR_PUB);
+					_r_str_printf (pub_line, RTL_NUMBER_OF (pub_line), fmt, aname);
+				}
+				else
+				{
+					_app_shell_locale (pub_line, RTL_NUMBER_OF (pub_line), IDS_SHELL_ANCHOR_PUB_UNKNOWN);
+				}
+
+				if (aval)
+				{
+					pill_id = IDS_SHELL_ANCHOR_VALID;
+					pill_fg = shell_pal->ok;
+					pill_bg = shell_pal->okbg;
+					pill_line = shell_pal->okline;
+				}
+				else if (acount)
+				{
+					pill_id = IDS_SHELL_ANCHOR_INVALID;
+					pill_fg = shell_pal->danger;
+					pill_bg = shell_pal->dangerbg;
+					pill_line = shell_pal->dangerline;
+				}
+				else
+				{
+					pill_id = IDS_SHELL_ANCHOR_UNKNOWN;
+					pill_fg = shell_pal->muted;
+					pill_bg = shell_pal->card;
+					pill_line = shell_pal->line;
+				}
+
+				rect.left = shell_is_rtl ? rect.left : (pill.right + 8);
+				rect.right = shell_is_rtl ? (pill.left - 8) : rect.right;
+
+				_app_shell_drawtext (hdc, pub_line, &rect, shell_font_main, shell_pal->text, (shell_is_rtl ? DT_RIGHT : DT_LEFT) | DT_VCENTER);
+
+				// filters count line (small, under the publisher line when
+				// the row allows; drawn as trailing ellipsized text)
+				_app_shell_locale (fmt, RTL_NUMBER_OF (fmt), IDS_SHELL_ANCHOR_FILTERS);
+				_r_str_printf (buffer, RTL_NUMBER_OF (buffer), fmt, acount);
+
+				{
+					RECT sub = rect;
+
+					sub.top = rect.bottom - 16;
+					sub.bottom = rect.bottom - 2;
+					_app_shell_drawtext (hdc, buffer, &sub, shell_font_small, shell_pal->muted, shell_is_rtl ? DT_RIGHT : DT_LEFT);
+				}
+
+				_app_shell_locale (buffer, RTL_NUMBER_OF (buffer), pill_id);
+				_app_shell_drawpill (hdc, &pill, buffer, pill_fg, pill_bg, pill_line);
+			}
+		}
+
+		y += SHELL_RULES_ROW_PITCH;
+	}
 }
 
 static VOID _app_shell_drawpacks (
+	_In_ HWND hwnd,
 	_In_ HDC hdc,
 	_In_ PRECT content
 )
 {
-	static const LPCWSTR pack_ids[] = {
-		L"telemetry-refresh",
-		L"vendor-blockers",
-		L"ai-agents",
-	};
 	WCHAR buffer[SHELL_LINE_MAX];
+	WCHAR fmt[SHELL_LINE_MAX];
+	WCHAR pack_id[SHELL_NAME_MAX];
+	WCHAR pack_version[32];
 	WCHAR pill_text[SHELL_LINE_MAX];
 	RECT rect;
 	RECT pill;
+	RECT client;
+	ULONG count;
+	ULONG drawn = 0;
 
-	_app_shell_pagetitle (hdc, content, IDS_SHELL_RAIL_PACKS, IDS_SHELL_SUB_PACKS);
+	_app_shell_pagetitle (hdc, content, IDS_SHELL_RAIL_PACKS, IDS_SHELL_PACKS_SUB2);
 
-	// NOTE (r3 G1-M5): hard-coded placeholder ids — G-2 replaces this
-	// with the packs enumerator per the DEC-11 query-API contract; the
-	// rows below demonstrate the surface, nothing more.
-	for (ULONG i = 0; i < RTL_NUMBER_OF (pack_ids); i++)
+	if (!GetClientRect (hwnd, &client))
+		return;
+
+	// the packstate sidecar IS the enabled set (r4 G2-M3): every row
+	// passed hash-verify by construction; the pill wording says
+	// "checksum ok" — tamper-EVIDENT store, ECDSA fired at import only
+	// (r3 finding 8). Toggle + epoch/watermark + import wizard =
+	// contract-deferred (r3 finding 9, page subtitle).
+	count = _app_packs_querycount ();
+
+	for (ULONG i = 0; i < count; i++)
 	{
+		BOOLEAN enabled = FALSE;
+
+		if (!_app_packs_query (i, pack_id, RTL_NUMBER_OF (pack_id), pack_version, RTL_NUMBER_OF (pack_version), &enabled))
+			break;
+
 		rect.left = content->left;
 		rect.right = content->right;
 		rect.top = content->top + 60 + (LONG)i * (SHELL_CARD_H + SHELL_CARD_GAP);
 		rect.bottom = rect.top + SHELL_CARD_H;
+
+		if (rect.bottom > client.bottom - SHELL_MARGIN)
+			break; // clip at the page bottom (count honesty line below)
 
 		_app_shell_fillround (hdc, &rect, shell_pal->card, shell_pal->line, 10);
 
 		if (shell_is_rtl)
 		{
 			pill.left = rect.left + SHELL_MARGIN;
-			pill.right = pill.left + SHELL_PILL_W;
+			pill.right = pill.left + SHELL_PILL_W + 24;
 		}
 		else
 		{
 			pill.right = rect.right - SHELL_MARGIN;
-			pill.left = pill.right - SHELL_PILL_W;
+			pill.left = pill.right - SHELL_PILL_W - 24;
 		}
 
 		pill.top = rect.top + (SHELL_CARD_H - SHELL_PILL_H) / 2;
@@ -1055,20 +1504,34 @@ static VOID _app_shell_drawpacks (
 		rect.top += 8;
 		rect.bottom = rect.top + 22;
 
-		// placeholder row shows the pack id (G-2 lands display names)
-		_r_str_printf (buffer, RTL_NUMBER_OF (buffer), L"%s", pack_ids[i]);
+		// pack name "(id)" — the Portmaster list-node pattern
+		_r_str_printf (buffer, RTL_NUMBER_OF (buffer), L"%s (%s)", pack_id, pack_version);
 		_app_shell_drawtext (hdc, buffer, &rect, shell_font_main, shell_pal->text, shell_is_rtl ? DT_RIGHT : DT_LEFT);
 
-		if (_app_packs_isenabled (pack_ids[i]))
-		{
-			_app_shell_locale (pill_text, RTL_NUMBER_OF (pill_text), IDS_SHELL_PILL_ENABLED);
-			_app_shell_drawpill (hdc, &pill, pill_text, shell_pal->ok, shell_pal->okbg, shell_pal->okline);
-		}
-		else
-		{
-			_app_shell_locale (pill_text, RTL_NUMBER_OF (pill_text), IDS_SHELL_PILL_DISABLED);
-			_app_shell_drawpill (hdc, &pill, pill_text, shell_pal->muted, shell_pal->card, shell_pal->line);
-		}
+		rect.top = rect.bottom + 2;
+		rect.bottom = rect.top + 18;
+
+		_app_shell_locale (fmt, RTL_NUMBER_OF (fmt), IDS_SHELL_PACKS_FILTERS);
+		_r_str_printf (buffer, RTL_NUMBER_OF (buffer), fmt, _app_packs_queryfiltercount (i));
+		_app_shell_drawtext (hdc, buffer, &rect, shell_font_small, shell_pal->muted, shell_is_rtl ? DT_RIGHT : DT_LEFT);
+
+		_app_shell_locale (pill_text, RTL_NUMBER_OF (pill_text), IDS_SHELL_PACKS_STORE);
+		_app_shell_drawpill (hdc, &pill, pill_text, shell_pal->ok, shell_pal->okbg, shell_pal->okline);
+
+		drawn++;
+	}
+
+	// count honesty line when the page clipped rows
+	if (drawn < count)
+	{
+		_app_shell_locale (fmt, RTL_NUMBER_OF (fmt), IDS_SHELL_RENDERED);
+		_r_str_printf (buffer, RTL_NUMBER_OF (buffer), fmt, drawn, count);
+
+		rect.left = content->left + SHELL_MARGIN;
+		rect.right = content->right - SHELL_MARGIN;
+		rect.top = client.bottom - SHELL_MARGIN - 18;
+		rect.bottom = rect.top + 18;
+		_app_shell_drawtext (hdc, buffer, &rect, shell_font_small, shell_pal->muted, shell_is_rtl ? DT_RIGHT : DT_LEFT);
 	}
 }
 
@@ -1439,13 +1902,13 @@ static VOID _app_shell_paintclient (
 
 		case SHELL_PAGE_RULES:
 		{
-			_app_shell_drawrules (hdc, &content);
+			_app_shell_drawrules (hwnd, hdc, &content);
 			break;
 		}
 
 		case SHELL_PAGE_PACKS:
 		{
-			_app_shell_drawpacks (hdc, &content);
+			_app_shell_drawpacks (hwnd, hdc, &content);
 			break;
 		}
 
@@ -1486,14 +1949,19 @@ static VOID _app_shell_drawscrollbar (
 	LONG thumb_h;
 	LONG track_h;
 
-	if (shell_page != SHELL_PAGE_APPS || shell_view_count == 0)
+	if (shell_page != SHELL_PAGE_APPS && shell_page != SHELL_PAGE_RULES)
+		return;
+
+	if ((shell_page == SHELL_PAGE_APPS && shell_view_count == 0) || (shell_page == SHELL_PAGE_RULES && shell_decisions_count == 0 && shell_anchors_count == 0))
 		return;
 
 	_app_shell_frame (hwnd, &rail, &content);
-	_app_shell_appsrowsrect (hwnd, &rows);
+	_app_shell_listrowsrect (hwnd, &rows);
 
 	rows_height = rows.bottom - rows.top;
-	total_height = (LONG)shell_view_count * SHELL_ROW_PITCH;
+	total_height = (shell_page == SHELL_PAGE_RULES)
+		? (LONG)_app_shell_rules_totalrows () * SHELL_RULES_ROW_PITCH
+		: (LONG)shell_view_count * SHELL_ROW_PITCH;
 	scrollmax = _app_shell_scrollmax (hwnd);
 
 	// strip (inline-start under RTL)
@@ -1551,6 +2019,7 @@ static VOID _app_shell_selectpage (
 		shell_rail_focus = page;
 		shell_scroll = 0;
 		_app_shell_layout (hwnd);
+		_app_shell_countdowntimer_update (hwnd); // r3 finding 5 rule ii: kill on page-leave
 		InvalidateRect (hwnd, NULL, TRUE);
 	}
 }
@@ -1634,11 +2103,14 @@ static VOID _app_shell_onclick (
 		}
 	}
 
-	if (shell_page == SHELL_PAGE_APPS && !shell_scrollbar_drag && shell_view_count)
+	if ((shell_page == SHELL_PAGE_APPS && shell_view_count) || (shell_page == SHELL_PAGE_RULES && _app_shell_rules_totalrows ()))
 	{
 		RECT rows;
+		LONG total_height = (shell_page == SHELL_PAGE_RULES)
+			? (LONG)_app_shell_rules_totalrows () * SHELL_RULES_ROW_PITCH
+			: (LONG)shell_view_count * SHELL_ROW_PITCH;
 
-		_app_shell_appsrowsrect (hwnd, &rows);
+		_app_shell_listrowsrect (hwnd, &rows);
 
 		// scrollbar: thumb grab or track jump
 		if (PtInRect (&shell_scrollbar_rect, pt))
@@ -1646,7 +2118,7 @@ static VOID _app_shell_onclick (
 			LONG scrollmax = _app_shell_scrollmax (hwnd);
 			LONG rows_height = rows.bottom - rows.top;
 			LONG track_h = rows_height - 8;
-			LONG thumb_h = max (24, MulDiv (rows_height, rows_height, (LONG)shell_view_count * SHELL_ROW_PITCH));
+			LONG thumb_h = max (24, MulDiv (rows_height, rows_height, total_height));
 
 			if (scrollmax > 0)
 			{
@@ -1742,7 +2214,7 @@ static VOID _app_shell_onkeydown (
 
 		case VK_NEXT:
 		{
-			if (shell_page == SHELL_PAGE_APPS)
+			if (shell_page == SHELL_PAGE_APPS || shell_page == SHELL_PAGE_RULES)
 				_app_shell_scrollby (hwnd, _app_shell_pagedelta (hwnd));
 
 			break;
@@ -1750,7 +2222,7 @@ static VOID _app_shell_onkeydown (
 
 		case VK_PRIOR:
 		{
-			if (shell_page == SHELL_PAGE_APPS)
+			if (shell_page == SHELL_PAGE_APPS || shell_page == SHELL_PAGE_RULES)
 				_app_shell_scrollby (hwnd, -_app_shell_pagedelta (hwnd));
 
 			break;
@@ -1758,7 +2230,7 @@ static VOID _app_shell_onkeydown (
 
 		case VK_HOME:
 		{
-			if (shell_page == SHELL_PAGE_APPS)
+			if (shell_page == SHELL_PAGE_APPS || shell_page == SHELL_PAGE_RULES)
 			{
 				shell_scroll = 0;
 				InvalidateRect (hwnd, NULL, FALSE);
@@ -1769,7 +2241,7 @@ static VOID _app_shell_onkeydown (
 
 		case VK_END:
 		{
-			if (shell_page == SHELL_PAGE_APPS)
+			if (shell_page == SHELL_PAGE_APPS || shell_page == SHELL_PAGE_RULES)
 			{
 				shell_scroll = _app_shell_scrollmax (hwnd);
 				InvalidateRect (hwnd, NULL, FALSE);
@@ -1826,6 +2298,75 @@ BOOLEAN _app_shell_a11ychild (
 	}
 
 	// card
+	// rules page: children are the section headers + decision rows +
+	// anchor rows (r4 G2-M6: every row type exposes a humanized name)
+	if (shell_page == SHELL_PAGE_RULES)
+	{
+		WCHAR fmt[SHELL_LINE_MAX];
+		WCHAR part[SHELL_LINE_MAX];
+		ULONG row_index = child_id - (ULONG)SHELL_PAGE_MAX - 1;
+		ULONG total = _app_shell_rules_totalrows ();
+
+		if (row_index >= total)
+			return FALSE;
+
+		_app_shell_listrowsrect (hwnd, &rows);
+
+		rect->left = rows.left;
+		rect->right = rows.right;
+		rect->top = rows.top + (LONG)(row_index * SHELL_RULES_ROW_PITCH) - shell_scroll;
+		rect->bottom = rect->top + SHELL_RULES_ROW_PITCH;
+		*state = 0; // headers are not focusable
+
+		if (row_index == 0)
+		{
+			_app_shell_locale (fmt, RTL_NUMBER_OF (fmt), IDS_SHELL_SEC_SESSION);
+			_r_str_printf (name, cch, fmt, shell_decisions_count);
+			*role = 0x2C; // ROLE_SYSTEM_STATICTEXT
+			return TRUE;
+		}
+
+		if (row_index <= shell_decisions_count)
+		{
+			SHELL_DECISION_ROW *row = &shell_decisions[row_index - 1];
+
+			_app_shell_locale (part, RTL_NUMBER_OF (part), row->is_block ? IDS_SHELL_VERDICT_BLOCK : IDS_SHELL_VERDICT_ALLOW);
+			_r_str_printf (name, cch, L"%s — %s — %s", part, row->name, row->remaining);
+			*role = 0x22; // ROLE_SYSTEM_LISTITEM
+			*state = 0x100000 | 0x200000; // FOCUSABLE | SELECTABLE
+			return TRUE;
+		}
+
+		if (row_index == shell_decisions_count + 1)
+		{
+			_app_shell_locale (fmt, RTL_NUMBER_OF (fmt), IDS_SHELL_SEC_ANCHORS);
+			_r_str_printf (name, cch, fmt, shell_anchors_count);
+			*role = 0x2C; // ROLE_SYSTEM_STATICTEXT
+			return TRUE;
+		}
+
+		{
+			ULONG anchor_index = row_index - shell_decisions_count - 2;
+			WCHAR aname[SHELL_LINE_MAX];
+			ULONG acount = 0;
+			BOOLEAN aval = FALSE;
+
+			if (!_app_publisher_queryanchor (anchor_index, aname, RTL_NUMBER_OF (aname), &acount, &aval))
+				return FALSE;
+
+			_app_shell_locale (part, RTL_NUMBER_OF (part), aval ? IDS_SHELL_ANCHOR_VALID : (acount ? IDS_SHELL_ANCHOR_INVALID : IDS_SHELL_ANCHOR_UNKNOWN));
+
+			if (aname[0])
+				_r_str_printf (name, cch, L"%s — %s (%lu)", part, aname, acount);
+			else
+				_r_str_printf (name, cch, L"%s — %s (%lu)", part, L"?", acount);
+
+			*role = 0x22; // ROLE_SYSTEM_LISTITEM
+			*state = 0x100000 | 0x200000; // FOCUSABLE | SELECTABLE
+			return TRUE;
+		}
+	}
+
 	card_index = child_id - (ULONG)SHELL_PAGE_MAX - 1;
 
 	if (card_index >= shell_view_count)
@@ -1874,6 +2415,9 @@ VOID _app_shell_a11yselectpage (
 
 ULONG _app_shell_a11ychildcount (VOID)
 {
+	if (shell_page == SHELL_PAGE_RULES)
+		return (ULONG)SHELL_PAGE_MAX + _app_shell_rules_totalrows ();
+
 	return (ULONG)SHELL_PAGE_MAX + shell_view_count;
 }
 
@@ -1952,6 +2496,9 @@ static LRESULT CALLBACK _app_shell_wndproc (
 			_app_shell_snapshot ();
 			_app_shell_applyfilter ();
 
+			_app_shell_rulesrefresh (NULL); // r4 G2-M2: decisions + anchors initial snapshot
+			_app_shell_countdowntimer_update (hwnd);
+
 			SetTimer (hwnd, SHELL_TIMER_REFRESH, SHELL_TIMER_REFRESH_MS, NULL);
 
 			return 0;
@@ -2008,59 +2555,84 @@ static LRESULT CALLBACK _app_shell_wndproc (
 			break;
 		}
 
-		case WM_TIMER:
-		{
-			if (wparam == SHELL_TIMER_REFRESH)
+			case WM_TIMER:
 			{
-				// cheap refresh: re-snapshot; invalidate ONLY on change
-				// (r3 G1-M2 idle discipline — no repaints while the
-				// profile is untouched)
-				if (_app_shell_snapshot ())
+				if (wparam == SHELL_TIMER_REFRESH)
 				{
+					BOOLEAN rules_changed = FALSE;
+
+					// cheap refresh: re-snapshot; invalidate ONLY on change
+					// (r3 G1-M2 idle discipline — no repaints while the
+					// profile is untouched)
+					if (_app_shell_snapshot ())
+					{
+						_app_shell_applyfilter ();
+						_app_shell_scrollclamp (hwnd);
+						InvalidateRect (hwnd, NULL, FALSE);
+					}
+
+					// rules page data (r4 G2-M2): decisions + anchors via
+					// the module query APIs; the countdown text is NOT
+					// part of the change signature (r3 finding 5 rule i)
+					_app_shell_rulesrefresh (&rules_changed);
+
+					if (rules_changed)
+					{
+						_app_shell_scrollclamp (hwnd);
+						InvalidateRect (hwnd, NULL, FALSE);
+					}
+
+					_app_shell_countdowntimer_update (hwnd);
+
+					return 0;
+				}
+
+				if (wparam == SHELL_TIMER_COUNTDOWN)
+				{
+					// 1s tick (r4 G2-M4): recompute displayed strings only;
+					// invalidate the rules rows region only when a string
+					// changed
+					_app_shell_countdowntick (hwnd);
+					return 0;
+				}
+
+				if (wparam == SHELL_TIMER_FILTER)
+				{
+					WCHAR filter[SHELL_FILTER_MAX];
+
+					KillTimer (hwnd, SHELL_TIMER_FILTER);
+
+					if (shell_hwnd_search)
+					{
+						GetWindowTextW (shell_hwnd_search, filter, RTL_NUMBER_OF (filter));
+						_r_str_copy (shell_filter, RTL_NUMBER_OF (shell_filter), filter);
+					}
+					else
+					{
+						shell_filter[0] = UNICODE_NULL;
+					}
+
 					_app_shell_applyfilter ();
-					_app_shell_scrollclamp (hwnd);
+					shell_scroll = 0;
 					InvalidateRect (hwnd, NULL, FALSE);
+					return 0;
+				}
+
+				break;
+			}
+
+			case WM_MOUSEWHEEL:
+			{
+				if (shell_page == SHELL_PAGE_APPS || shell_page == SHELL_PAGE_RULES)
+				{
+					LONG delta = (LONG)(SHORT)HIWORD (wparam);
+					LONG pitch = (shell_page == SHELL_PAGE_RULES) ? SHELL_RULES_ROW_PITCH : SHELL_ROW_PITCH;
+
+					_app_shell_scrollby (hwnd, -(delta / WHEEL_DELTA) * pitch);
 				}
 
 				return 0;
 			}
-
-			if (wparam == SHELL_TIMER_FILTER)
-			{
-				WCHAR filter[SHELL_FILTER_MAX];
-
-				KillTimer (hwnd, SHELL_TIMER_FILTER);
-
-				if (shell_hwnd_search)
-				{
-					GetWindowTextW (shell_hwnd_search, filter, RTL_NUMBER_OF (filter));
-					_r_str_copy (shell_filter, RTL_NUMBER_OF (shell_filter), filter);
-				}
-				else
-				{
-					shell_filter[0] = UNICODE_NULL;
-				}
-
-				_app_shell_applyfilter ();
-				shell_scroll = 0;
-				InvalidateRect (hwnd, NULL, FALSE);
-				return 0;
-			}
-
-			break;
-		}
-
-		case WM_MOUSEWHEEL:
-		{
-			if (shell_page == SHELL_PAGE_APPS)
-			{
-				LONG delta = (LONG)(SHORT)HIWORD (wparam);
-
-				_app_shell_scrollby (hwnd, -(delta / WHEEL_DELTA) * SHELL_ROW_PITCH);
-			}
-
-			return 0;
-		}
 
 		case WM_KEYDOWN:
 		{
@@ -2068,19 +2640,19 @@ static LRESULT CALLBACK _app_shell_wndproc (
 			return 0;
 		}
 
-		case WM_MOUSEMOVE:
-		{
-			if (shell_scrollbar_drag && GetCapture () == hwnd)
+			case WM_MOUSEMOVE:
 			{
-				RECT rows;
-				POINT pt = {(LONG)(SHORT)LOWORD (lparam), (LONG)(SHORT)HIWORD (lparam)};
-				LONG scrollmax = _app_shell_scrollmax (hwnd);
-				LONG track_h;
-				LONG thumb_h;
-
-				if (scrollmax > 0)
+				if (shell_scrollbar_drag && GetCapture () == hwnd)
 				{
-					_app_shell_appsrowsrect (hwnd, &rows);
+					RECT rows;
+					POINT pt = {(LONG)(SHORT)LOWORD (lparam), (LONG)(SHORT)HIWORD (lparam)};
+					LONG scrollmax = _app_shell_scrollmax (hwnd);
+					LONG track_h;
+					LONG thumb_h;
+
+					if (scrollmax > 0)
+					{
+						_app_shell_listrowsrect (hwnd, &rows);
 
 					track_h = (rows.bottom - rows.top) - 8;
 					thumb_h = shell_scrollbar_thumb.bottom - shell_scrollbar_thumb.top;
@@ -2160,6 +2732,7 @@ static LRESULT CALLBACK _app_shell_wndproc (
 		{
 			KillTimer (hwnd, SHELL_TIMER_REFRESH);
 			KillTimer (hwnd, SHELL_TIMER_FILTER);
+			KillTimer (hwnd, SHELL_TIMER_COUNTDOWN);
 
 			shell_hwnd_search = NULL;
 			_r_app_sethwnd (NULL);
@@ -2180,6 +2753,14 @@ static LRESULT CALLBACK _app_shell_wndproc (
 				shell_view = NULL;
 				shell_view_cap = 0;
 				shell_view_count = 0;
+			}
+
+			if (shell_decisions)
+			{
+				HeapFree (GetProcessHeap (), 0, shell_decisions);
+				shell_decisions = NULL;
+				shell_decisions_cap = 0;
+				shell_decisions_count = 0;
 			}
 
 			PostQuitMessage (0);

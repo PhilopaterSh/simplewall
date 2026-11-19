@@ -43,3 +43,10 @@ BOOLEAN _app_packs_query (
 	_In_ ULONG ver_chars,
 	_Out_ PBOOLEAN is_enabled
 );
+
+// additive GUI helper (r4 G2-M3, same _app_audit_probe precedent): the
+// deployed-filter count of the row _app_packs_query returned (from the
+// same mtime-checked sidecar snapshot — no extra file I/O)
+ULONG _app_packs_queryfiltercount (
+	_In_ ULONG index
+);

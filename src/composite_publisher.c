@@ -26,7 +26,7 @@
 typedef struct _ITEM_PUBLISHER_PATH
 {
 	PR_STRING path; // canonical (original_path) binary path
-	PR_STRING signer_hash; // hex SHA1 of the signer certificate (NULL when invalid)
+	PR_STRING signer_hash; // hex SHA1 of the signer certificate — RETAINED on invalidation (r3 goldfish finding 2: NULLing it would unlink the path from its anchor and make anchor-invalid states unreachable); NULL only when never validated
 	PR_STRING signer_name; // signer common name (informational)
 	PR_ARRAY guids; // deployed per-path PERMIT filters (FWW_APP)
 
@@ -353,7 +353,14 @@ static VOID _app_publisher_querypath (
 		ptr_path->mtime = mtime;
 		ptr_path->is_selfsigned = is_selfsigned;
 
-		_r_obj_movereference ((PVOID_PTR)&ptr_path->signer_hash, signer_hash);
+		// RETAIN the previous signer_hash on an invalid result (r3
+		// goldfish finding 2): NULLing it would unlink the path from its
+		// anchor and make anchor-invalid states unreachable — every
+		// deploy/bind path already gates on is_valid, so the retained
+		// hash is inert for enforcement
+		if (signer_hash)
+			_r_obj_movereference ((PVOID_PTR)&ptr_path->signer_hash, signer_hash);
+
 		_r_obj_movereference ((PVOID_PTR)&ptr_path->signer_name, signer_name);
 
 		ptr_path->is_valid = (status == ERROR_SUCCESS && ptr_path->signer_hash != NULL);
@@ -705,6 +712,108 @@ VOID _app_publisher_clearfilters (VOID)
 	}
 
 	_r_queuedlock_releaseexclusive (&lock_publisher);
+}
+
+// ---- DEC-11 query API (GUI Rules page; r4 G2-M1/G2-M2) ----
+
+// DEC-11 query API (GUI Rules page): number of publisher anchors
+ULONG _app_publisher_queryanchorcount (
+	VOID
+)
+{
+	ULONG count = 0;
+
+	_r_queuedlock_acquireshared (&lock_publisher);
+
+	if (publisher_anchors && !_r_obj_isempty2 (publisher_anchors))
+		count = (ULONG)publisher_anchors->count;
+
+	_r_queuedlock_releaseshared (&lock_publisher);
+
+	return count;
+}
+
+// DEC-11 query API (GUI Rules page): anchor signer name, materialized-
+// path count and validity. Validity (r3 goldfish findings 2+7): ≥1
+// matching path AND all valid → TRUE; zero matching paths → FALSE with
+// path_count 0 (the caller's "not checked" gray — an anchor is unknown
+// until a path materializes under it); any invalid member → FALSE (the
+// revoked-class red, reachable because invalidation now RETAINS
+// signer_hash). The mtime != validated_mtime staleness signal needs a
+// 3-state contract addition — recorded as backlog, NOT smuggled into
+// this 2-state BOOLEAN.
+BOOLEAN _app_publisher_queryanchor (
+	_In_ ULONG index,
+	_Out_writes_ (name_chars) WCHAR *name_buffer,
+	_In_ ULONG name_chars,
+	_Out_ PULONG path_count,
+	_Out_ PBOOLEAN is_valid
+)
+{
+	PITEM_PUBLISHER ptr_anchor = NULL;
+	PITEM_PUBLISHER_PATH ptr_path;
+	ULONG_PTR anchor_key = 0;
+	ULONG anchor_index = 0;
+	ULONG paths_total = 0;
+	ULONG paths_valid = 0;
+	BOOLEAN found = FALSE;
+
+	if (!name_buffer || !name_chars || !path_count || !is_valid)
+		return FALSE;
+
+	name_buffer[0] = UNICODE_NULL;
+	*path_count = 0;
+	*is_valid = FALSE;
+
+	_r_queuedlock_acquireshared (&lock_publisher);
+
+	if (publisher_anchors && !_r_obj_isempty2 (publisher_anchors))
+	{
+		while (_r_obj_enumhashtablepointer (publisher_anchors, (PVOID_PTR)&ptr_anchor, NULL, &anchor_key))
+		{
+			if (anchor_index == index)
+			{
+				found = TRUE;
+				break;
+			}
+
+			anchor_index++;
+		}
+	}
+
+	if (found)
+	{
+		// materialized-path count + validity scan; both tables live under
+		// the ONE shared acquisition (O(A×P) over small tables)
+		if (publisher_paths && !_r_obj_isempty2 (publisher_paths))
+		{
+			ULONG_PTR path_key = 0;
+
+			while (_r_obj_enumhashtablepointer (publisher_paths, (PVOID_PTR)&ptr_path, NULL, &path_key))
+			{
+				if (!ptr_path->signer_hash || !ptr_anchor->signer_hash)
+					continue;
+
+				if (wcscmp (ptr_path->signer_hash->buffer, ptr_anchor->signer_hash->buffer) == 0)
+				{
+					paths_total++;
+
+					if (ptr_path->is_valid)
+						paths_valid++;
+				}
+			}
+		}
+
+		if (ptr_anchor->signer_name)
+			_r_str_copy (name_buffer, name_chars, ptr_anchor->signer_name->buffer);
+
+		*path_count = paths_total;
+		*is_valid = (paths_total > 0 && paths_valid == paths_total);
+	}
+
+	_r_queuedlock_releaseshared (&lock_publisher);
+
+	return found;
 }
 
 VOID _app_publisher_uninitialize (VOID)

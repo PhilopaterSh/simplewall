@@ -2187,6 +2187,193 @@ BOOLEAN _app_packs_isenabled (
 	return is_enabled;
 }
 
+// ---- DEC-11 query API (GUI Packs page; r4 G2-M3) ----
+// mtime-checked snapshot of the packstate sidecar (r3 finding 6):
+// stat WITHOUT opening (GetFileAttributesExW) — the sidecar is written
+// IN PLACE (truncate-then-write under lock_packs exclusive), so a
+// reader hitting that window gets a sharing violation or 0 bytes; we
+// KEEP the previous snapshot and retry (the final write moves mtime so
+// the retry converges). A MISSING sidecar is a legitimate empty state
+// (revert), not a failure.
+
+typedef struct _PACKS_QUERY_ROW
+{
+	WCHAR pack_id[PACKS_MAX_PACKID + 1];
+	WCHAR version[PACKS_VERSION_LENGTH];
+	ULONG filter_count; // deployed filters recorded at apply time
+} PACKS_QUERY_ROW;
+
+static R_QUEUED_LOCK lock_packs_query = PR_QUEUED_LOCK_INIT; // dedicated: never nests with lock_packs
+static PACKS_QUERY_ROW *packs_query_rows = NULL;
+static ULONG packs_query_cap = 0;
+static ULONG packs_query_rows_count = 0;
+static LONG64 packs_query_mtime = -2; // -2 = never built
+
+static VOID _app_packs_queryrebuild (_In_ LONG64 mtime)
+{
+	PR_STRING path = NULL;
+	PR_STRING contents = NULL;
+	PR_LIST list = NULL;
+	PPACK_STATE_ENTRY ptr_entry;
+	NTSTATUS status;
+	ULONG count = 0;
+	ULONG_PTR i;
+
+	_r_queuedlock_acquireexclusive (&lock_packs_query);
+
+	// one reader won the race: re-check under the lock
+	if (packs_query_mtime == mtime)
+	{
+		_r_queuedlock_releaseexclusive (&lock_packs_query);
+		return;
+	}
+
+	_app_packs_getpath (COMPOSITE_SIDECAR_PACKSTATE, &path);
+
+	if (path)
+	{
+		BOOLEAN is_present = FALSE;
+
+		_app_packs_readwide (path->buffer, &contents, &is_present);
+
+		if (is_present && contents && NT_SUCCESS (_app_packs_stateverify (contents)))
+			list = _app_packs_stateparse (contents, &status);
+	}
+
+	if (list)
+	{
+		for (i = 0; i < _r_obj_getlistsize (list); i++)
+		{
+			ptr_entry = (PPACK_STATE_ENTRY)_r_obj_getlistitem (list, i);
+
+			if (!ptr_entry)
+				continue;
+
+			if (count == packs_query_cap)
+			{
+				ULONG new_cap = packs_query_cap ? packs_query_cap * 2 : 8;
+				PACKS_QUERY_ROW *grown = (PACKS_QUERY_ROW *)HeapReAlloc (GetProcessHeap (), HEAP_ZERO_MEMORY, packs_query_rows, new_cap * sizeof (PACKS_QUERY_ROW));
+
+				if (!grown)
+					break;
+
+				packs_query_rows = grown;
+				packs_query_cap = new_cap;
+			}
+
+			memset (&packs_query_rows[count], 0, sizeof (PACKS_QUERY_ROW));
+			_r_str_copy (packs_query_rows[count].pack_id, RTL_NUMBER_OF (packs_query_rows[count].pack_id), ptr_entry->pack_id);
+			_r_str_copy (packs_query_rows[count].version, RTL_NUMBER_OF (packs_query_rows[count].version), ptr_entry->version);
+			packs_query_rows[count].filter_count = (ULONG)_r_obj_getarraysize (ptr_entry->guids);
+			count++;
+
+		}
+
+		_r_obj_dereference (list);
+	}
+
+	if (contents)
+		_r_obj_dereference (contents);
+
+	if (path)
+		_r_obj_dereference (path);
+
+	// TORN/CORRUPT sidecar (verify/parse failed): keep the previous
+	// snapshot and DO NOT record the mtime — the next call retries;
+	// a MISSING or successfully-parsed sidecar is committed as-is
+	if (list || !contents)
+	{
+		packs_query_rows_count = count;
+		packs_query_mtime = mtime;
+	}
+
+	_r_queuedlock_releaseexclusive (&lock_packs_query);
+}
+
+static VOID _app_packs_queryrefresh (VOID)
+{
+	WIN32_FILE_ATTRIBUTE_DATA attributes;
+	PR_STRING path = NULL;
+	LARGE_INTEGER li;
+	LONG64 mtime;
+
+	_app_packs_getpath (COMPOSITE_SIDECAR_PACKSTATE, &path);
+
+	// stat WITHOUT opening (r3 finding 6): no sharing-violation on our
+	// side, no handle, no file read when the mtime is unchanged
+	if (!path || !GetFileAttributesExW (path->buffer, GetFileExInfoStandard, &attributes))
+	{
+		mtime = -1; // missing sidecar = legitimate empty state (revert)
+	}
+	else
+	{
+		li.LowPart = attributes.ftLastWriteTime.dwLowDateTime;
+		li.HighPart = attributes.ftLastWriteTime.dwHighDateTime;
+		mtime = li.QuadPart;
+	}
+
+	if (path)
+		_r_obj_dereference (path);
+
+	if (mtime != packs_query_mtime)
+		_app_packs_queryrebuild (mtime);
+}
+
+// DEC-11 query API (GUI Packs page): number of packs recorded in the
+// packstate sidecar (enabled packs only — the store IS the enabled set)
+ULONG _app_packs_querycount (
+	VOID
+)
+{
+	_app_packs_queryrefresh ();
+
+	return packs_query_rows_count;
+}
+
+// DEC-11 query API (GUI Packs page): pack id, version string and the
+// enabled flag (every sidecar entry is enabled by construction)
+BOOLEAN _app_packs_query (
+	_In_ ULONG index,
+	_Out_writes_ (id_chars) WCHAR *id_buffer,
+	_In_ ULONG id_chars,
+	_Out_writes_ (ver_chars) WCHAR *version_buffer,
+	_In_ ULONG ver_chars,
+	_Out_ PBOOLEAN is_enabled
+)
+{
+	if (!id_buffer || !id_chars || !version_buffer || !ver_chars || !is_enabled)
+		return FALSE;
+
+	id_buffer[0] = UNICODE_NULL;
+	version_buffer[0] = UNICODE_NULL;
+	*is_enabled = FALSE;
+
+	_app_packs_queryrefresh ();
+
+	if (index >= packs_query_rows_count)
+		return FALSE;
+
+	_r_str_copy (id_buffer, id_chars, packs_query_rows[index].pack_id);
+	_r_str_copy (version_buffer, ver_chars, packs_query_rows[index].version);
+	*is_enabled = TRUE;
+
+	return TRUE;
+}
+
+// GUI Packs page helper (r4 G2-M3): deployed-filter count for the row
+// rendered by _app_packs_query (served from the same snapshot)
+ULONG _app_packs_queryfiltercount (
+	_In_ ULONG index
+)
+{
+	_app_packs_queryrefresh ();
+
+	if (index >= packs_query_rows_count)
+		return 0;
+
+	return packs_query_rows[index].filter_count;
+}
+
 NTSTATUS _app_packs_import (
 	_In_ LPCWSTR pack_dir
 )

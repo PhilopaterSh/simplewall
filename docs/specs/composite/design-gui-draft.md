@@ -365,9 +365,7 @@ review UX.
   resize re-enable, DEC-09 fork-owned .rc framing, milestone
   discipline. G-1 stays rail+theme+Apps per tasks.md; the pack hard-coded ids are honestly flagged for G-2 rather than silently kept.
 
-### Post-review implementation record (2026-11-19)
-
-- The goldfish finding-3 fix exposed that the DEC-11 query-API contract
+### Post-review implementation record (2026-11-19)- The goldfish finding-3 fix exposed that the DEC-11 query-API contract
   `_app_lockdown_preflight` was HEADER-ONLY (declared 2026-11-18 for the
   arena implementers, never implemented — the linker caught it). Now
   implemented read-only in composite_lockdown.c mirroring the enable
@@ -383,6 +381,248 @@ review UX.
   (toolset v143 override — v145 is the CI runner's toolset; SAC blocks
   local execution of fresh dev builds per the standing posture, so the
   runtime verdict belongs to CI + the owner's interactive round).
+
+---
+
+## r4 amendment (2026-11-19): G-2 pages mechanics — external-research grounded
+
+> Same protocol as r3: owner directive "continue the rest, always
+> research what is published (المنشور), the methods, and the solutions".
+> Second research pass (subagent, shipped docs/changelog/issues + primary
+> source of simplewall upstream / portmaster-ui / WFN / pi-hole web).
+> Every delta elaborates approved keys (DEC-11 query-API contract,
+> FR-15, NFR-05, NFR-07) — no architecture change.
+>
+> HEADLINE FINDING: NO shipped firewall product displays countdown
+> firewall rules — Portmaster's temporary-allow request (#2226) was
+> CLOSED as not planned (2026-10-26), NetLimiter ships schedule windows
+> not countdowns, TinyWall ships mode-scoped exceptions without timers,
+> GlassWire ships nothing timed. The ONLY shipped per-rule timer in the
+> product family is simplewall upstream itself (timer_array 2min..24h,
+> threadpool expiry, remaining-time in TOOLTIP ONLY via
+> _r_format_interval = StrFromTimeIntervalW). Our G-2 session-decisions
+> surface therefore DEFINES the pattern, grounded in published
+> countdown-display guidance (see G2-M4).
+
+### G2-M1: the DEC-11 query-API contract becomes REAL (measured: header-only)
+
+- Measurement result (the G-1 lesson generalized): of the six declared
+  enumerators, ONLY `_app_state_querycount` existed. G-2 implements,
+  READ-ONLY, exactly the declared signatures — no contract edits:
+  - `_app_state_query` (index → app_hash, name, is_block, is_once,
+    remaining_seconds): the decision struct has NO name field — the
+    name resolves from apps_table by app_hash (verified: profile.c
+    keys apps_table by _r_str_gethash(path) and the publisher module
+    hashes the identical string). LOCK COMPOSITION (r3 goldfish
+    correction — the r4 draft's apps-outer claim was FALSE: the
+    prompting path nests NOTHING, an opposite state→apps edge EXISTS
+    in _app_state_applyall via _app_getappitem, and the vendor queued
+    lock is writer-priority so the pre-existing edge map carried a
+    latent ABBA): the query takes lock_state ALONE — snapshot
+    {app_hash, is_block, is_once, expires} under a generation counter
+    (bumped on every decision mutation: decide / revoke / expiry
+    callback / clearfilters), release, then resolve names per hash via
+    `_app_getappitem` (referenced return, its own internal apps lock,
+    ZERO nesting — mirrors the G-1 shell pattern). remaining =
+    expires ? max(0, expires - now) : 0 (0 = until restart, per
+    contract). SAME-MILESTONE MANDATED FIX (r3 finding 1):
+    `_app_state_applyall`'s in-lock `_app_getappitem` nesting is
+    REMOVED — restructured to hash-snapshot under lock_state →
+    apps resolution outside every lock → redeploy under a shared
+    re-acquire (re-finding each decision, skipping expired/removed
+    ones). This kills the ONLY state→apps edge; the remaining
+    apps→state edges become cycle-free. (r3 finding 10, non-blocking,
+    recorded as backlog: the pre-existing expiry-callback and deploy
+    WFP-UI-under-lock paths are the P1-1 shape on NON-UI threads —
+    real, but out of G-2 surgical scope.)
+  - `_app_packs_querycount/_app_packs_query` (id, version, enabled):
+    the enabled-pack store IS the packstate sidecar
+    (composite_packstate.json; entries carry pack_id + version +
+    rules_hash + deployed-GUID array — every entry passed hash-verify
+    by construction, DATA-02). Parsed ONCE per sidecar mtime into a
+    lock_packs-protected snapshot (the inventory-once precedent from
+    the composite audit goldfish round); per-row file reads rejected.
+  - `_app_publisher_queryanchorcount/_app_publisher_queryanchor` (name,
+    path_count, is_valid): publisher_anchors = hash-of-hex →
+    {signer_hash, signer_name}; path_count = scan of publisher_paths
+    matching the anchor's signer_hash (small table, lock_publisher
+    shared). VALIDITY SEMANTICS (r3 goldfish correction: invalidation
+    NULLs signer_hash, so invalid paths silently UNLINK from their
+    anchor and "red" would be unreachable — the exact silent-green the
+    r4 draft forbade): the module's invalidation sites now RETAIN
+    signer_hash on invalidated paths (safe — every deploy/bind path
+    already gates on is_valid; the struct comment is updated to match),
+    and the query renders: Valid = ≥1 matching path AND all valid AND
+    none stale; Invalid = any matching path with is_valid FALSE (the
+    revoked-class red, now reachable); Not-checked/Unknown = zero
+    matching paths OR any member with mtime != validated_mtime (the
+    free conservative staleness signal, r3 finding 7) — gray, never a
+    silent green.
+  - Lockdown gains NO new API in G-2 (its page is functional since
+    G-1; the mockup's live survival-rule panel needs a snapshot API
+    that is NOT in the declared contract — deferred, honestly
+    subtitled).
+
+### G2-M2: Rules page = two separated sections (NetLimiter precedent: activity vs rules are separate views)
+
+- Section 1 SESSION DECISIONS: rows = verdict dot + text label (ALWAYS
+  paired — WCAG: never color alone; ~8% of male users cannot reliably
+  distinguish red/green) + app name + countdown. Verdict colors adopt
+  the shipped Portmaster map: allow = green, block = red. EXPIRED
+  STATE DROPPED (r3 goldfish correction: the module's expiry timer
+  REMOVES AND FREES the decision at expiry — no later cleanup exists —
+  so an "expired gray" row is unsatisfiable via the query API): the
+  row disappears at the next 1s tick; expired-history is the Log
+  page's surface (G-3, ledger rows), not a live row.
+- Section 2 PUBLISHER ANCHORS: rows = "Verified publisher: <signer>"
+  (the UAC phrase users already trust; unsigned/unknown → "Unknown
+  publisher" per the same Windows vocabulary) + "(n filters)" path
+  count + validity in the shipped 4-state PKI language (union of
+  Chrome/Firefox/Kleopatra/Pi-hole): Valid = green check; Invalid/
+  revoked-class = red + "Rules from this anchor are no longer trusted"
+  hard-fail framing (browsers remove the bypass for revoked certs —
+  our invalid anchor faces match); Unknown/not-checked = gray.
+  Group headers carry counts, upstream pattern "(n/total)".
+- Permanent rules remain upstream's editor surface (NFR-01 re-home) —
+  the G-2 page does not duplicate upstream's rules tabs (DEC-09:
+  pull, not duplicate).
+
+### G2-M3: Packs page = the sidecar snapshot, canonical columns synthesized from uBO + Pi-hole + Portmaster
+
+- Replaces the G-1 3-hard-coded placeholder rows (which were honestly
+  flagged as placeholders). Row = enabled pill | pack name "(id)" |
+  version pair (epoch-aware rendering follows the Pi-hole
+  relative+absolute date-pair pattern) | deployed-filter count from
+  the sidecar GUID array ("n filters") | health dot.
+- HEALTH WORDING (r3 goldfish correction: the sidecar trailer is
+  FNV1a-32 — tamper-EVIDENT, not cryptographic; ECDSA fires at pack
+  import only): the pill reads "in store (checksum ok)" — never
+  "verified". Health vocabulary = Pi-hole's 5-level colors mapped
+  onto our truth: sidecar entries = green; a pack file in the cache
+  dir NOT in the store = gray "not enabled"; signature-failed = red,
+  sourced from apply-time logs (the store can never contain it —
+  corrupt stores are never rewritten).
+- NO TOGGLE IN G-2 (r3 finding 9): `_app_packs_enable` is DEC-11
+  prose but NOT a declared query-API signature — the declared
+  contract carries only the two read-only enumerators, so toggling
+  waits for its own contract addition. The page carries the G-1
+  honesty subtitle, extended: epoch/watermark columns and the import
+  wizard entry point are CONTRACT-DEFERRED (DEC-11 prose wants them;
+  the declared signatures do not carry them) — both flagged on the
+  page, not silently omitted.
+
+### G2-M4: countdown display rule (the published-guidance synthesis)
+
+- Adaptive precision, text-first, tabular numerals (digits must not
+  shift): >60m → "3h 05m" (60s cadence) · 10-60m → "42m" (30s) ·
+  1-10m → "4m 38s" (1s cadence, the urgency window — per-second text
+  is the OTP/Chrome precedent where windows are short) · ≤60s → "38s"
+  with red under 10s (Authenticator ring semantics) · "until restart"
+  = static badge (Portmaster #2226 community wording + upstream v3.2
+  "until reboot" lineage).
+- Tooltip (and a11y name) always carries absolute + relative:
+  "Expires 16:42 (3h 05m)" — the UX.SE/Prototypr pairing rule.
+- Machinery: remaining computed from the stored absolute expiry
+  (upstream's ptr_app->timer pattern — never ticking accumulation);
+  ONE 1-second shell timer active only while a countdown row is
+  visible, invalidating ONLY rows whose displayed string changed
+  (NN/g 0.1-1-10s response limits justify cheap per-second redraws
+  in owner-drawn cells, never whole-list repaints). The actual expiry
+  state flip remains the module's threadpool timer (state.c htimer).
+- TIMER COMPOSITION RULES (r3 finding 5): (i) the G-1 2s full-row
+  signature EXCLUDES countdown text (it hashes the apps snapshot, not
+  the rules rows — the two surfaces stay orthogonal, or every 2s tick
+  would report "changed" and violate the never-whole-list-repaint
+  budget); (ii) the 1s timer is killed on page-leave and whenever no
+  countdown row is visible; (iii) countdown-row invalidation is owned
+  EXCLUSIVELY by the 1s tick with a per-row last-displayed-string
+  cache. Both timers are GUI-thread WM_TIMERs — no race; InvalidateRect
+  coalesces.
+
+### G2-M5: publisher badge wording
+
+- Display: "Verified publisher: <signer_name>" (signer_name = the
+  upstream CN extraction, informational per module docs). The
+  O-preferred form (UAC renders Organization when present) needs a
+  CertGetNameStringW extension to upstream's `_app_verifygetstring`
+  — an upstream-file change, deferred out of G-2 scope with this
+  record (DEC-09 rebase-cheap rule).
+
+### G2-M6: a11y continues (G1-M6 pattern)
+
+- Every new row type exposes accName = humanized line (verdict label +
+  name + countdown text; anchor name + validity label; pack name +
+  version + filter count). Countdown rows include the absolute time.
+
+### i18n (NFR-05)
+
+- New IDS_SHELL_* block starts at 369 (the G-1 lesson: 305-359 occupies
+  blocks 20-23; the next FREE block boundary after 359 is 369). English
+  in composite_shell_strings.rc + Arabic.ini keys, same pipeline.
+
+### r4 verification additions (M2, r3-corrected)
+
+- Session countdown: seeded decision at 2min renders "2m 00s"→"1m 59s"
+  (1s cadence); at expiry the row DISAPPEARS at the next tick (the
+  module's timer removes the decision — no gray state exists).
+- Anchor with one invalid path renders red + hard-fail copy (never
+  green) — reachable because invalidation now RETAINS signer_hash.
+- Anchor with any member whose mtime != validated_mtime renders
+  gray "not checked recently" (never green).
+- Packs page shows exactly the packstate entries; a hand-corrupted
+  sidecar renders the fail-closed state (empty + honest subtitle), not
+  fabricated rows; an unreadable sidecar (sharing-violation window)
+  keeps the previous snapshot and retries — it does not poison the
+  fail-closed state.
+- Lock-order regression: the Rules page enumerates while a prompt is
+  pending without deadlock — the query takes lock_state ALONE and
+  applyall no longer nests apps inside state (the only state→apps
+  edge removed; re-checked by code inspection).
+- Contract hygiene: the duplicate `_app_state_querycount` declaration
+  in composite_state.h collapses to one (r3 finding 4).
+
+### r3 integration record (2026-11-19, goldfish round 3)
+
+- VERDICT: APPROVE-WITH-CHANGES. Blocking findings 1 (lock-order
+  claim false; applyall carries the only state→apps edge), 2 (anchor
+  red unreachable — invalidation NULLs signer_hash), 3 (expired-gray
+  unsatisfiable — expiry removes+frees) integrated above as text
+  corrections + same-milestone code mandates. Non-blocking 4 (dup
+  decl collapse), 5 (timer composition rules), 6 (mtime snapshot
+  cautions: stat-without-open; unreadable = keep-previous), 7
+  (staleness signal adopted), 8 (health wording), 9 (deferral
+  subtitles + no-toggle), 10 (expiry-callback P1-1 shape → backlog)
+  integrated. Verified correct and NOT churned: header-only
+  measurement exact; all six signatures implementable with NO
+  contract edits; apps_table keying verified (path_hash == app_hash);
+  packs/publisher single-lock compositions cannot deadlock; CVTRES
+  block math for 369 independently confirmed; FR-15 1:1 coverage
+  holds for G-2 scope.
+
+### Research citation registry (r4)
+
+- simplewall upstream src/{global.h,timer.c,controls.c,helper.c,
+  notifications.c} + CHANGELOG v3.0.8-v3.9 (timer_array, IDS_TIMELEFT
+  tooltip-only, _r_format_interval = StrFromTimeIntervalW, CN-only
+  signer string, IsOCSPEnabled revoke gate)
+- Portmaster #2226 (closed not-planned 2026-10-26) + portmaster-ui
+  _verdict.scss verdict color map + conn-row.html + filter-list.html +
+  app-view.html (no publisher surface shipped)
+- WFN Console/UI/Pages/Rules.xaml (the permanent-rules column set)
+- pi-hole/web groups-lists.js + pi-hole.css (5-level health colors
+  with exact hexes; relative+absolute date pairs)
+- gorhill/uBlock wiki Dashboard: Filter lists (commit semantics,
+  update-now gating, staleness affordance)
+- NetLimiter docs (activity vs rules separation; scheduler windows)
+- Microsoft Authenticator FAQ + listing (ring countdown semantics);
+  NN/g response-times-3-important-limits (per-second redraw budget);
+  UX.SE 10238 + Prototypr (adaptive precision, absolute+relative)
+- Microsoft Learn Authenticode + UAC "Verified publisher:" wording
+  (O-else-CN derivation); Kleopatra T7321 + Gpg4win changelog (key
+  validity visual language); Chrome ERR_CERT_REVOKED + Firefox
+  SEC_ERROR_REVOKED_CERTIFICATE (revoked = no bypass); TLS alerts
+  44/45 (revocation computed at validation, not stored)
+- WCAG 3.0 + UX Planet red/green (never color alone)
 
 ### Research citation registry (r3)
 
