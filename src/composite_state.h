@@ -129,3 +129,15 @@ BOOLEAN _app_state_selftest_seed (
 	_In_ BOOLEAN is_once,
 	_In_ ULONG expires_seconds
 );
+
+// G-3 Log page (FR-05 loop): held-pending enumerators (DEC-11 additive;
+// same snapshot + lock discipline as _app_state_query)
+ULONG _app_state_queryheldcount (
+	VOID
+);
+
+BOOLEAN _app_state_queryheld (
+	_In_ ULONG index,
+	_Out_ ULONG *app_hash,
+	_Out_ PULONG held_count
+);

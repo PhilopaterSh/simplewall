@@ -92,4 +92,8 @@ IDS_SHELL_ANCHORS_EMPTY, "No publisher anchors"
 IDS_SHELL_CD_HM, "%luh %02lum"
 IDS_SHELL_CD_M, "%lum"
 IDS_SHELL_CD_S, "%lus"
+IDS_SHELL_LOG_HELDROW, "%lu held connection(s)"
+IDS_SHELL_LOG_DECIDE_ALLOW, "Allow"
+IDS_SHELL_LOG_DECIDE_BLOCK, "Block"
+IDS_SHELL_LOG_NOHELD, "No held connections"
 }

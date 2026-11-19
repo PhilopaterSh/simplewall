@@ -235,6 +235,20 @@ static SHELL_DECISION_ROW *shell_decisions = NULL;
 static ULONG shell_decisions_cap = 0;
 static ULONG shell_decisions_count = 0;
 static ULONG shell_anchors_count = 0;
+
+// G-3 Log page: held rows (hash + count + the two decision-button rects)
+typedef struct _SHELL_HELD_ROW
+{
+	ULONG app_hash;
+	ULONG held_count;
+	WCHAR name[SHELL_NAME_MAX];
+	RECT allow_rect;
+	RECT block_rect;
+} SHELL_HELD_ROW;
+
+static SHELL_HELD_ROW *shell_log_held = NULL;
+static ULONG shell_log_held_cap = 0;
+static ULONG shell_log_held_count = 0;
 static ULONG64 shell_decisions_sig = 0; // EXCLUDES remaining[] text
 
 static INT shell_page = SHELL_PAGE_APPS;
@@ -949,6 +963,88 @@ static VOID _app_shell_rulesrefresh (_Out_opt_ PBOOLEAN out_changed)
 		*out_changed = TRUE;
 
 	shell_decisions_sig = sig;
+}
+
+// G-3 Log page: held rows refresh (FR-05 loop - held rows carry decide
+// actions; the decide call releases the count via revokeapp's S3 fold)
+static VOID _app_shell_logrefresh (VOID)
+{
+	ULONG count;
+
+	count = _app_state_queryheldcount ();
+
+	if (count > shell_log_held_cap)
+	{
+		ULONG new_cap = count ? count * 2 : 8;
+		SHELL_HELD_ROW *grown = (SHELL_HELD_ROW *)HeapReAlloc (GetProcessHeap (), HEAP_ZERO_MEMORY, shell_log_held, new_cap * sizeof (SHELL_HELD_ROW));
+
+		if (!grown)
+			return;
+
+		shell_log_held = grown;
+		shell_log_held_cap = new_cap;
+	}
+
+	shell_log_held_count = 0;
+
+	for (ULONG i = 0; i < count; i++)
+	{
+		ULONG hash = 0;
+		ULONG hcount = 0;
+		PITEM_APP ptr_app;
+		LPCWSTR name;
+		SHELL_HELD_ROW *row = &shell_log_held[shell_log_held_count];
+
+		if (!_app_state_queryheld (i, &hash, &hcount))
+			break;
+
+		row->app_hash = hash;
+		row->held_count = hcount;
+
+		ptr_app = _app_getappitem (hash); // referenced; zero nesting
+
+		if (ptr_app)
+		{
+			name = _r_obj_getstring (ptr_app->display_name);
+
+			if (!name)
+				name = _r_obj_getstringordefault (ptr_app->short_name, L"<composite>");
+
+			_r_str_copy (row->name, SHELL_NAME_MAX, name);
+			_r_obj_dereference (ptr_app);
+		}
+		else
+		{
+			row->name[0] = UNICODE_NULL;
+		}
+
+		shell_log_held_count++;
+	}
+}
+
+// G-3 Log page: the decide action (FR-05 loop closure) - allow/block
+// until-restart on a held row; engine-off the decision deploys at the
+// next engine start while the held count releases NOW (the S3 fold)
+static VOID _app_shell_logdecide (
+	_In_ HWND hwnd,
+	_In_ ULONG app_hash,
+	_In_ BOOLEAN is_block
+)
+{
+	PITEM_APP ptr_app = _app_getappitem (app_hash);
+
+	if (ptr_app)
+	{
+		_app_state_decide (ptr_app, is_block, FALSE, NULL, hwnd);
+		_r_obj_dereference (ptr_app);
+	}
+	else
+	{
+		_app_state_releasepending (app_hash); // stale held row (app gone)
+	}
+
+	_app_shell_logrefresh ();
+	InvalidateRect (hwnd, NULL, FALSE);
 }
 
 // countdown tick (1s, r4 G2-M4 + r3 finding 5 rules ii/iii): recompute
@@ -1678,6 +1774,98 @@ static VOID _app_shell_drawlog (
 	_app_shell_locale (buffer, RTL_NUMBER_OF (buffer), IDS_SHELL_LOG_ENGINE);
 	_app_shell_drawtext (hdc, buffer, &rect, shell_font_small, is_engine ? shell_pal->muted : shell_pal->warn, shell_is_rtl ? DT_RIGHT : DT_LEFT);
 
+	// held-pending rows (G-3, FR-05 loop): each row = "n held" + app name
+	// + ALLOW/BLOCK decision buttons (until-restart via _app_state_decide)
+	_app_shell_logrefresh ();
+
+	if (shell_log_held_count == 0)
+	{
+		WCHAR noheld[SHELL_LINE_MAX];
+
+		_app_shell_locale (noheld, RTL_NUMBER_OF (noheld), IDS_SHELL_LOG_NOHELD);
+
+		rect.top = rect.bottom + SHELL_CARD_GAP;
+		rect.bottom = rect.top + 36;
+		_app_shell_fillround (hdc, &rect, shell_pal->card, shell_pal->line, 10);
+
+		rect.left += SHELL_MARGIN;
+		rect.right -= SHELL_MARGIN;
+		_app_shell_drawtext (hdc, noheld, &rect, shell_font_small, shell_pal->muted, (shell_is_rtl ? DT_RIGHT : DT_LEFT) | DT_VCENTER);
+	}
+
+	for (ULONG i = 0; i < shell_log_held_count; i++)
+	{
+		SHELL_HELD_ROW *row = &shell_log_held[i];
+		WCHAR fmt2[SHELL_LINE_MAX];
+		WCHAR rowtext[SHELL_LINE_MAX];
+		RECT btn;
+
+		rect.left = content->left;
+		rect.right = content->right;
+		rect.top = rect.bottom + SHELL_CARD_GAP;
+		rect.bottom = rect.top + 44;
+
+		if (rect.bottom > content->bottom)
+			break; // clip (G-3: pagination later)
+
+		_app_shell_fillround (hdc, &rect, shell_pal->card, shell_pal->line, 10);
+
+		// row text (inline-end of the buttons)
+		_app_shell_locale (fmt2, RTL_NUMBER_OF (fmt2), IDS_SHELL_LOG_HELDROW);
+		_r_str_printf (rowtext, RTL_NUMBER_OF (rowtext), fmt2, row->held_count);
+
+		rect.top += 4;
+		rect.bottom -= 4;
+
+		// decision buttons (inline-start side under RTL; WCAG text+pills)
+		{
+			RECT btn_block;
+			RECT btn_allow;
+			WCHAR btn_text[SHELL_LINE_MAX];
+
+			if (shell_is_rtl)
+			{
+				btn_block.left = rect.left + SHELL_MARGIN;
+				btn_block.right = btn_block.left + 88;
+				btn_allow.left = btn_block.right + 8;
+				btn_allow.right = btn_allow.left + 88;
+			}
+			else
+			{
+				btn_block.right = rect.right - SHELL_MARGIN;
+				btn_block.left = btn_block.right - 88;
+				btn_allow.right = btn_block.left - 8;
+				btn_allow.left = btn_allow.right - 88;
+			}
+
+			btn_block.top = btn_allow.top = rect.top;
+			btn_block.bottom = btn_allow.bottom = rect.bottom;
+
+			_app_shell_locale (btn_text, RTL_NUMBER_OF (btn_text), IDS_SHELL_LOG_DECIDE_ALLOW);
+			_app_shell_drawpill (hdc, &btn_allow, btn_text, shell_pal->ok, shell_pal->okbg, shell_pal->okline);
+
+			_app_shell_locale (btn_text, RTL_NUMBER_OF (btn_text), IDS_SHELL_LOG_DECIDE_BLOCK);
+			_app_shell_drawpill (hdc, &btn_block, btn_text, shell_pal->danger, shell_pal->dangerbg, shell_pal->dangerline);
+
+			row->allow_rect = btn_allow;
+			row->block_rect = btn_block;
+		}
+
+		// row text between the buttons and the opposite edge
+		if (shell_is_rtl)
+		{
+			rect.left = row->allow_rect.right + 8;
+			rect.right -= SHELL_MARGIN;
+		}
+		else
+		{
+			rect.left += SHELL_MARGIN;
+			rect.right = row->allow_rect.left - 8;
+		}
+
+		_app_shell_drawtext (hdc, rowtext, &rect, shell_font_small, shell_pal->warn, shell_is_rtl ? DT_RIGHT : DT_LEFT);
+	}
+
 	// foreign ledger records (up to 10)
 	for (ULONG i = 0; i < foreign_count && i < 10; i++)
 	{
@@ -2144,6 +2332,24 @@ static VOID _app_shell_onclick (
 		}
 	}
 
+	if (shell_page == SHELL_PAGE_LOG)
+	{
+		for (ULONG i = 0; i < shell_log_held_count; i++)
+		{
+			if (PtInRect (&shell_log_held[i].allow_rect, pt))
+			{
+				_app_shell_logdecide (hwnd, shell_log_held[i].app_hash, FALSE);
+				return;
+			}
+
+			if (PtInRect (&shell_log_held[i].block_rect, pt))
+			{
+				_app_shell_logdecide (hwnd, shell_log_held[i].app_hash, TRUE);
+				return;
+			}
+		}
+	}
+
 	if (shell_page == SHELL_PAGE_LOCKDOWN && PtInRect (&shell_lockdown_btn, pt))
 	{
 		_app_shell_applylockdown (hwnd, !_app_lockdown_isactive ());
@@ -2497,6 +2703,7 @@ static LRESULT CALLBACK _app_shell_wndproc (
 			_app_shell_applyfilter ();
 
 			_app_shell_rulesrefresh (NULL); // r4 G2-M2: decisions + anchors initial snapshot
+			_app_shell_logrefresh (); // G-3: held rows
 			_app_shell_countdowntimer_update (hwnd);
 
 			SetTimer (hwnd, SHELL_TIMER_REFRESH, SHELL_TIMER_REFRESH_MS, NULL);
@@ -2575,6 +2782,7 @@ static LRESULT CALLBACK _app_shell_wndproc (
 					// the module query APIs; the countdown text is NOT
 					// part of the change signature (r3 finding 5 rule i)
 					_app_shell_rulesrefresh (&rules_changed);
+					_app_shell_logrefresh (); // G-3: held rows
 
 					if (rules_changed)
 					{
@@ -2761,6 +2969,14 @@ static LRESULT CALLBACK _app_shell_wndproc (
 				shell_decisions = NULL;
 				shell_decisions_cap = 0;
 				shell_decisions_count = 0;
+			}
+
+			if (shell_log_held)
+			{
+				HeapFree (GetProcessHeap (), 0, shell_log_held);
+				shell_log_held = NULL;
+				shell_log_held_cap = 0;
+				shell_log_held_count = 0;
 			}
 
 			PostQuitMessage (0);

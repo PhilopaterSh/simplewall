@@ -93,3 +93,10 @@
 #define IDS_SHELL_CD_HM 387
 #define IDS_SHELL_CD_M 388
 #define IDS_SHELL_CD_S 389
+
+// G-3 Log page additions (next free CVTRES block after 389: block 25
+// spans 385-400, so 401 starts block 26)
+#define IDS_SHELL_LOG_HELDROW 401
+#define IDS_SHELL_LOG_DECIDE_ALLOW 402
+#define IDS_SHELL_LOG_DECIDE_BLOCK 403
+#define IDS_SHELL_LOG_NOHELD 404

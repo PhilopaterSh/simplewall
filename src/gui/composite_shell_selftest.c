@@ -271,6 +271,28 @@ static VOID _app_selftest_statecases (VOID)
 
 	_app_state_revokeapp (app_hash);
 
+	// 7. held-pending loop (G-3, FR-05): holdpending -> enumerate ->
+	//    decide releases the count (the revokeapp S3 fold, engine-off
+	//    verified)
+	_app_state_holdpending (app_hash);
+	_app_state_holdpending (app_hash);
+	_app_selftest_check (_app_state_queryheldcount () == 1, "state: held row enumerated");
+
+	{
+		ULONG hhash = 0;
+		ULONG hcount = 0;
+
+		_app_selftest_check (_app_state_queryheld (0, &hhash, &hcount), "state: held row queried");
+		_app_selftest_check (hhash == app_hash && hcount == 2, "state: held hash + count match");
+
+		_app_state_decide (ptr_app, FALSE, FALSE, NULL, NULL); // until-restart allow
+		_app_selftest_check (_app_state_queryheldcount () == 0, "state: decide RELEASES the held count (S3 fold)");
+		_app_selftest_check (_app_state_querycount () == 1, "state: decide created the session decision");
+	}
+
+	_app_state_revokeapp (app_hash);
+	_app_selftest_check (_app_state_queryheldcount () == 0, "state: no held rows remain");
+
 	_r_obj_dereference (ptr_app);
 }
 

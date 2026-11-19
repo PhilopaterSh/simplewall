@@ -54,6 +54,18 @@ static ULONG state_query_cap = 0;
 static ULONG state_query_rows_count = 0;
 static ULONG state_query_gen = (ULONG)-1;
 
+// held-pending snapshot (G-3 Log page): same generation + lock discipline
+typedef struct _STATE_HELD_ROW
+{
+	ULONG app_hash;
+	ULONG held_count;
+} STATE_HELD_ROW;
+
+static STATE_HELD_ROW *state_held_rows = NULL;
+static ULONG state_held_cap = 0;
+static ULONG state_held_rows_count = 0;
+static ULONG state_held_gen = (ULONG)-1;
+
 static VOID NTAPI _app_state_dereferencedecision (
 	_In_ PVOID entry
 )
@@ -711,6 +723,7 @@ static VOID _app_state_queryrefresh (VOID)
 {
 	PITEM_STATE_DECISION ptr_decision = NULL;
 	ULONG_PTR enum_key = 0;
+	ULONG_PTR held_enum_key = 0;
 	ULONG count = 0;
 
 	_r_queuedlock_acquireshared (&lock_state);
@@ -743,6 +756,38 @@ static VOID _app_state_queryrefresh (VOID)
 
 		state_query_rows_count = count;
 		state_query_gen = state_gen;
+
+		// held-pending rows (G-3 Log page): same lock, same generation
+		{
+			PULONG ptr_value = NULL;
+			ULONG_PTR held_key = 0;
+			ULONG hcount = 0;
+
+			if (state_held && !_r_obj_isempty2 (state_held))
+			{
+				while (_r_obj_enumhashtable (state_held, &ptr_value, &held_key, &held_enum_key))
+				{
+					if (hcount == state_held_cap)
+					{
+						ULONG hcap = state_held_cap ? state_held_cap * 2 : 16;
+						STATE_HELD_ROW *grown = (STATE_HELD_ROW *)HeapReAlloc (GetProcessHeap (), HEAP_ZERO_MEMORY, state_held_rows, hcap * sizeof (STATE_HELD_ROW));
+
+						if (!grown)
+							break;
+
+						state_held_rows = grown;
+						state_held_cap = hcap;
+					}
+
+					state_held_rows[hcount].app_hash = (ULONG)held_key;
+					state_held_rows[hcount].held_count = ptr_value ? *(PULONG)ptr_value : 0;
+					hcount++;
+				}
+			}
+
+			state_held_rows_count = hcount;
+			state_held_gen = state_gen;
+		}
 	}
 
 	_r_queuedlock_releaseshared (&lock_state);
@@ -822,6 +867,43 @@ BOOLEAN _app_state_query (
 
 		_r_obj_dereference (ptr_app);
 	}
+
+	return TRUE;
+}
+
+// G-3 Log page (FR-05 loop): number of distinct apps with held-pending
+// connections (served from the same generation-checked snapshot)
+ULONG _app_state_queryheldcount (VOID)
+{
+	if (state_held_gen != state_gen)
+		_app_state_queryrefresh ();
+
+	return state_held_rows_count;
+}
+
+// G-3 Log page (FR-05 loop): the held row at index (app_hash + the
+// held-connection count); the UI decide action calls _app_state_decide,
+// whose revokeapp fold releases the held count (S3) - verified engine-off
+BOOLEAN _app_state_queryheld (
+	_In_ ULONG index,
+	_Out_ ULONG *app_hash,
+	_Out_ PULONG held_count
+)
+{
+	if (!app_hash || !held_count)
+		return FALSE;
+
+	*app_hash = 0;
+	*held_count = 0;
+
+	if (state_held_gen != state_gen)
+		_app_state_queryrefresh ();
+
+	if (index >= state_held_rows_count)
+		return FALSE;
+
+	*app_hash = state_held_rows[index].app_hash;
+	*held_count = state_held_rows[index].held_count;
 
 	return TRUE;
 }
