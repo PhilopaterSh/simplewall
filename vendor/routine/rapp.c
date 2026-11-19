@@ -375,7 +375,14 @@ BOOLEAN _r_app_initialize (
 
 #if defined(APP_NO_GUEST)
 	// use "only admin"-mode
-	if (!_r_sys_iselevated ())
+	// fork (GUI chain G-1): the composite shell (-gui) and its selftest
+	// (-gui-selftest) are read-mostly surfaces - no engine, no filters -
+	// and legitimately run WITHOUT elevation; their elevated actions
+	// (Lockdown) carry their own on-demand elevation semantics (DEC-11).
+	// The engine path keeps the "only admin" mode. _r_sys_getopt matches
+	// by prefix but rejects non-separator remainders, so "gui" does not
+	// swallow "gui-selftest" (testing-record.md Finding 6).
+	if (!_r_sys_iselevated () && !_r_sys_getopt (_r_sys_getcommandline (), L"gui", NULL) && !_r_sys_getopt (_r_sys_getcommandline (), L"gui-selftest", NULL))
 	{
 		if (!_r_app_runasadmin ())
 			_r_report_error (NULL, APP_FAILED_ADMIN_RIGHTS, STATUS_ELEVATION_REQUIRED, ET_NATIVE);
