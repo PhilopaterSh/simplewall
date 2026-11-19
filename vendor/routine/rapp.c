@@ -627,6 +627,37 @@ PR_STRING _r_app_getprofiledirectory ()
 		_r_initonce_end (&init_once);
 	}
 
+	// TEMP DIAGNOSTIC (CI hang round): print the resolved profile path —
+	// REMOVE after the hang is identified
+	{
+		HANDLE hbc;
+		WCHAR bc_path[MAX_PATH];
+		CHAR bc_line[1024];
+		DWORD written = 0;
+
+		if (GetModuleFileNameW (NULL, bc_path, RTL_NUMBER_OF (bc_path)))
+		{
+			PWSTR bslash = wcsrchr (bc_path, L'\');
+
+			if (bslash)
+			{
+				*bslash = UNICODE_NULL;
+				wcscat_s (bc_path, RTL_NUMBER_OF (bc_path), L"\breadcrumb.txt");
+
+				hbc = CreateFileW (bc_path, FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_ALWAYS, 0, NULL);
+
+				if (hbc != INVALID_HANDLE_VALUE)
+				{
+					SetFilePointer (hbc, 0, NULL, FILE_END);
+					_snprintf_s (bc_line, RTL_NUMBER_OF (bc_line), _TRUNCATE, "profiledir: portable=%d path=%ls (len=%lu)
+", _r_app_isportable () ? 1 : 0, cached_path ? cached_path->buffer : L"<NULL>", cached_path ? (ULONG)_r_str_getlength2 (&cached_path->sr) : 0);
+					WriteFile (hbc, bc_line, (DWORD)strlen (bc_line), &written, NULL);
+					CloseHandle (hbc);
+				}
+			}
+		}
+	}
+
 	if (cached_path && !_r_fs_exists (&cached_path->sr))
 		_r_fs_createdirectory (&cached_path->sr);
 
