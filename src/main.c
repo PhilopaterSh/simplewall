@@ -1864,6 +1864,18 @@ static VOID _app_init_breadcrumb (
 	CloseHandle (hbc);
 }
 
+// composite Phase 2 (FR-12/P2-2): the profile-directory DACL hardening
+// runs on the FILES workqueue - CI-proven (2026-11-19): the call can
+// deadlock inside SetNamedSecurityInfoW's inheritable-ACE propagation
+// (Windows Server 2025 runner), and init must NEVER block on external
+// systems (the S4 discipline). Non-fatal by NFR-01 either way.
+static VOID NTAPI _app_integrity_hardenacl_thread (
+	_In_ PVOID arglist
+)
+{
+	_r_workqueue_queueitem (&file_queue, &_app_integrity_hardenacl_thread, NULL);
+}
+
 VOID _app_initialize (
 	_In_opt_ HWND hwnd
 )
