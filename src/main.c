@@ -1896,6 +1896,15 @@ VOID _app_initialize (
 
 	_app_init_breadcrumb ("init:enter");
 
+	// composite Phase 2 (FR-12/P2-2): the profile-directory DACL hardening
+	// runs FIRST - SYNCHRONOUSLY - before any code opens a handle inside
+	// the profile tree. CI-proven (2026-11-19): when propagation runs
+	// while OTHER threads/calls hold handles in the same tree, the main
+	// thread freezes on FS ops against that tree (the hang MOVED between
+	// file operations across runs). First-and-alone = no concurrent
+	// handles = no contention. Non-fatal by NFR-01 + config-gated (O-8).
+	_app_integrity_hardenacl ();
+
 	// hardening round 2 (FR-03/DEC-05): embed the update feed verification
 	// public key (the private key is held off-repository by the fork owner)
 	_r_update_setpublickey (UPDATE_PUBLIC_KEY, RTL_NUMBER_OF (UPDATE_PUBLIC_KEY));
@@ -1950,13 +1959,6 @@ VOID _app_initialize (
 	// composite Phase 2 (FR-12): ledger baseline integrity
 	_app_ledger_startupcheck ();
 	_app_init_breadcrumb ("cs:ledger-sc");
-
-	// composite Phase 2 (FR-12/P2-2): profile-directory DACL hardening
-	// (non-fatal; non-elevated sessions log and skip) - runs on the FILES
-	// workqueue (CI-proven: SetNamedSecurityInfoW can deadlock; init must
-	// never block on external systems, S4 discipline)
-	_r_workqueue_queueitem (&file_queue, &_app_integrity_hardenacl_thread, NULL);
-	_app_init_breadcrumb ("cs:hardenacl");
 
 	// composite Phase 3 (P3-C): never-leave-DNS-broken crash residue
 	_app_resolver_startupcheck ();
