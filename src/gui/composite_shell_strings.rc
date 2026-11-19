@@ -1,0 +1,74 @@
+// simplewall
+// Copyright (c) 2016-2026 Henry++
+
+// composite shell English stringtable (GUI chain G-1, DEC-11). A
+// fork-owned .rc so the shell never edits upstream resource files
+// (DEC-09): STRINGTABLEs merge across .rc files into the single exe
+// and the routine locale fallback reads exe resources regardless of
+// which .rc defined them. Translations live in bin/i18n/*.ini keyed by
+// these symbolic ids; missing pack keys fall back to the values below.
+
+#include <windows.h>
+
+#include "composite_shell_res.h"
+
+LANGUAGE LANG_ENGLISH, SUBLANG_DEFAULT
+
+STRINGTABLE
+{
+IDS_SHELL_WINDOWTITLE, "simplewall - composite shell"
+IDS_SHELL_RAIL_APPS, "Apps"
+IDS_SHELL_RAIL_RULES, "Rules"
+IDS_SHELL_RAIL_PACKS, "Packs"
+IDS_SHELL_RAIL_LOCKDOWN, "Lockdown"
+IDS_SHELL_RAIL_LOG, "Log"
+IDS_SHELL_RAIL_SETTINGS, "Settings"
+IDS_SHELL_SUB_RULES, "Milestone G-2 - the full rules surface lands with the next stage"
+IDS_SHELL_SUB_PACKS, "Signed packs (FR-08) - import and control land in G-2; the list below is a placeholder"
+IDS_SHELL_SUB_LOCKDOWN, "Defensive isolation on the WFAS layer (FR-06) - a machine-critical action"
+IDS_SHELL_SUB_SETTINGS, "Composite feature gates - written directly to the configuration"
+IDS_SHELL_CHIP_TOTAL, "Total: %lu"
+IDS_SHELL_CHIP_ALLOWED, "Allowed: %lu"
+IDS_SHELL_CHIP_BLOCKED, "Blocked: %lu"
+IDS_SHELL_CHIP_PROMPT, "Prompt: %lu"
+IDS_SHELL_PILL_ALLOW, "Allow"
+IDS_SHELL_PILL_BLOCK, "Block"
+IDS_SHELL_PILL_PROMPT, "Notify"
+IDS_SHELL_PILL_ENABLED, "Enabled"
+IDS_SHELL_PILL_DISABLED, "Disabled"
+IDS_SHELL_GATES_TIERS, "Auto tiers (IsCompositeTiersEnabled)"
+IDS_SHELL_GATES_SINGLEFLIGHT, "Single flight (IsCompositeSingleFlightEnabled)"
+IDS_SHELL_GATES_DNS, "DNS attribution (IsCompositeDnsAttributionEnabled)"
+IDS_SHELL_GATES_LEDGER, "Audit ledger (IsCompositeLedgerEnabled)"
+IDS_SHELL_FOOTPRINT, "Idle footprint: ~%lu MB"
+IDS_SHELL_EMPTY_APPS, "No applications in the profile yet"
+IDS_SHELL_LOG_HELD, "Connections held awaiting a decision: %lu"
+IDS_SHELL_LOG_FOREIGN, "Foreign changes in the audit ledger: %lu"
+IDS_SHELL_LOG_ENGINE, "The live log requires the engine (main path)"
+IDS_SHELL_RULES_LINE, "Live session decisions: %lu"
+IDS_SHELL_LDN_ACTIVE, "Lockdown state: ACTIVE"
+IDS_SHELL_LDN_INACTIVE, "Lockdown state: inactive"
+IDS_SHELL_LDN_RESOLVER, "Resolver: %s"
+IDS_SHELL_LDN_RESOLVER_OWNED, "platform-owned"
+IDS_SHELL_LDN_RESOLVER_FREE, "not owned"
+IDS_SHELL_LDN_CONTRACT, "Safety contract (design r2):"
+IDS_SHELL_LDN_CONTRACT1, "Snapshot of the firewall state before any change"
+IDS_SHELL_LDN_CONTRACT2, "Verify-then-commit (DEC-04) with the pre-flight outcome shown first"
+IDS_SHELL_LDN_CONTRACT3, "Full automatic revert when any step fails"
+IDS_SHELL_LDN_CONTRACT4, "A watchdog supervises the isolation while engaged"
+IDS_SHELL_LDN_CONTRACT5, "RSK-04: port 53 conflicts are reported, never silently bypassed"
+IDS_SHELL_LDN_ENABLE, "Engage Lockdown"
+IDS_SHELL_LDN_DISABLE, "Disengage Lockdown"
+IDS_SHELL_LDN_TITLE, "Lockdown confirmation"
+IDS_SHELL_LDN_CONFIRM_EN1, "Full lockdown will be engaged."
+IDS_SHELL_LDN_CONFIRM_EN2, "This is a machine-critical action: the firewall state changes system-wide and the DNS resolver is redirected."
+IDS_SHELL_LDN_CONFIRM_DIS1, "Lockdown will be disengaged and fully reverted."
+IDS_SHELL_LDN_CONFIRM_Q, "Continue?"
+IDS_SHELL_LDN_ERROR, "The operation failed - see the log for details."
+IDS_SHELL_LDN_PF_OK, "Pre-flight passed (0x%08X)."
+IDS_SHELL_LDN_PF_FAIL, "Pre-flight FAILED (0x%08X) - continuing overrides the module refuse gate; do not proceed unless you understand the reported condition."
+IDS_SHELL_SEARCH_CUE, "Search applications..."
+IDS_SHELL_SEARCH_NOHIT, "No applications match the filter"
+IDS_SHELL_THEME_LIGHT, "Light theme (IsShellLightTheme)"
+IDS_SHELL_RENDERED, "Showing %lu of %lu (scroll with the wheel or the scrollbar)"
+}

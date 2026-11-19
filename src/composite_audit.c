@@ -398,6 +398,37 @@ NTSTATUS _app_audit_enable (VOID)
 	return STATUS_SUCCESS;
 }
 
+// DEC-11 query API (GUI Lockdown page pre-flight): read-only probe of
+// the two conditions _app_audit_enable refuses on — a corrupt sidecar
+// inventory (SEC-03 warn-and-leave) or a subcategory query failure.
+// NO machine mutation, NO sidecar write; the shared lock only guards
+// the sidecar read.
+NTSTATUS _app_audit_probe (VOID)
+{
+	AUDIT_POLICY_INFORMATION policy_info;
+	BOOLEAN failure_prior;
+	BOOLEAN success_prior;
+	BOOLEAN legacy_present;
+	BOOLEAN inventory_is_present;
+	BOOLEAN inventory_is_valid;
+	NTSTATUS status;
+	ULONG legacy_value = 0;
+
+	_r_queuedlock_acquireshared (&lock_audit);
+	_app_audit_readinventory (&failure_prior, &success_prior, &legacy_present, &legacy_value, &inventory_is_present, &inventory_is_valid);
+	_r_queuedlock_releaseshared (&lock_audit);
+
+	if (inventory_is_present && !inventory_is_valid)
+		return STATUS_INVALID_PARAMETER; // corrupt sidecar — enable would refuse entirely
+
+	status = _app_audit_querysubcategory (&policy_info);
+
+	if (!NT_SUCCESS (status))
+		return status; // AuditQuerySystemPolicy failure — enable would refuse
+
+	return STATUS_SUCCESS;
+}
+
 NTSTATUS _app_audit_revert (VOID)
 {
 	AUDIT_POLICY_INFORMATION policy_info;

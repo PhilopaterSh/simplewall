@@ -1,0 +1,71 @@
+// simplewall
+// Copyright (c) 2016-2026 Henry++
+
+// composite shell string ids (GUI chain G-1, DEC-11): fork-owned block
+// starting at 305. Upstream resource.h ends at IDS_DECISION_PUBLISHER
+// (291) and upstream is archived — but CVTRES packs STRINGTABLE
+// resources in 16-id blocks as ((id-1)/16)+1, so upstream 289-291
+// occupy block 19 (ids 289-304): a fork block must start at the NEXT
+// free block boundary, 305 (this was proven by CVT1100 duplicate
+// resource name:19 in the first build). English values live in
+// composite_shell_strings.rc; translated packs add these keys by
+// SYMBOLIC NAME to bin/i18n/*.ini (matching the existing format,
+// e.g. Arabic.ini). Do not renumber: keys are pack-facing.
+
+#pragma once
+
+#define IDS_SHELL_WINDOWTITLE 305
+#define IDS_SHELL_RAIL_APPS 306
+#define IDS_SHELL_RAIL_RULES 307
+#define IDS_SHELL_RAIL_PACKS 308
+#define IDS_SHELL_RAIL_LOCKDOWN 309
+#define IDS_SHELL_RAIL_LOG 310
+#define IDS_SHELL_RAIL_SETTINGS 311
+#define IDS_SHELL_SUB_RULES 312
+#define IDS_SHELL_SUB_PACKS 313
+#define IDS_SHELL_SUB_LOCKDOWN 314
+#define IDS_SHELL_SUB_SETTINGS 315
+#define IDS_SHELL_CHIP_TOTAL 316
+#define IDS_SHELL_CHIP_ALLOWED 317
+#define IDS_SHELL_CHIP_BLOCKED 318
+#define IDS_SHELL_CHIP_PROMPT 319
+#define IDS_SHELL_PILL_ALLOW 320
+#define IDS_SHELL_PILL_BLOCK 321
+#define IDS_SHELL_PILL_PROMPT 322
+#define IDS_SHELL_PILL_ENABLED 323
+#define IDS_SHELL_PILL_DISABLED 324
+#define IDS_SHELL_GATES_TIERS 325
+#define IDS_SHELL_GATES_SINGLEFLIGHT 326
+#define IDS_SHELL_GATES_DNS 327
+#define IDS_SHELL_GATES_LEDGER 328
+#define IDS_SHELL_FOOTPRINT 329
+#define IDS_SHELL_EMPTY_APPS 330
+#define IDS_SHELL_LOG_HELD 331
+#define IDS_SHELL_LOG_FOREIGN 332
+#define IDS_SHELL_LOG_ENGINE 333
+#define IDS_SHELL_RULES_LINE 334
+#define IDS_SHELL_LDN_ACTIVE 335
+#define IDS_SHELL_LDN_INACTIVE 336
+#define IDS_SHELL_LDN_RESOLVER 337
+#define IDS_SHELL_LDN_RESOLVER_OWNED 338
+#define IDS_SHELL_LDN_RESOLVER_FREE 339
+#define IDS_SHELL_LDN_CONTRACT 340
+#define IDS_SHELL_LDN_CONTRACT1 341
+#define IDS_SHELL_LDN_CONTRACT2 342
+#define IDS_SHELL_LDN_CONTRACT3 343
+#define IDS_SHELL_LDN_CONTRACT4 344
+#define IDS_SHELL_LDN_CONTRACT5 345
+#define IDS_SHELL_LDN_ENABLE 346
+#define IDS_SHELL_LDN_DISABLE 347
+#define IDS_SHELL_LDN_TITLE 348
+#define IDS_SHELL_LDN_CONFIRM_EN1 349
+#define IDS_SHELL_LDN_CONFIRM_EN2 350
+#define IDS_SHELL_LDN_CONFIRM_DIS1 351
+#define IDS_SHELL_LDN_CONFIRM_Q 352
+#define IDS_SHELL_LDN_ERROR 353
+#define IDS_SHELL_LDN_PF_OK 354
+#define IDS_SHELL_LDN_PF_FAIL 355
+#define IDS_SHELL_SEARCH_CUE 356
+#define IDS_SHELL_SEARCH_NOHIT 357
+#define IDS_SHELL_THEME_LIGHT 358
+#define IDS_SHELL_RENDERED 359

@@ -1,13 +1,21 @@
 // simplewall
 // Copyright (c) 2016-2026 Henry++
 
-// composite_shell (G-1/G-2): fork-native owner-drawn GUI, visual
-// authority docs/specs/gui/mockup-r1.html (dark palette, RTL rail,
-// state pills). Extends the composite modules through their query APIs
-// only — no WFP/engine interaction here. Compile this file with /utf-8
-// (vcxproj per-file setting); Arabic UI strings are UTF-8 literals.
+// composite_shell (G-1, r3-integrated): fork-native owner-drawn GUI.
+// Visual authority docs/specs/gui/mockup-r1.html; mechanics authority
+// design-gui-draft.md r2 + r3 amendment (G1-M1 theme + DPI awareness +
+// buffered paint, G1-M2 virtualized Apps page + debounced shell-global
+// search + full-row signature, G1-M3 draw-side RTL mirroring, G1-M4
+// locale pipeline, G1-M5 hygiene incl. the DEC-04 lockdown pre-flight
+// surface, G1-M6 basic MSAA labels in composite_shell_a11y.c).
+// Extends the composite modules through their query APIs only — no
+// WFP/engine interaction here. Run with `simplewall.exe -gui` AFTER
+// _r_app_initialize (locale/config/mitigations live; the shell loads
+// the profile itself in WM_CREATE).
 
 #include "../global.h"
+
+#include <wchar.h>
 
 #include "../composite_lockdown.h" // composite Phase 1 (FR-06/DEC-04)
 #include "../composite_packs.h" // composite Phase 2 (FR-08/DATA-02)
@@ -18,12 +26,23 @@
 
 #include "../wfp.h" // engine-installed probe for the Log page honesty line
 
+#include "composite_shell_res.h" // fork-owned IDS_SHELL_* (DEC-09)
 #include "composite_shell.h"
 
+// a11y bridge (G1-M6): implemented in composite_shell_a11y.c
+LRESULT _app_shell_a11y_getobject (
+	_In_ HWND hwnd,
+	_In_ WPARAM wparam,
+	_In_ LPARAM lparam
+);
+
 #define SHELL_CLASSNAME L"quietwall_shell"
-#define SHELL_WINDOWNAME L"simplewall — القشرة المركّبة"
-#define SHELL_TIMER_ID 1
-#define SHELL_TIMER_MS 2000
+#define SHELL_TIMER_REFRESH 1
+#define SHELL_TIMER_FILTER 2
+#define SHELL_TIMER_REFRESH_MS 2000
+#define SHELL_TIMER_FILTER_MS 250 // System Informer SearchDelayMs precedent
+
+#define SHELL_ID_SEARCH 1
 
 #define SHELL_CLIENT_W 1080
 #define SHELL_CLIENT_H 680
@@ -31,33 +50,119 @@
 #define SHELL_MARGIN 16
 #define SHELL_CARD_H 56
 #define SHELL_CARD_GAP 8
+#define SHELL_ROW_PITCH (SHELL_CARD_H + SHELL_CARD_GAP)
 #define SHELL_PILL_W 72
 #define SHELL_PILL_H 24
 #define SHELL_CHECKBOX_SIZE 16
-
-#define SHELL_APPS_MAX 200
+#define SHELL_SEARCH_OFF 44
+#define SHELL_SEARCH_H 30
+#define SHELL_SEARCH_W 320
+#define SHELL_CHIPS_OFF (SHELL_SEARCH_OFF + SHELL_SEARCH_H + 10)
+#define SHELL_CHIPS_H 30
+#define SHELL_ROWS_OFF (SHELL_CHIPS_OFF + SHELL_CHIPS_H + 12)
+#define SHELL_SCROLLBAR_W 10
+#define SHELL_FILTER_MAX 64
 #define SHELL_NAME_MAX 96
 #define SHELL_PATH_MAX 192
 #define SHELL_LINE_MAX 160
+#define SHELL_TEXT_MAX 1024
 
-// mockup-r1.html palette
-#define SHELL_COLOR_BG RGB (0x0b, 0x12, 0x20)
-#define SHELL_COLOR_RAIL RGB (0x11, 0x1a, 0x2e)
-#define SHELL_COLOR_CARD RGB (0x16, 0x20, 0x3a)
-#define SHELL_COLOR_LINE RGB (0x22, 0x30, 0x52)
-#define SHELL_COLOR_ACCENT RGB (0x2d, 0xd4, 0xbf)
-#define SHELL_COLOR_ACCENTTEXT RGB (0x06, 0x20, 0x20)
-#define SHELL_COLOR_TEXT RGB (0xdb, 0xe6, 0xf5)
-#define SHELL_COLOR_MUTED RGB (0x8a, 0xa0, 0xc0)
-#define SHELL_COLOR_OK RGB (0x34, 0xd3, 0x99)
-#define SHELL_COLOR_OKBG RGB (0x0f, 0x2b, 0x22)
-#define SHELL_COLOR_OKLINE RGB (0x1c, 0x5a, 0x45)
-#define SHELL_COLOR_DANGER RGB (0xf8, 0x71, 0x71)
-#define SHELL_COLOR_DANGERBG RGB (0x2b, 0x12, 0x12)
-#define SHELL_COLOR_DANGERLINE RGB (0x6b, 0x27, 0x27)
-#define SHELL_COLOR_WARN RGB (0xfb, 0xbf, 0x24)
-#define SHELL_COLOR_WARNBG RGB (0x2b, 0x20, 0x05)
-#define SHELL_COLOR_WARNLINE RGB (0x6b, 0x54, 0x1c)
+// EM_SETCUEBANNER landed with _WIN32_IE 0x0600; guard for old SDKs
+#ifndef EM_SETCUEBANNER
+#define EM_SETCUEBANNER (WM_USER + 0x1501)
+#endif
+
+// buffered paint is dynamic-resolved (NFR-02): documented uxtheme named
+// exports, no library linkage, no ordinal hooking (r3 G1-M1)
+#ifndef BPBF_COMPATIBLEBUFFERS
+#define BPBF_COMPATIBLEBUFFERS 0
+#endif
+
+typedef HANDLE HPAINTBUFFER_SHELL;
+
+typedef HPAINTBUFFER_SHELL (WINAPI *SHELL_PFN_BEGINBUFFEREDPAINT) (
+	_In_ HDC hdc_target,
+	_In_ LPCRECT prc_target,
+	_In_ UINT format,
+	_In_opt_ void *paint_params,
+	_Out_ HDC *hdc_buffer
+);
+
+typedef HRESULT (WINAPI *SHELL_PFN_ENDBUFFEREDPAINT) (
+	_In_ HPAINTBUFFER_SHELL hbufferedpaint,
+	_In_ BOOLEAN update_target
+);
+
+#ifndef DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2
+#define DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 ((HANDLE)-4)
+#endif
+
+typedef HANDLE (WINAPI *SHELL_PFN_SETDPICONTEXT) (
+	_In_ HANDLE value
+);
+
+// mockup-r1.html palette (dark) + derived light palette (r3 G1-M1:
+// owner-selectable per DEC-11 "dark/light owner-selectable")
+typedef struct _SHELL_PALETTE
+{
+	COLORREF bg;
+	COLORREF rail;
+	COLORREF card;
+	COLORREF line;
+	COLORREF accent;
+	COLORREF accenttext;
+	COLORREF text;
+	COLORREF muted;
+	COLORREF ok;
+	COLORREF okbg;
+	COLORREF okline;
+	COLORREF danger;
+	COLORREF dangerbg;
+	COLORREF dangerline;
+	COLORREF warn;
+	COLORREF warnbg;
+	COLORREF warnline;
+} SHELL_PALETTE;
+
+static const SHELL_PALETTE shell_palette_dark = {
+	RGB (0x0b, 0x12, 0x20), // bg
+	RGB (0x11, 0x1a, 0x2e), // rail
+	RGB (0x16, 0x20, 0x3a), // card
+	RGB (0x22, 0x30, 0x52), // line
+	RGB (0x2d, 0xd4, 0xbf), // accent
+	RGB (0x06, 0x20, 0x20), // accenttext
+	RGB (0xdb, 0xe6, 0xf5), // text
+	RGB (0x8a, 0xa0, 0xc0), // muted
+	RGB (0x34, 0xd3, 0x99), // ok
+	RGB (0x0f, 0x2b, 0x22), // okbg
+	RGB (0x1c, 0x5a, 0x45), // okline
+	RGB (0xf8, 0x71, 0x71), // danger
+	RGB (0x2b, 0x12, 0x12), // dangerbg
+	RGB (0x6b, 0x27, 0x27), // dangerline
+	RGB (0xfb, 0xbf, 0x24), // warn
+	RGB (0x2b, 0x20, 0x05), // warnbg
+	RGB (0x6b, 0x54, 0x1c), // warnline
+};
+
+static const SHELL_PALETTE shell_palette_light = {
+	RGB (0xf4, 0xf6, 0xfa), // bg
+	RGB (0xe9, 0xec, 0xf2), // rail
+	RGB (0xff, 0xff, 0xff), // card
+	RGB (0xd5, 0xda, 0xe4), // line
+	RGB (0x14, 0xb8, 0xa6), // accent
+	RGB (0xff, 0xff, 0xff), // accenttext
+	RGB (0x1a, 0x22, 0x33), // text
+	RGB (0x5c, 0x6c, 0x88), // muted
+	RGB (0x0f, 0x9d, 0x6f), // ok
+	RGB (0xe6, 0xf7, 0xf0), // okbg
+	RGB (0xa9, 0xdf, 0xca), // okline
+	RGB (0xdc, 0x3d, 0x3d), // danger
+	RGB (0xfd, 0xee, 0xee), // dangerbg
+	RGB (0xf0, 0xb4, 0xb4), // dangerline
+	RGB (0xc0, 0x8a, 0x00), // warn
+	RGB (0xff, 0xf6, 0xdc), // warnbg
+	RGB (0xe4, 0xd0, 0x8f), // warnline
+};
 
 typedef enum _SHELL_PAGE
 {
@@ -74,33 +179,92 @@ typedef struct _SHELL_APP_SNAPSHOT
 {
 	WCHAR name[SHELL_NAME_MAX];
 	WCHAR path[SHELL_PATH_MAX];
-	INT state; // 0 = block, 1 = allow, 2 = prompt (notification set)
+	INT state; // render state: 0 = block, 1 = allow, 2 = prompt (notification set)
 } SHELL_APP_SNAPSHOT;
 
-static const LPCWSTR shell_rail_names[SHELL_PAGE_MAX] = {
-	L"التطبيقات",
-	L"القواعد",
-	L"الحزم",
-	L"Lockdown",
-	L"السجل",
-	L"الإعدادات",
+// shell_is_rtl is the direction-flag plumbing required in M1 (r3
+// G1-M3): the M4 i18n sweep wires it to the active pack's direction
+// metadata; the mockup authority (dir="rtl") makes RTL the M1 truth
+static BOOLEAN shell_is_rtl = TRUE;
+
+static const ULONG shell_rail_ids[SHELL_PAGE_MAX] = {
+	IDS_SHELL_RAIL_APPS,
+	IDS_SHELL_RAIL_RULES,
+	IDS_SHELL_RAIL_PACKS,
+	IDS_SHELL_RAIL_LOCKDOWN,
+	IDS_SHELL_RAIL_LOG,
+	IDS_SHELL_RAIL_SETTINGS,
 };
 
-static SHELL_APP_SNAPSHOT shell_apps[SHELL_APPS_MAX] = {0};
-static ULONG shell_apps_count = 0; // rendered (capped) count
+// apps snapshot (heap-grown; r3 G1-M2 removed the 200-row cap)
+static SHELL_APP_SNAPSHOT *shell_apps = NULL;
+static ULONG shell_apps_cap = 0;
+static ULONG shell_apps_count = 0;
 static ULONG shell_apps_total = 0;
 static ULONG shell_apps_allowed = 0;
 static ULONG shell_apps_blocked = 0;
+static ULONG shell_apps_prompt = 0;
+static ULONG64 shell_apps_sig = 0; // full-row hash (goldfish finding 6)
+
+// filtered view index over the snapshot (System Informer pipeline shape)
+static ULONG *shell_view = NULL;
+static ULONG shell_view_cap = 0;
+static ULONG shell_view_count = 0;
+static WCHAR shell_filter[SHELL_FILTER_MAX] = {0};
 
 static INT shell_page = SHELL_PAGE_APPS;
+static INT shell_rail_focus = SHELL_PAGE_APPS;
+static BOOLEAN shell_input_kbd = FALSE; // last input was keyboard (focus rect)
 static RECT shell_rail_rects[SHELL_PAGE_MAX] = {0};
 static RECT shell_lockdown_btn = {0};
-static RECT shell_check_rects[4] = {0}; // settings rows (hit-test)
+static RECT shell_check_rects[5] = {0}; // settings rows (4 gates + theme)
+static RECT shell_scrollbar_rect = {0};
+static RECT shell_scrollbar_thumb = {0};
+static BOOLEAN shell_scrollbar_drag = FALSE;
+static LONG shell_scrollbar_drag_off = 0;
+static LONG shell_scroll = 0; // px
+
+static BOOLEAN shell_is_light = FALSE;
+static const SHELL_PALETTE *shell_pal = &shell_palette_dark;
+static HWND shell_hwnd_search = NULL;
 
 static HFONT shell_font_title = NULL;
 static HFONT shell_font_main = NULL;
 static HFONT shell_font_small = NULL;
 static HFONT shell_font_pill = NULL;
+
+static SHELL_PFN_BEGINBUFFEREDPAINT shell_pfn_beginbufferedpaint = NULL;
+static SHELL_PFN_ENDBUFFEREDPAINT shell_pfn_endbufferedpaint = NULL;
+
+static VOID _app_shell_locale (
+	_Out_writes_ (cch) WCHAR *dst,
+	_In_ ULONG cch,
+	_In_ ULONG id
+)
+{
+	LPWSTR src;
+
+	if (!cch)
+		return;
+
+	dst[0] = UNICODE_NULL;
+
+	// copy-immediately contract: _r_locale_getstring returns the buffer
+	// of a temporarily-referenced object (routine rapp.c's own TODO
+	// admits it) — never store the pointer (r3 G1-M4; upstream
+	// precedent main.c:85)
+	src = _r_locale_getstring (id);
+
+	if (src && src[0])
+	{
+		_r_str_copy (dst, cch, src);
+	}
+	else
+	{
+		// last-resort fallback: the fork-owned exe stringtable
+		LoadStringW (NULL, id, dst, (INT)cch);
+	}
+}
 
 static VOID _app_shell_strcopy (
 	_Out_writes_ (dst_chars) WCHAR *dst,
@@ -125,50 +289,36 @@ static VOID _app_shell_strcopy (
 	dst[i] = UNICODE_NULL;
 }
 
-static VOID _app_shell_snapshot_apps (VOID)
+// case-insensitive substring (manual, no shlwapi dependency)
+static BOOLEAN _app_shell_strfindi (
+	_In_ LPCWSTR haystack,
+	_In_ LPCWSTR needle
+)
 {
-	PITEM_APP ptr_app = NULL;
-	ULONG_PTR enum_key = 0;
-	ULONG total = 0;
-	ULONG allowed = 0;
-	ULONG blocked = 0;
-	ULONG rendered = 0;
+	WCHAR hay_lower[2 * SHELL_PATH_MAX];
+	WCHAR needle_lower[SHELL_FILTER_MAX];
+	ULONG i;
+	ULONG hay_len;
 
-	_r_queuedlock_acquireshared (&lock_apps);
+	if (!needle || !needle[0])
+		return TRUE;
 
-	while (_r_obj_enumhashtablepointer (apps_table, (PVOID_PTR)&ptr_app, NULL, &enum_key))
-	{
-		total++;
+	if (!haystack)
+		return FALSE;
 
-		if (ptr_app->is_enabled)
-			allowed++;
-		else
-			blocked++;
+	hay_len = 0;
 
-		if (rendered < SHELL_APPS_MAX)
-		{
-			SHELL_APP_SNAPSHOT *snap = &shell_apps[rendered];
+	for (i = 0; haystack[i] && hay_len + 1 < RTL_NUMBER_OF (hay_lower); i++)
+		hay_lower[hay_len++] = (WCHAR)towlower (haystack[i]);
 
-			_app_shell_strcopy (snap->name, SHELL_NAME_MAX, ptr_app->display_name ? ptr_app->display_name->buffer : NULL);
-			_app_shell_strcopy (snap->path, SHELL_PATH_MAX, ptr_app->real_path ? ptr_app->real_path->buffer : (ptr_app->short_name ? ptr_app->short_name->buffer : NULL));
+	hay_lower[hay_len] = UNICODE_NULL;
 
-			if (ptr_app->notification)
-				snap->state = 2;
-			else if (ptr_app->is_enabled)
-				snap->state = 1;
-			else
-				snap->state = 0;
+	for (i = 0; needle[i] && i + 1 < RTL_NUMBER_OF (needle_lower); i++)
+		needle_lower[i] = (WCHAR)towlower (needle[i]);
 
-			rendered++;
-		}
-	}
+	needle_lower[i] = UNICODE_NULL;
 
-	_r_queuedlock_releaseshared (&lock_apps);
-
-	shell_apps_count = rendered;
-	shell_apps_total = total;
-	shell_apps_allowed = allowed;
-	shell_apps_blocked = blocked;
+	return wcsstr (hay_lower, needle_lower) != NULL;
 }
 
 static VOID _app_shell_drawtext (
@@ -250,116 +400,581 @@ static VOID _app_shell_drawchip (
 	_In_ LPCWSTR text
 )
 {
-	_app_shell_fillround (hdc, rect, SHELL_COLOR_CARD, SHELL_COLOR_LINE, 8);
-	_app_shell_drawtext (hdc, text, rect, shell_font_small, SHELL_COLOR_TEXT, DT_CENTER | DT_VCENTER);
+	_app_shell_fillround (hdc, rect, shell_pal->card, shell_pal->line, 8);
+	_app_shell_drawtext (hdc, text, rect, shell_font_small, shell_pal->text, DT_CENTER | DT_VCENTER);
 }
 
 static VOID _app_shell_pagetitle (
 	_In_ HDC hdc,
 	_In_ PRECT content,
-	_In_ LPCWSTR title,
-	_In_ LPCWSTR subtitle
+	_In_ ULONG title_id,
+	_In_ ULONG subtitle_id // 0 = none
 )
 {
+	WCHAR buffer[SHELL_LINE_MAX];
 	RECT rect;
 
 	rect = *content;
 	rect.bottom = rect.top + 34;
-	_app_shell_drawtext (hdc, title, &rect, shell_font_title, SHELL_COLOR_TEXT, DT_RIGHT);
 
-	if (subtitle)
+	_app_shell_locale (buffer, RTL_NUMBER_OF (buffer), title_id);
+	_app_shell_drawtext (hdc, buffer, &rect, shell_font_title, shell_pal->text, shell_is_rtl ? DT_RIGHT : DT_LEFT);
+
+	if (subtitle_id)
 	{
 		rect.top = rect.bottom + 2;
 		rect.bottom = rect.top + 22;
-		_app_shell_drawtext (hdc, subtitle, &rect, shell_font_small, SHELL_COLOR_MUTED, DT_RIGHT);
+
+		_app_shell_locale (buffer, RTL_NUMBER_OF (buffer), subtitle_id);
+		_app_shell_drawtext (hdc, buffer, &rect, shell_font_small, shell_pal->muted, shell_is_rtl ? DT_RIGHT : DT_LEFT);
 	}
 }
 
-static VOID _app_shell_drawapps (
-	_In_ HDC hdc,
-	_In_ PRECT content,
-	_In_ PRECT client
+// window frame: rail rect + content rect, language-conditional (r3
+// G1-M3: rail on the inline-start — right under RTL, left under LTR)
+static VOID _app_shell_frame (
+	_In_ HWND hwnd,
+	_Out_ PRECT rail,
+	_Out_ PRECT content
 )
 {
-	WCHAR buffer[128];
-	RECT rect;
-	RECT card;
-	LONG y;
+	RECT client;
 
-	_app_shell_pagetitle (hdc, content, L"التطبيقات", NULL);
-
-	// summary chips (right-to-left order: total, allowed, blocked)
-	y = content->top + 44;
-
-	_r_str_printf (buffer, RTL_NUMBER_OF (buffer), L"الإجمالي: %lu", shell_apps_total);
-	rect.left = content->right - 3 * 160 - 2 * 10;
-	rect.right = content->right;
-	rect.top = y;
-	rect.bottom = y + 30;
-	_app_shell_drawchip (hdc, &rect, buffer);
-
-	_r_str_printf (buffer, RTL_NUMBER_OF (buffer), L"مسموح: %lu", shell_apps_allowed);
-	rect.left = content->right - 2 * 160 - 10;
-	rect.right = rect.left + 160;
-	_app_shell_drawchip (hdc, &rect, buffer);
-
-	_r_str_printf (buffer, RTL_NUMBER_OF (buffer), L"محجوب: %lu", shell_apps_blocked);
-	rect.left = content->right - 160;
-	rect.right = rect.left + 160;
-	_app_shell_drawchip (hdc, &rect, buffer);
-
-	y += 30 + SHELL_MARGIN;
-
-	if (shell_apps_count == 0)
+	if (!GetClientRect (hwnd, &client))
 	{
-		rect.left = content->left;
-		rect.right = content->right;
-		rect.top = y;
-		rect.bottom = y + 60;
-		_app_shell_fillround (hdc, &rect, SHELL_COLOR_CARD, SHELL_COLOR_LINE, 10);
-		_app_shell_drawtext (hdc, L"لا توجد تطبيقات في الملف الشخصي بعد", &rect, shell_font_main, SHELL_COLOR_MUTED, DT_CENTER | DT_VCENTER);
+		SetRectEmpty (rail);
+		SetRectEmpty (content);
 		return;
 	}
 
-	for (ULONG i = 0; i < shell_apps_count; i++)
+	if (shell_is_rtl)
+	{
+		rail->left = client.right - SHELL_RAIL_W;
+		rail->right = client.right;
+		rail->top = 0;
+		rail->bottom = client.bottom;
+
+		content->left = SHELL_MARGIN;
+		content->right = client.right - SHELL_RAIL_W - SHELL_MARGIN;
+	}
+	else
+	{
+		rail->left = client.left;
+		rail->right = client.left + SHELL_RAIL_W;
+		rail->top = 0;
+		rail->bottom = client.bottom;
+
+		content->left = client.left + SHELL_RAIL_W + SHELL_MARGIN;
+		content->right = client.right - SHELL_MARGIN;
+	}
+
+	content->top = SHELL_MARGIN;
+	content->bottom = client.bottom - SHELL_MARGIN;
+}
+
+// rows region of the Apps page: shared by paint, scrollbar and a11y
+static VOID _app_shell_appsrowsrect (
+	_In_ HWND hwnd,
+	_Out_ PRECT rows
+)
+{
+	RECT rail;
+	RECT content;
+
+	_app_shell_frame (hwnd, &rail, &content);
+
+	rows->top = content.top + SHELL_ROWS_OFF;
+	rows->bottom = content.bottom;
+
+	if (shell_is_rtl)
+	{
+		rows->left = content.left + SHELL_SCROLLBAR_W + 6;
+		rows->right = content.right;
+	}
+	else
+	{
+		rows->left = content.left;
+		rows->right = content.right - SHELL_SCROLLBAR_W - 6;
+	}
+}
+
+static LONG _app_shell_scrollmax (_In_ HWND hwnd)
+{
+	RECT rows;
+	LONG total_height;
+
+	_app_shell_appsrowsrect (hwnd, &rows);
+
+	total_height = (LONG)shell_view_count * SHELL_ROW_PITCH;
+
+	if (total_height)
+		total_height -= SHELL_CARD_GAP; // no trailing gap
+
+	return max (0, total_height - (rows.bottom - rows.top));
+}
+
+static VOID _app_shell_scrollclamp (_In_ HWND hwnd)
+{
+	LONG scrollmax = _app_shell_scrollmax (hwnd);
+
+	shell_scroll = min (max (0, shell_scroll), scrollmax);
+}
+
+static VOID _app_shell_scrollby (
+	_In_ HWND hwnd,
+	_In_ LONG delta
+)
+{
+	shell_scroll += delta;
+	_app_shell_scrollclamp (hwnd);
+	InvalidateRect (hwnd, NULL, FALSE);
+}
+
+static LONG _app_shell_pagedelta (_In_ HWND hwnd)
+{
+	RECT rows;
+
+	_app_shell_appsrowsrect (hwnd, &rows);
+
+	return max (SHELL_ROW_PITCH, (rows.bottom - rows.top) - SHELL_ROW_PITCH);
+}
+
+// DPI awareness prerequisite (r3 G1-M1, goldfish finding 2): the
+// process declared nothing, so WM_DPICHANGED could never arrive. No
+// manifest (GenerateManifest=false is the binary posture) — dynamic
+// per-OS code path, scoped to the shell before its first window.
+static VOID _app_shell_dpiaware (VOID)
+{
+	SHELL_PFN_SETDPICONTEXT pfn;
+	HMODULE huser32;
+
+	huser32 = GetModuleHandleW (L"user32.dll");
+
+	if (!huser32)
+		return;
+
+	pfn = (SHELL_PFN_SETDPICONTEXT)GetProcAddress (huser32, "SetProcessDpiAwarenessContext");
+
+	if (pfn)
+	{
+		pfn (DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+	}
+	else
+	{
+		// pre-1703 fallback: the plain documented user32 export
+		pfn = (SHELL_PFN_SETDPICONTEXT)GetProcAddress (huser32, "SetProcessDPIAware");
+
+		if (pfn)
+			pfn (NULL); // BOOL (VOID) — the context argument is ignored
+	}
+}
+
+static VOID _app_shell_fonts_destroy (VOID)
+{
+	if (shell_font_title)
+		DeleteObject (shell_font_title);
+
+	if (shell_font_main)
+		DeleteObject (shell_font_main);
+
+	if (shell_font_small)
+		DeleteObject (shell_font_small);
+
+	if (shell_font_pill)
+		DeleteObject (shell_font_pill);
+
+	shell_font_title = NULL;
+	shell_font_main = NULL;
+	shell_font_small = NULL;
+	shell_font_pill = NULL;
+}
+
+static VOID _app_shell_fonts_create (_In_ LONG dpi)
+{
+	_app_shell_fonts_destroy ();
+
+	shell_font_title = CreateFontW (-MulDiv (15, dpi, 72), 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
+	shell_font_main = CreateFontW (-MulDiv (12, dpi, 72), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
+	shell_font_small = CreateFontW (-MulDiv (10, dpi, 72), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
+	shell_font_pill = CreateFontW (-MulDiv (10, dpi, 72), 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
+}
+
+static VOID _app_shell_themeapply (_In_ HWND hwnd)
+{
+	LONG override_value;
+
+	// tri-state: -1 = follow the system, 0 = dark, 1 = light (DEC-11
+	// "owner-selectable"; auto-detect is the registry read routine
+	// itself trusts — ShouldAppsUseDarkMode is unreliable >=1903)
+	override_value = _r_config_getlong (L"IsShellLightTheme", -1, NULL);
+
+	shell_is_light = (override_value == -1) ? !_r_wnd_isdarkmodeenabled () : (override_value != 0);
+	shell_pal = shell_is_light ? &shell_palette_light : &shell_palette_dark;
+
+	// dark titlebar (attr 20 with the attr-19 pre-20H1 fallback inside
+	// routine; Win11 border/caption/corner handled there too)
+	_r_theme_setwindowframe (hwnd, !shell_is_light);
+
+	if (shell_hwnd_search)
+		_r_theme_enable (shell_hwnd_search, !shell_is_light);
+
+	InvalidateRect (hwnd, NULL, TRUE);
+}
+
+// full apps-table snapshot + FULL-ROW signature (r3 G1-M2, goldfish
+// finding 6: aggregate signatures miss renames/toggles/swaps).
+// Single-threaded UI: the GUI thread is the only writer of the arrays;
+// the shared apps lock protects the table read.
+static BOOLEAN _app_shell_snapshot (VOID)
+{
+	PITEM_APP ptr_app = NULL;
+	ULONG_PTR enum_key = 0;
+	ULONG count = 0;
+	ULONG allowed = 0;
+	ULONG blocked = 0;
+	ULONG prompt = 0;
+	ULONG64 sig = 0xcbf29ce484222325ull; // FNV-1a offset basis
+	BOOLEAN changed;
+
+	_r_queuedlock_acquireshared (&lock_apps);
+
+	while (_r_obj_enumhashtablepointer (apps_table, (PVOID_PTR)&ptr_app, NULL, &enum_key))
+	{
+		SHELL_APP_SNAPSHOT snap;
+		LPCWSTR name_src;
+		LPCWSTR path_src;
+		ULONG i;
+
+		if (count == shell_apps_cap)
+		{
+			ULONG new_cap = shell_apps_cap ? shell_apps_cap * 2 : 64;
+			SHELL_APP_SNAPSHOT *grown = (SHELL_APP_SNAPSHOT *)HeapReAlloc (GetProcessHeap (), HEAP_ZERO_MEMORY, shell_apps, new_cap * sizeof (SHELL_APP_SNAPSHOT));
+
+			if (!grown)
+				break; // OOM: render what we have (degrades honestly)
+
+			shell_apps = grown;
+			shell_apps_cap = new_cap;
+		}
+
+		memset (&snap, 0, sizeof (snap));
+
+		name_src = ptr_app->display_name ? ptr_app->display_name->buffer : NULL;
+		path_src = ptr_app->real_path ? ptr_app->real_path->buffer : (ptr_app->short_name ? ptr_app->short_name->buffer : NULL);
+
+		_app_shell_strcopy (snap.name, SHELL_NAME_MAX, name_src);
+		_app_shell_strcopy (snap.path, SHELL_PATH_MAX, path_src);
+
+		if (ptr_app->notification)
+			snap.state = 2;
+		else if (ptr_app->is_enabled)
+			snap.state = 1;
+		else
+			snap.state = 0;
+
+		shell_apps[count++] = snap;
+
+		// counts follow the RENDER states (goldfish finding 6: a
+		// notification-flagged enabled app is a prompt, not an allow)
+		if (snap.state == 2)
+			prompt++;
+		else if (snap.state == 1)
+			allowed++;
+		else
+			blocked++;
+
+		for (i = 0; snap.name[i]; i++)
+		{
+			sig ^= (ULONG64)(USHORT)snap.name[i];
+			sig *= 0x100000001b3ull;
+		}
+
+		sig ^= (ULONG64)(USHORT)UNICODE_NULL;
+		sig *= 0x100000001b3ull;
+
+		for (i = 0; snap.path[i]; i++)
+		{
+			sig ^= (ULONG64)(USHORT)snap.path[i];
+			sig *= 0x100000001b3ull;
+		}
+
+		sig ^= (ULONG64)(USHORT)UNICODE_NULL;
+		sig *= 0x100000001b3ull;
+
+		sig ^= (ULONG64)(ULONG)snap.state;
+		sig *= 0x100000001b3ull;
+	}
+
+	_r_queuedlock_releaseshared (&lock_apps);
+
+	sig ^= (ULONG64)count;
+	sig *= 0x100000001b3ull;
+
+	changed = (count != shell_apps_count) || (sig != shell_apps_sig);
+
+	shell_apps_count = count;
+	shell_apps_sig = sig;
+	shell_apps_total = count;
+	shell_apps_allowed = allowed;
+	shell_apps_blocked = blocked;
+	shell_apps_prompt = prompt;
+
+	return changed;
+}
+
+static VOID _app_shell_applyfilter (VOID)
+{
+	ULONG i;
+
+	if (shell_view_cap < shell_apps_count)
+	{
+		ULONG new_cap = shell_apps_count ? shell_apps_count : 1;
+		ULONG *grown = (ULONG *)HeapReAlloc (GetProcessHeap (), HEAP_ZERO_MEMORY, shell_view, new_cap * sizeof (ULONG));
+
+		if (!grown)
+			return;
+
+		shell_view = grown;
+		shell_view_cap = new_cap;
+	}
+
+	shell_view_count = 0;
+
+	for (i = 0; i < shell_apps_count; i++)
 	{
 		SHELL_APP_SNAPSHOT *snap = &shell_apps[i];
 
-		card.left = content->left;
-		card.right = content->right;
+		if (!shell_filter[0] ||
+			_app_shell_strfindi (snap->name, shell_filter) ||
+			_app_shell_strfindi (snap->path, shell_filter))
+		{
+			shell_view[shell_view_count++] = i;
+		}
+	}
+}
+
+// position the search edit + show/hide it per active page
+static VOID _app_shell_layout (_In_ HWND hwnd)
+{
+	RECT rail;
+	RECT content;
+	LONG edit_left;
+
+	_app_shell_frame (hwnd, &rail, &content);
+
+	if (!shell_hwnd_search)
+		return;
+
+	if (shell_page != SHELL_PAGE_APPS)
+	{
+		ShowWindow (shell_hwnd_search, SW_HIDE);
+		return;
+	}
+
+	ShowWindow (shell_hwnd_search, SW_SHOW);
+
+	edit_left = shell_is_rtl ? (content.right - SHELL_SEARCH_W) : content.left;
+
+	SetWindowPos (
+		shell_hwnd_search,
+		NULL,
+		edit_left,
+		content.top + SHELL_SEARCH_OFF,
+		SHELL_SEARCH_W,
+		SHELL_SEARCH_H,
+		SWP_NOZORDER | SWP_NOACTIVATE
+	);
+}
+
+static VOID _app_shell_drawapps (
+	_In_ HWND hwnd,
+	_In_ HDC hdc,
+	_In_ PRECT content
+)
+{
+	WCHAR buffer[SHELL_LINE_MAX];
+	WCHAR fmt[SHELL_LINE_MAX];
+	RECT rect;
+	RECT rows;
+	RECT card;
+	RECT client;
+	LONG y;
+	LONG rows_height;
+	ULONG first_visible;
+	ULONG drawn = 0;
+
+	_app_shell_pagetitle (hdc, content, IDS_SHELL_RAIL_APPS, 0);
+
+	if (!GetClientRect (hwnd, &client))
+		return;
+
+	// summary chips (inline-start to inline-end: total, allowed,
+	// blocked, prompt)
+	y = content->top + SHELL_CHIPS_OFF;
+
+	for (INT i = 0; i < 4; i++)
+	{
+		ULONG id;
+		ULONG value;
+
+		switch (i)
+		{
+			case 0:
+			{
+				id = IDS_SHELL_CHIP_TOTAL;
+				value = shell_apps_total;
+				break;
+			}
+
+			case 1:
+			{
+				id = IDS_SHELL_CHIP_ALLOWED;
+				value = shell_apps_allowed;
+				break;
+			}
+
+			case 2:
+			{
+				id = IDS_SHELL_CHIP_BLOCKED;
+				value = shell_apps_blocked;
+				break;
+			}
+
+			default:
+			{
+				id = IDS_SHELL_CHIP_PROMPT;
+				value = shell_apps_prompt;
+				break;
+			}
+		}
+
+		_app_shell_locale (fmt, RTL_NUMBER_OF (fmt), id);
+		_r_str_printf (buffer, RTL_NUMBER_OF (buffer), fmt, value);
+
+		rect.top = y;
+		rect.bottom = y + SHELL_CHIPS_H;
+
+		if (shell_is_rtl)
+		{
+			rect.right = content->right - i * 160;
+			rect.left = rect.right - 150;
+		}
+		else
+		{
+			rect.left = content->left + i * 160;
+			rect.right = rect.left + 150;
+		}
+
+		_app_shell_drawchip (hdc, &rect, buffer);
+	}
+
+	_app_shell_appsrowsrect (hwnd, &rows);
+	rows_height = rows.bottom - rows.top;
+
+	if (shell_view_count == 0)
+	{
+		rect.left = rows.left;
+		rect.right = rows.right;
+		rect.top = rows.top;
+		rect.bottom = rows.top + 60;
+
+		_app_shell_fillround (hdc, &rect, shell_pal->card, shell_pal->line, 10);
+
+		_app_shell_locale (buffer, RTL_NUMBER_OF (buffer), shell_filter[0] ? IDS_SHELL_SEARCH_NOHIT : IDS_SHELL_EMPTY_APPS);
+		_app_shell_drawtext (hdc, buffer, &rect, shell_font_main, shell_pal->muted, DT_CENTER | DT_VCENTER);
+		return;
+	}
+
+	first_visible = (ULONG)(shell_scroll / SHELL_ROW_PITCH);
+	y = rows.top - (shell_scroll % SHELL_ROW_PITCH);
+
+	for (ULONG i = first_visible; i < shell_view_count; i++)
+	{
+		SHELL_APP_SNAPSHOT *snap = &shell_apps[shell_view[i]];
+		WCHAR pill_text[SHELL_LINE_MAX];
+		COLORREF pill_fg;
+		COLORREF pill_bg;
+		COLORREF pill_line;
+		ULONG pill_id;
+
+		card.left = rows.left;
+		card.right = rows.right;
 		card.top = y;
 		card.bottom = y + SHELL_CARD_H;
 
-		if (card.bottom > client->bottom - SHELL_MARGIN)
-			break; // G-1: clip at the bottom edge, no scrollbars yet
+		if (card.bottom > rows.bottom)
+			break; // virtualized: render only the visible window
 
-		_app_shell_fillround (hdc, &card, SHELL_COLOR_CARD, SHELL_COLOR_LINE, 10);
+		_app_shell_fillround (hdc, &card, shell_pal->card, shell_pal->line, 10);
 
-		// name + path (right side, RTL)
+		// name + path (inline-end of the pill)
 		rect.left = card.left + SHELL_MARGIN + SHELL_PILL_W;
 		rect.right = card.right - SHELL_MARGIN;
 		rect.top = card.top + 8;
 		rect.bottom = rect.top + 22;
-		_app_shell_drawtext (hdc, snap->name, &rect, shell_font_main, SHELL_COLOR_TEXT, DT_RIGHT);
+
+		_app_shell_drawtext (hdc, snap->name, &rect, shell_font_main, shell_pal->text, shell_is_rtl ? DT_RIGHT : DT_LEFT);
 
 		rect.top = rect.bottom + 2;
 		rect.bottom = rect.top + 18;
-		_app_shell_drawtext (hdc, snap->path, &rect, shell_font_small, SHELL_COLOR_MUTED, DT_RIGHT);
+		_app_shell_drawtext (hdc, snap->path, &rect, shell_font_small, shell_pal->muted, shell_is_rtl ? DT_RIGHT : DT_LEFT);
 
-		// state pill (left side)
-		rect.left = card.left + SHELL_MARGIN;
-		rect.right = rect.left + SHELL_PILL_W;
+		// state pill (inline-start side under RTL, mirrored otherwise)
+		if (shell_is_rtl)
+		{
+			rect.left = card.left + SHELL_MARGIN;
+			rect.right = rect.left + SHELL_PILL_W;
+		}
+		else
+		{
+			rect.right = card.right - SHELL_MARGIN;
+			rect.left = rect.right - SHELL_PILL_W;
+		}
+
 		rect.top = card.top + (SHELL_CARD_H - SHELL_PILL_H) / 2;
 		rect.bottom = rect.top + SHELL_PILL_H;
 
 		if (snap->state == 2)
-			_app_shell_drawpill (hdc, &rect, L"تنبيه", SHELL_COLOR_WARN, SHELL_COLOR_WARNBG, SHELL_COLOR_WARNLINE);
+		{
+			pill_id = IDS_SHELL_PILL_PROMPT;
+			pill_fg = shell_pal->warn;
+			pill_bg = shell_pal->warnbg;
+			pill_line = shell_pal->warnline;
+		}
 		else if (snap->state == 1)
-			_app_shell_drawpill (hdc, &rect, L"سماح", SHELL_COLOR_OK, SHELL_COLOR_OKBG, SHELL_COLOR_OKLINE);
+		{
+			pill_id = IDS_SHELL_PILL_ALLOW;
+			pill_fg = shell_pal->ok;
+			pill_bg = shell_pal->okbg;
+			pill_line = shell_pal->okline;
+		}
 		else
-			_app_shell_drawpill (hdc, &rect, L"حجب", SHELL_COLOR_DANGER, SHELL_COLOR_DANGERBG, SHELL_COLOR_DANGERLINE);
+		{
+			pill_id = IDS_SHELL_PILL_BLOCK;
+			pill_fg = shell_pal->danger;
+			pill_bg = shell_pal->dangerbg;
+			pill_line = shell_pal->dangerline;
+		}
+
+		_app_shell_locale (pill_text, RTL_NUMBER_OF (pill_text), pill_id);
+		_app_shell_drawpill (hdc, &rect, pill_text, pill_fg, pill_bg, pill_line);
 
 		y = card.bottom + SHELL_CARD_GAP;
+		drawn++;
+	}
+
+	// honesty line (r3 verification: the virtualization is visible)
+	if (shell_filter[0] || (LONG)((ULONG64)shell_view_count * SHELL_ROW_PITCH) > rows_height)
+	{
+		_app_shell_locale (fmt, RTL_NUMBER_OF (fmt), IDS_SHELL_RENDERED);
+		_r_str_printf (buffer, RTL_NUMBER_OF (buffer), fmt, (ULONG)(first_visible + drawn), shell_view_count);
+
+		rect.left = content->left;
+		rect.right = content->right;
+		rect.top = client.bottom - SHELL_MARGIN - 18;
+		rect.bottom = rect.top + 18;
+
+		_app_shell_drawtext (hdc, buffer, &rect, shell_font_small, shell_pal->muted, shell_is_rtl ? DT_RIGHT : DT_LEFT);
 	}
 }
 
@@ -368,26 +983,28 @@ static VOID _app_shell_drawrules (
 	_In_ PRECT content
 )
 {
-	WCHAR buffer[128];
+	WCHAR buffer[SHELL_LINE_MAX];
+	WCHAR fmt[SHELL_LINE_MAX];
 	RECT rect;
 	ULONG decisions;
 
 	decisions = _app_state_querycount ();
 
-	_app_shell_pagetitle (hdc, content, L"القواعد", L"معلم G-2 — العرض الكامل للقواعد قادم في المرحلة التالية");
+	_app_shell_pagetitle (hdc, content, IDS_SHELL_RAIL_RULES, IDS_SHELL_SUB_RULES);
 
-	_r_str_printf (buffer, RTL_NUMBER_OF (buffer), L"قرارات الجلسة الحية: %lu", decisions);
+	_app_shell_locale (fmt, RTL_NUMBER_OF (fmt), IDS_SHELL_RULES_LINE);
+	_r_str_printf (buffer, RTL_NUMBER_OF (buffer), fmt, decisions);
 
 	rect.left = content->left;
 	rect.right = content->right;
 	rect.top = content->top + 60;
 	rect.bottom = rect.top + 48;
 
-	_app_shell_fillround (hdc, &rect, SHELL_COLOR_CARD, SHELL_COLOR_LINE, 10);
+	_app_shell_fillround (hdc, &rect, shell_pal->card, shell_pal->line, 10);
 
 	rect.left += SHELL_MARGIN;
 	rect.right -= SHELL_MARGIN;
-	_app_shell_drawtext (hdc, buffer, &rect, shell_font_main, SHELL_COLOR_TEXT, DT_RIGHT | DT_VCENTER);
+	_app_shell_drawtext (hdc, buffer, &rect, shell_font_main, shell_pal->text, (shell_is_rtl ? DT_RIGHT : DT_LEFT) | DT_VCENTER);
 }
 
 static VOID _app_shell_drawpacks (
@@ -395,115 +1012,151 @@ static VOID _app_shell_drawpacks (
 	_In_ PRECT content
 )
 {
-	struct
-	{
-		LPCWSTR id;
-		LPCWSTR title;
-	} packs[] = {
-		{L"telemetry-refresh", L"حزمة تحديث القياسات (telemetry-refresh)"},
-		{L"vendor-blockers", L"حزمة حجب المورّدين (vendor-blockers)"},
-		{L"ai-agents", L"حزمة وكلاء الذكاء الاصطناعي (ai-agents)"},
+	static const LPCWSTR pack_ids[] = {
+		L"telemetry-refresh",
+		L"vendor-blockers",
+		L"ai-agents",
 	};
+	WCHAR buffer[SHELL_LINE_MAX];
+	WCHAR pill_text[SHELL_LINE_MAX];
 	RECT rect;
 	RECT pill;
 
-	_app_shell_pagetitle (hdc, content, L"الحزم", L"الحزم الموقّعة (FR-08) — الاستيراد والتحكم في معلم G-2");
+	_app_shell_pagetitle (hdc, content, IDS_SHELL_RAIL_PACKS, IDS_SHELL_SUB_PACKS);
 
-	for (ULONG i = 0; i < RTL_NUMBER_OF (packs); i++)
+	// NOTE (r3 G1-M5): hard-coded placeholder ids — G-2 replaces this
+	// with the packs enumerator per the DEC-11 query-API contract; the
+	// rows below demonstrate the surface, nothing more.
+	for (ULONG i = 0; i < RTL_NUMBER_OF (pack_ids); i++)
 	{
 		rect.left = content->left;
 		rect.right = content->right;
 		rect.top = content->top + 60 + (LONG)i * (SHELL_CARD_H + SHELL_CARD_GAP);
 		rect.bottom = rect.top + SHELL_CARD_H;
 
-		_app_shell_fillround (hdc, &rect, SHELL_COLOR_CARD, SHELL_COLOR_LINE, 10);
+		_app_shell_fillround (hdc, &rect, shell_pal->card, shell_pal->line, 10);
 
-		pill.left = content->left + SHELL_MARGIN;
-		pill.right = pill.left + SHELL_PILL_W;
+		if (shell_is_rtl)
+		{
+			pill.left = rect.left + SHELL_MARGIN;
+			pill.right = pill.left + SHELL_PILL_W;
+		}
+		else
+		{
+			pill.right = rect.right - SHELL_MARGIN;
+			pill.left = pill.right - SHELL_PILL_W;
+		}
+
 		pill.top = rect.top + (SHELL_CARD_H - SHELL_PILL_H) / 2;
 		pill.bottom = pill.top + SHELL_PILL_H;
 
-		rect.left = pill.right + SHELL_MARGIN;
-		rect.right -= SHELL_MARGIN;
+		rect.left = shell_is_rtl ? (pill.right + SHELL_MARGIN) : rect.left;
+		rect.right = shell_is_rtl ? rect.right : (pill.left - SHELL_MARGIN);
 		rect.top += 8;
 		rect.bottom = rect.top + 22;
-		_app_shell_drawtext (hdc, packs[i].title, &rect, shell_font_main, SHELL_COLOR_TEXT, DT_RIGHT);
 
-		rect.top = rect.bottom + 2;
-		rect.bottom = rect.top + 18;
-		_app_shell_drawtext (hdc, packs[i].id, &rect, shell_font_small, SHELL_COLOR_MUTED, DT_RIGHT);
+		// placeholder row shows the pack id (G-2 lands display names)
+		_r_str_printf (buffer, RTL_NUMBER_OF (buffer), L"%s", pack_ids[i]);
+		_app_shell_drawtext (hdc, buffer, &rect, shell_font_main, shell_pal->text, shell_is_rtl ? DT_RIGHT : DT_LEFT);
 
-		if (_app_packs_isenabled (packs[i].id))
-			_app_shell_drawpill (hdc, &pill, L"مفعّلة", SHELL_COLOR_OK, SHELL_COLOR_OKBG, SHELL_COLOR_OKLINE);
+		if (_app_packs_isenabled (pack_ids[i]))
+		{
+			_app_shell_locale (pill_text, RTL_NUMBER_OF (pill_text), IDS_SHELL_PILL_ENABLED);
+			_app_shell_drawpill (hdc, &pill, pill_text, shell_pal->ok, shell_pal->okbg, shell_pal->okline);
+		}
 		else
-			_app_shell_drawpill (hdc, &pill, L"غير مفعّلة", SHELL_COLOR_MUTED, SHELL_COLOR_CARD, SHELL_COLOR_LINE);
+		{
+			_app_shell_locale (pill_text, RTL_NUMBER_OF (pill_text), IDS_SHELL_PILL_DISABLED);
+			_app_shell_drawpill (hdc, &pill, pill_text, shell_pal->muted, shell_pal->card, shell_pal->line);
+		}
 	}
 }
 
 static VOID _app_shell_drawlockdown (
+	_In_ HWND hwnd,
 	_In_ HDC hdc,
 	_In_ PRECT content
 )
 {
-	static const LPCWSTR contract_lines[] = {
-		L"لقطة (snapshot) لحالة الجدار قبل أي تغيير",
-		L"تحقق قبل التنفيذ (verify-then-commit) — DEC-04",
-		L"تراجع كامل تلقائي عند فشل أي خطوة (revert)",
-		L"watchdog يراقب العزل طوال فترة تفعيله",
-		L"RSK-04: تعارض المنفذ 53 يُبلَّغ عنه ولا يُتجاوز بصمت",
+	static const ULONG contract_ids[] = {
+		IDS_SHELL_LDN_CONTRACT1,
+		IDS_SHELL_LDN_CONTRACT2,
+		IDS_SHELL_LDN_CONTRACT3,
+		IDS_SHELL_LDN_CONTRACT4,
+		IDS_SHELL_LDN_CONTRACT5,
 	};
-	WCHAR buffer[128];
+	WCHAR buffer[SHELL_LINE_MAX];
+	WCHAR fmt[SHELL_LINE_MAX];
+	WCHAR owned_text[SHELL_LINE_MAX];
 	RECT rect;
 	BOOLEAN is_active;
 
 	is_active = _app_lockdown_isactive ();
 
-	_app_shell_pagetitle (hdc, content, L"Lockdown", L"عزل دفاعي على طبقة WFAS (FR-06) — إجراء حرج للجهاز");
+	_app_shell_pagetitle (hdc, content, IDS_SHELL_RAIL_LOCKDOWN, IDS_SHELL_SUB_LOCKDOWN);
 
 	// state line
 	rect.left = content->left;
 	rect.right = content->right;
 	rect.top = content->top + 60;
 	rect.bottom = rect.top + 44;
-	_app_shell_fillround (hdc, &rect, SHELL_COLOR_CARD, SHELL_COLOR_LINE, 10);
+	_app_shell_fillround (hdc, &rect, shell_pal->card, shell_pal->line, 10);
 
-	_r_str_printf (buffer, RTL_NUMBER_OF (buffer), L"حالة العزل: %s", is_active ? L"مفعّل" : L"غير مفعّل");
+	_app_shell_locale (buffer, RTL_NUMBER_OF (buffer), is_active ? IDS_SHELL_LDN_ACTIVE : IDS_SHELL_LDN_INACTIVE);
 
 	rect.left += SHELL_MARGIN;
 	rect.right -= SHELL_MARGIN;
-	_app_shell_drawtext (hdc, buffer, &rect, shell_font_main, is_active ? SHELL_COLOR_OK : SHELL_COLOR_TEXT, DT_RIGHT | DT_VCENTER);
+	_app_shell_drawtext (hdc, buffer, &rect, shell_font_main, is_active ? shell_pal->ok : shell_pal->text, (shell_is_rtl ? DT_RIGHT : DT_LEFT) | DT_VCENTER);
 
-	// action button (rail-style rect)
-	shell_lockdown_btn.left = content->right - 220;
-	shell_lockdown_btn.right = content->right;
+	// action button (inline-end side)
+	if (shell_is_rtl)
+	{
+		shell_lockdown_btn.left = content->right - 220;
+		shell_lockdown_btn.right = content->right;
+	}
+	else
+	{
+		shell_lockdown_btn.left = content->left;
+		shell_lockdown_btn.right = content->left + 220;
+	}
+
 	shell_lockdown_btn.top = rect.bottom + SHELL_MARGIN;
 	shell_lockdown_btn.bottom = shell_lockdown_btn.top + 40;
 
 	if (is_active)
-		_app_shell_fillround (hdc, &shell_lockdown_btn, SHELL_COLOR_DANGERBG, SHELL_COLOR_DANGERLINE, 8);
+		_app_shell_fillround (hdc, &shell_lockdown_btn, shell_pal->dangerbg, shell_pal->dangerline, 8);
 	else
-		_app_shell_fillround (hdc, &shell_lockdown_btn, SHELL_COLOR_ACCENT, SHELL_COLOR_ACCENT, 8);
+		_app_shell_fillround (hdc, &shell_lockdown_btn, shell_pal->accent, shell_pal->accent, 8);
 
-	_app_shell_drawtext (hdc, is_active ? L"إيقاف Lockdown" : L"تفعيل Lockdown", &shell_lockdown_btn, shell_font_main, is_active ? SHELL_COLOR_DANGER : SHELL_COLOR_ACCENTTEXT, DT_CENTER | DT_VCENTER);
+	_app_shell_locale (buffer, RTL_NUMBER_OF (buffer), is_active ? IDS_SHELL_LDN_DISABLE : IDS_SHELL_LDN_ENABLE);
+	_app_shell_drawtext (hdc, buffer, &shell_lockdown_btn, shell_font_main, is_active ? shell_pal->danger : shell_pal->accenttext, DT_CENTER | DT_VCENTER);
 
 	// resolver ownership (read-only)
-	rect.left = content->left;
-	rect.right = shell_lockdown_btn.left - SHELL_MARGIN;
-	_r_str_printf (buffer, RTL_NUMBER_OF (buffer), L"المحلّل (resolver): %s", _app_resolver_isowned () ? L"مملوك للمنصة" : L"غير مملوك");
-	_app_shell_drawtext (hdc, buffer, &rect, shell_font_main, SHELL_COLOR_MUTED, DT_RIGHT | DT_VCENTER);
+	rect.left = shell_is_rtl ? content->left : (shell_lockdown_btn.right + SHELL_MARGIN);
+	rect.right = shell_is_rtl ? (shell_lockdown_btn.left - SHELL_MARGIN) : content->right;
+
+	_app_shell_locale (fmt, RTL_NUMBER_OF (fmt), IDS_SHELL_LDN_RESOLVER);
+	_app_shell_locale (owned_text, RTL_NUMBER_OF (owned_text), _app_resolver_isowned () ? IDS_SHELL_LDN_RESOLVER_OWNED : IDS_SHELL_LDN_RESOLVER_FREE);
+	_r_str_printf (buffer, RTL_NUMBER_OF (buffer), fmt, owned_text);
+
+	_app_shell_drawtext (hdc, buffer, &rect, shell_font_main, shell_pal->muted, (shell_is_rtl ? DT_RIGHT : DT_LEFT) | DT_VCENTER);
 
 	// safety contract (design r2)
 	rect.left = content->left;
 	rect.right = content->right;
 	rect.top = shell_lockdown_btn.bottom + 16;
 	rect.bottom = rect.top + 26;
-	_app_shell_drawtext (hdc, L"عقد الأمان (design r2):", &rect, shell_font_main, SHELL_COLOR_TEXT, DT_RIGHT);
 
-	for (ULONG i = 0; i < RTL_NUMBER_OF (contract_lines); i++)
+	_app_shell_locale (buffer, RTL_NUMBER_OF (buffer), IDS_SHELL_LDN_CONTRACT);
+	_app_shell_drawtext (hdc, buffer, &rect, shell_font_main, shell_pal->text, shell_is_rtl ? DT_RIGHT : DT_LEFT);
+
+	for (ULONG i = 0; i < RTL_NUMBER_OF (contract_ids); i++)
 	{
 		rect.top = rect.bottom + 4;
 		rect.bottom = rect.top + 22;
-		_app_shell_drawtext (hdc, contract_lines[i], &rect, shell_font_small, SHELL_COLOR_MUTED, DT_RIGHT);
+
+		_app_shell_locale (buffer, RTL_NUMBER_OF (buffer), contract_ids[i]);
+		_app_shell_drawtext (hdc, buffer, &rect, shell_font_small, shell_pal->muted, shell_is_rtl ? DT_RIGHT : DT_LEFT);
 	}
 }
 
@@ -513,6 +1166,7 @@ static VOID _app_shell_drawlog (
 )
 {
 	WCHAR buffer[SHELL_LINE_MAX];
+	WCHAR fmt[SHELL_LINE_MAX];
 	WCHAR line[SHELL_LINE_MAX];
 	RECT rect;
 	ULONG held;
@@ -524,36 +1178,42 @@ static VOID _app_shell_drawlog (
 	foreign_count = _app_ledger_querycount ();
 	is_engine = _wfp_isfiltersinstalled ();
 
-	_app_shell_pagetitle (hdc, content, L"السجل", NULL);
+	_app_shell_pagetitle (hdc, content, IDS_SHELL_RAIL_LOG, 0);
 
 	rect.left = content->left;
 	rect.right = content->right;
 	rect.top = content->top + 44;
 	rect.bottom = rect.top + 44;
-	_app_shell_fillround (hdc, &rect, SHELL_COLOR_CARD, SHELL_COLOR_LINE, 10);
+	_app_shell_fillround (hdc, &rect, shell_pal->card, shell_pal->line, 10);
 
-	_r_str_printf (buffer, RTL_NUMBER_OF (buffer), L"اتصالات محتجزة بانتظار قرار: %lu", held);
+	_app_shell_locale (fmt, RTL_NUMBER_OF (fmt), IDS_SHELL_LOG_HELD);
+	_r_str_printf (buffer, RTL_NUMBER_OF (buffer), fmt, held);
+
 	rect.left += SHELL_MARGIN;
 	rect.right -= SHELL_MARGIN;
-	_app_shell_drawtext (hdc, buffer, &rect, shell_font_main, held ? SHELL_COLOR_WARN : SHELL_COLOR_TEXT, DT_RIGHT | DT_VCENTER);
+	_app_shell_drawtext (hdc, buffer, &rect, shell_font_main, held ? shell_pal->warn : shell_pal->text, (shell_is_rtl ? DT_RIGHT : DT_LEFT) | DT_VCENTER);
 
 	rect.left = content->left;
 	rect.right = content->right;
 	rect.top = rect.bottom + SHELL_CARD_GAP;
 	rect.bottom = rect.top + 44;
-	_app_shell_fillround (hdc, &rect, SHELL_COLOR_CARD, SHELL_COLOR_LINE, 10);
+	_app_shell_fillround (hdc, &rect, shell_pal->card, shell_pal->line, 10);
 
-	_r_str_printf (buffer, RTL_NUMBER_OF (buffer), L"تغييرات أجنبية في دفتر التدقيق: %lu", foreign_count);
+	_app_shell_locale (fmt, RTL_NUMBER_OF (fmt), IDS_SHELL_LOG_FOREIGN);
+	_r_str_printf (buffer, RTL_NUMBER_OF (buffer), fmt, foreign_count);
+
 	rect.left += SHELL_MARGIN;
 	rect.right -= SHELL_MARGIN;
-	_app_shell_drawtext (hdc, buffer, &rect, shell_font_main, foreign_count ? SHELL_COLOR_WARN : SHELL_COLOR_TEXT, DT_RIGHT | DT_VCENTER);
+	_app_shell_drawtext (hdc, buffer, &rect, shell_font_main, foreign_count ? shell_pal->warn : shell_pal->text, (shell_is_rtl ? DT_RIGHT : DT_LEFT) | DT_VCENTER);
 
 	// honesty line: the live feed needs the engine (main path)
 	rect.left = content->left + SHELL_MARGIN;
 	rect.right = content->right - SHELL_MARGIN;
 	rect.top = rect.bottom + SHELL_MARGIN;
 	rect.bottom = rect.top + 22;
-	_app_shell_drawtext (hdc, L"السجل الحي يتطلب تشغيل المحرك (المسار الرئيسي)", &rect, shell_font_small, is_engine ? SHELL_COLOR_MUTED : SHELL_COLOR_WARN, DT_RIGHT);
+
+	_app_shell_locale (buffer, RTL_NUMBER_OF (buffer), IDS_SHELL_LOG_ENGINE);
+	_app_shell_drawtext (hdc, buffer, &rect, shell_font_small, is_engine ? shell_pal->muted : shell_pal->warn, shell_is_rtl ? DT_RIGHT : DT_LEFT);
 
 	// foreign ledger records (up to 10)
 	for (ULONG i = 0; i < foreign_count && i < 10; i++)
@@ -561,11 +1221,11 @@ static VOID _app_shell_drawlog (
 		if (!_app_ledger_queryforeign (i, buffer, SHELL_LINE_MAX, &is_policy))
 			break;
 
-		_r_str_printf (line, RTL_NUMBER_OF (line), L"%lu. %s%s", i + 1, buffer, is_policy ? L" (سياسة)" : L"");
+		_r_str_printf (line, RTL_NUMBER_OF (line), L"%lu. %s%s", i + 1, buffer, is_policy ? L" (p)" : L"");
 
 		rect.top = rect.bottom + 6;
 		rect.bottom = rect.top + 20;
-		_app_shell_drawtext (hdc, line, &rect, shell_font_small, SHELL_COLOR_TEXT, DT_RIGHT);
+		_app_shell_drawtext (hdc, line, &rect, shell_font_small, shell_pal->text, shell_is_rtl ? DT_RIGHT : DT_LEFT);
 	}
 }
 
@@ -577,20 +1237,22 @@ static VOID _app_shell_drawsettings (
 	struct
 	{
 		LPCWSTR key;
-		LPCWSTR label;
+		ULONG label_id;
 		BOOLEAN default_value;
 	} gates[] = {
-		{COMPOSITE_CONFIG_TIERS, L"الطبقات التلقائية (IsCompositeTiersEnabled)", TRUE},
-		{COMPOSITE_CONFIG_SINGLEFLIGHT, L"الرحلة الواحدة (IsCompositeSingleFlightEnabled)", TRUE},
-		{L"IsCompositeDnsAttributionEnabled", L"إسناد DNS (IsCompositeDnsAttributionEnabled)", FALSE},
-		{L"IsCompositeLedgerEnabled", L"دفتر التدقيق (IsCompositeLedgerEnabled)", FALSE},
+		{COMPOSITE_CONFIG_TIERS, IDS_SHELL_GATES_TIERS, TRUE},
+		{COMPOSITE_CONFIG_SINGLEFLIGHT, IDS_SHELL_GATES_SINGLEFLIGHT, TRUE},
+		{L"IsCompositeDnsAttributionEnabled", IDS_SHELL_GATES_DNS, FALSE},
+		{L"IsCompositeLedgerEnabled", IDS_SHELL_GATES_LEDGER, FALSE},
 	};
-	WCHAR buffer[128];
+	WCHAR buffer[SHELL_LINE_MAX];
+	WCHAR fmt[SHELL_LINE_MAX];
 	RECT rect;
 	RECT box;
 	BOOLEAN value;
+	BOOLEAN theme_value;
 
-	_app_shell_pagetitle (hdc, content, L"الإعدادات", L"بوابات الميزات المركّبة — تُكتب مباشرة في الإعدادات");
+	_app_shell_pagetitle (hdc, content, IDS_SHELL_RAIL_SETTINGS, IDS_SHELL_SUB_SETTINGS);
 
 	for (ULONG i = 0; i < RTL_NUMBER_OF (gates); i++)
 	{
@@ -602,54 +1264,110 @@ static VOID _app_shell_drawsettings (
 		rect.bottom = rect.top + 36;
 		shell_check_rects[i] = rect;
 
-		_app_shell_fillround (hdc, &rect, SHELL_COLOR_CARD, SHELL_COLOR_LINE, 10);
+		_app_shell_fillround (hdc, &rect, shell_pal->card, shell_pal->line, 10);
 
 		// checkbox (owner-drawn; accent-filled when checked)
-		box.left = rect.right - SHELL_MARGIN - SHELL_CHECKBOX_SIZE;
+		if (shell_is_rtl)
+		{
+			box.left = rect.right - SHELL_MARGIN - SHELL_CHECKBOX_SIZE;
+		}
+		else
+		{
+			box.left = rect.left + SHELL_MARGIN;
+		}
+
 		box.right = box.left + SHELL_CHECKBOX_SIZE;
 		box.top = rect.top + (36 - SHELL_CHECKBOX_SIZE) / 2;
 		box.bottom = box.top + SHELL_CHECKBOX_SIZE;
 
 		if (value)
-			_app_shell_fillround (hdc, &box, SHELL_COLOR_ACCENT, SHELL_COLOR_ACCENT, 4);
+			_app_shell_fillround (hdc, &box, shell_pal->accent, shell_pal->accent, 4);
 		else
-			_app_shell_fillround (hdc, &box, SHELL_COLOR_BG, SHELL_COLOR_LINE, 4);
+			_app_shell_fillround (hdc, &box, shell_pal->bg, shell_pal->line, 4);
 
 		if (value)
-			_app_shell_drawtext (hdc, L"✓", &box, shell_font_small, SHELL_COLOR_ACCENTTEXT, DT_CENTER | DT_VCENTER);
+			_app_shell_drawtext (hdc, L"\x2713", &box, shell_font_small, shell_pal->accenttext, DT_CENTER | DT_VCENTER);
 
-		rect.right = box.left - 10;
-		rect.left += SHELL_MARGIN;
-		_app_shell_drawtext (hdc, gates[i].label, &rect, shell_font_main, SHELL_COLOR_TEXT, DT_RIGHT | DT_VCENTER);
+		rect.left = shell_is_rtl ? (rect.left + SHELL_MARGIN) : (box.right + 10);
+		rect.right = shell_is_rtl ? (box.left - 10) : (rect.right - SHELL_MARGIN);
+
+		_app_shell_locale (buffer, RTL_NUMBER_OF (buffer), gates[i].label_id);
+		_app_shell_drawtext (hdc, buffer, &rect, shell_font_main, shell_pal->text, (shell_is_rtl ? DT_RIGHT : DT_LEFT) | DT_VCENTER);
 	}
+
+	// owner-selectable theme (DEC-11 §2; r3 G1-M1)
+	theme_value = _r_config_getlong (L"IsShellLightTheme", -1, NULL) == 1;
+
+	rect.left = content->left;
+	rect.right = content->right;
+	rect.top = content->top + 60 + 4 * 44;
+	rect.bottom = rect.top + 36;
+	shell_check_rects[4] = rect;
+
+	_app_shell_fillround (hdc, &rect, shell_pal->card, shell_pal->line, 10);
+
+	if (shell_is_rtl)
+	{
+		box.left = rect.right - SHELL_MARGIN - SHELL_CHECKBOX_SIZE;
+	}
+	else
+	{
+		box.left = rect.left + SHELL_MARGIN;
+	}
+
+	box.right = box.left + SHELL_CHECKBOX_SIZE;
+	box.top = rect.top + (36 - SHELL_CHECKBOX_SIZE) / 2;
+	box.bottom = box.top + SHELL_CHECKBOX_SIZE;
+
+	if (theme_value)
+		_app_shell_fillround (hdc, &box, shell_pal->accent, shell_pal->accent, 4);
+	else
+		_app_shell_fillround (hdc, &box, shell_pal->bg, shell_pal->line, 4);
+
+	if (theme_value)
+		_app_shell_drawtext (hdc, L"\x2713", &box, shell_font_small, shell_pal->accenttext, DT_CENTER | DT_VCENTER);
+
+	rect.left = shell_is_rtl ? (rect.left + SHELL_MARGIN) : (box.right + 10);
+	rect.right = shell_is_rtl ? (box.left - 10) : (rect.right - SHELL_MARGIN);
+
+	_app_shell_locale (buffer, RTL_NUMBER_OF (buffer), IDS_SHELL_THEME_LIGHT);
+	_app_shell_drawtext (hdc, buffer, &rect, shell_font_main, shell_pal->text, (shell_is_rtl ? DT_RIGHT : DT_LEFT) | DT_VCENTER);
+
+	// footprint chip (r2 §2 budget; M1 asserts the hidden-window state —
+	// the tray surface itself follows design r2 §8 in M3)
+	_app_shell_locale (fmt, RTL_NUMBER_OF (fmt), IDS_SHELL_FOOTPRINT);
+	_r_str_printf (buffer, RTL_NUMBER_OF (buffer), fmt, (ULONG)16);
 
 	rect.left = content->left + SHELL_MARGIN;
 	rect.right = content->right - SHELL_MARGIN;
-	rect.top = shell_check_rects[3].bottom + SHELL_MARGIN;
+	rect.top = shell_check_rects[4].bottom + SHELL_MARGIN;
 	rect.bottom = rect.top + 22;
-	_r_str_printf (buffer, RTL_NUMBER_OF (buffer), L"الاستهلاك في وضع الخمول: ~16 MB");
-	_app_shell_drawtext (hdc, buffer, &rect, shell_font_small, SHELL_COLOR_MUTED, DT_RIGHT);
+	_app_shell_drawtext (hdc, buffer, &rect, shell_font_small, shell_pal->muted, shell_is_rtl ? DT_RIGHT : DT_LEFT);
 }
 
 static VOID _app_shell_drawrail (
-	_In_ HDC hdc,
-	_In_ PRECT client
+	_In_ HWND hwnd,
+	_In_ HDC hdc
 )
 {
+	WCHAR buffer[SHELL_LINE_MAX];
 	RECT rail;
 	RECT rect;
+	RECT bar;
 
-	rail.left = client->right - SHELL_RAIL_W;
-	rail.right = client->right;
-	rail.top = 0;
-	rail.bottom = client->bottom;
+	_app_shell_frame (hwnd, &rail, &bar); // bar reused as client sink here
 
-	_app_shell_fillrect (hdc, &rail, SHELL_COLOR_RAIL);
+	_app_shell_fillrect (hdc, &rail, shell_pal->rail);
 
-	// separator
+	// separator (inline-end edge of the rail)
 	{
-		RECT sep = {rail.left - 1, 0, rail.left, client->bottom};
-		_app_shell_fillrect (hdc, &sep, SHELL_COLOR_LINE);
+		RECT sep;
+
+		sep.left = shell_is_rtl ? (rail.left - 1) : rail.right;
+		sep.right = sep.left + 1;
+		sep.top = 0;
+		sep.bottom = rail.bottom;
+		_app_shell_fillrect (hdc, &sep, shell_pal->line);
 	}
 
 	for (INT i = 0; i < SHELL_PAGE_MAX; i++)
@@ -664,47 +1382,58 @@ static VOID _app_shell_drawrail (
 
 		if (i == shell_page)
 		{
-			_app_shell_fillround (hdc, &item, SHELL_COLOR_CARD, SHELL_COLOR_LINE, 8);
+			_app_shell_fillround (hdc, &item, shell_pal->card, shell_pal->line, 8);
 
-			// accent bar on the right edge (RTL)
-			{
-				RECT bar = {item.right - 3, item.top + 6, item.right, item.bottom - 6};
-				_app_shell_fillrect (hdc, &bar, SHELL_COLOR_ACCENT);
-			}
+			// accent bar on the inline-end edge (RTL: right)
+			bar.left = shell_is_rtl ? (item.right - 3) : item.left;
+			bar.right = bar.left + 3;
+			bar.top = item.top + 6;
+			bar.bottom = item.bottom - 6;
+			_app_shell_fillrect (hdc, &bar, shell_pal->accent);
 		}
 
 		rect = item;
 		rect.left += 10;
 		rect.right -= 10;
-		_app_shell_drawtext (hdc, shell_rail_names[i], &rect, shell_font_main, i == shell_page ? SHELL_COLOR_TEXT : SHELL_COLOR_MUTED, DT_RIGHT | DT_VCENTER);
+
+		_app_shell_locale (buffer, RTL_NUMBER_OF (buffer), shell_rail_ids[i]);
+		_app_shell_drawtext (hdc, buffer, &rect, shell_font_main, i == shell_page ? shell_pal->text : shell_pal->muted, (shell_is_rtl ? DT_RIGHT : DT_LEFT) | DT_VCENTER);
+
+		// keyboard focus indicator (r3 G1-M5/G1-M6)
+		if (shell_input_kbd && i == shell_rail_focus)
+			DrawFocusRect (hdc, &item);
 	}
 }
 
-static VOID _app_shell_paint (
+static VOID _app_shell_paintclient (
 	_In_ HWND hwnd,
 	_In_ HDC hdc
 )
 {
-	RECT client;
+	RECT rail;
 	RECT content;
+	RECT body;
+	RECT client;
 
-	if (!GetClientRect (hwnd, &client))
-		return;
+	_app_shell_frame (hwnd, &rail, &content);
 
-	_app_shell_fillrect (hdc, &client, SHELL_COLOR_BG);
+	// content background covers the whole non-rail client (margins too)
+	if (GetClientRect (hwnd, &client))
+	{
+		body.left = shell_is_rtl ? client.left : rail.right;
+		body.right = shell_is_rtl ? rail.left : client.right;
+		body.top = 0;
+		body.bottom = client.bottom;
+		_app_shell_fillrect (hdc, &body, shell_pal->bg);
+	}
 
-	_app_shell_drawrail (hdc, &client);
-
-	content.left = SHELL_MARGIN;
-	content.right = client.right - SHELL_RAIL_W - SHELL_MARGIN;
-	content.top = SHELL_MARGIN;
-	content.bottom = client.bottom - SHELL_MARGIN;
+	_app_shell_drawrail (hwnd, hdc);
 
 	switch (shell_page)
 	{
 		case SHELL_PAGE_APPS:
 		{
-			_app_shell_drawapps (hdc, &content, &client);
+			_app_shell_drawapps (hwnd, hdc, &content);
 			break;
 		}
 
@@ -722,7 +1451,7 @@ static VOID _app_shell_paint (
 
 		case SHELL_PAGE_LOCKDOWN:
 		{
-			_app_shell_drawlockdown (hdc, &content);
+			_app_shell_drawlockdown (hwnd, hdc, &content);
 			break;
 		}
 
@@ -740,30 +1469,148 @@ static VOID _app_shell_paint (
 	}
 }
 
+// custom-drawn scrollbar (r3 G1-M2): native WS_VSCROLL rejected for the
+// light-scrollbar dark-mode pitfall (the Explorer::ScrollBar re-theme is
+// an undocumented self-theme — same rejection family as the IAT hook)
+static VOID _app_shell_drawscrollbar (
+	_In_ HWND hwnd,
+	_In_ HDC hdc
+)
+{
+	RECT rail;
+	RECT content;
+	RECT rows;
+	LONG rows_height;
+	LONG total_height;
+	LONG scrollmax;
+	LONG thumb_h;
+	LONG track_h;
+
+	if (shell_page != SHELL_PAGE_APPS || shell_view_count == 0)
+		return;
+
+	_app_shell_frame (hwnd, &rail, &content);
+	_app_shell_appsrowsrect (hwnd, &rows);
+
+	rows_height = rows.bottom - rows.top;
+	total_height = (LONG)shell_view_count * SHELL_ROW_PITCH;
+	scrollmax = _app_shell_scrollmax (hwnd);
+
+	// strip (inline-start under RTL)
+	shell_scrollbar_rect.top = rows.top;
+	shell_scrollbar_rect.bottom = rows.bottom;
+
+	if (shell_is_rtl)
+	{
+		shell_scrollbar_rect.left = content.left;
+		shell_scrollbar_rect.right = content.left + SHELL_SCROLLBAR_W;
+	}
+	else
+	{
+		shell_scrollbar_rect.right = content.right;
+		shell_scrollbar_rect.left = shell_scrollbar_rect.right - SHELL_SCROLLBAR_W;
+	}
+
+	_app_shell_fillround (hdc, &shell_scrollbar_rect, shell_pal->rail, shell_pal->line, 4);
+
+	if (scrollmax <= 0)
+		return;
+
+	track_h = rows_height - 8;
+	thumb_h = max (24, MulDiv (rows_height, rows_height, total_height));
+	thumb_h = min (thumb_h, track_h);
+
+	shell_scrollbar_thumb.left = shell_scrollbar_rect.left + 1;
+	shell_scrollbar_thumb.right = shell_scrollbar_rect.right - 1;
+	shell_scrollbar_thumb.top = rows.top + 4 + (LONG)((LONG64)shell_scroll * (track_h - thumb_h) / scrollmax);
+	shell_scrollbar_thumb.bottom = shell_scrollbar_thumb.top + thumb_h;
+
+	_app_shell_fillround (hdc, &shell_scrollbar_thumb, shell_pal->line, shell_pal->line, 3);
+}
+
+static VOID _app_shell_paint (
+	_In_ HWND hwnd,
+	_In_ HDC hdc
+)
+{
+	_app_shell_paintclient (hwnd, hdc);
+	_app_shell_drawscrollbar (hwnd, hdc);
+}
+
+static VOID _app_shell_selectpage (
+	_In_ HWND hwnd,
+	_In_ INT page
+)
+{
+	if (page < 0 || page >= SHELL_PAGE_MAX)
+		return;
+
+	if (shell_page != page)
+	{
+		shell_page = page;
+		shell_rail_focus = page;
+		shell_scroll = 0;
+		_app_shell_layout (hwnd);
+		InvalidateRect (hwnd, NULL, TRUE);
+	}
+}
+
+// DEC-04 verify-then-commit on the UI surface (r3 G1-M5, goldfish
+// finding 3): the pre-flight outcome is computed and SHOWN in the
+// confirm dialog BEFORE the commit call; is_confirmed=TRUE is passed
+// only after the owner has seen and accepted the specific outcome.
 static VOID _app_shell_applylockdown (
 	_In_ HWND hwnd,
 	_In_ BOOLEAN is_enable
 )
 {
-	LPCWSTR text;
+	WCHAR pf_line[256];
+	WCHAR pf_fmt[256];
+	WCHAR l1[SHELL_LINE_MAX];
+	WCHAR l2[SHELL_LINE_MAX];
+	WCHAR q[SHELL_LINE_MAX];
+	WCHAR title[SHELL_LINE_MAX];
+	WCHAR err[SHELL_LINE_MAX];
+	WCHAR text[SHELL_TEXT_MAX];
+	NTSTATUS pfstatus;
 	NTSTATUS status;
+
+	pfstatus = (NTSTATUS)0;
 
 	if (is_enable)
 	{
-		text = L"سيتم تفعيل العزل الكامل (Lockdown).\r\nهذا إجراء حرج للجهاز: يتم تغيير حالة الجدار على مستوى النظام وتحويل المُحلِّل (DNS).\r\n\r\nهل تريد المتابعة؟";
+		pfstatus = _app_lockdown_preflight ();
+
+		_app_shell_locale (pf_fmt, RTL_NUMBER_OF (pf_fmt), NT_SUCCESS (pfstatus) ? IDS_SHELL_LDN_PF_OK : IDS_SHELL_LDN_PF_FAIL);
+		_r_str_printf (pf_line, RTL_NUMBER_OF (pf_line), pf_fmt, (ULONG)pfstatus);
+
+		_app_shell_locale (l1, RTL_NUMBER_OF (l1), IDS_SHELL_LDN_CONFIRM_EN1);
+		_app_shell_locale (l2, RTL_NUMBER_OF (l2), IDS_SHELL_LDN_CONFIRM_EN2);
+		_r_str_printf (text, RTL_NUMBER_OF (text), L"%s\r\n%s\r\n%s\r\n\r\n%s", l1, l2, pf_line, L"");
 	}
 	else
 	{
-		text = L"سيتم إيقاف العزل الكامل (Lockdown) وتراجع كامل عن تغييراته.\r\n\r\nهل تريد المتابعة؟";
+		_app_shell_locale (l1, RTL_NUMBER_OF (l1), IDS_SHELL_LDN_CONFIRM_DIS1);
+		_r_str_printf (text, RTL_NUMBER_OF (text), L"%s", l1);
 	}
 
-	if (MessageBoxW (hwnd, text, L"تأكيد Lockdown", MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2 | MB_RTLREADING | MB_SETFOREGROUND) != IDYES)
+	_app_shell_locale (q, RTL_NUMBER_OF (q), IDS_SHELL_LDN_CONFIRM_Q);
+	_r_str_printf (text, RTL_NUMBER_OF (text), L"%s\r\n\r\n%s", text, q);
+
+	_app_shell_locale (title, RTL_NUMBER_OF (title), IDS_SHELL_LDN_TITLE);
+
+	// safe default = No (most secure response, MS UX-Guide)
+	if (MessageBoxW (hwnd, text, title, MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2 | MB_RTLREADING | MB_SETFOREGROUND) != IDYES)
 		return;
 
 	status = is_enable ? _app_lockdown_enable (TRUE) : _app_lockdown_disable ();
 
 	if (!NT_SUCCESS (status))
-		MessageBoxW (hwnd, L"فشل تنفيذ العملية — راجع السجل لتفاصيل الخطأ.", L"Lockdown", MB_OK | MB_ICONERROR | MB_RTLREADING);
+	{
+		_app_shell_locale (err, RTL_NUMBER_OF (err), IDS_SHELL_LDN_ERROR);
+		_app_shell_locale (title, RTL_NUMBER_OF (title), IDS_SHELL_RAIL_LOCKDOWN);
+		MessageBoxW (hwnd, err, title, MB_OK | MB_ICONERROR | MB_RTLREADING);
+	}
 
 	InvalidateRect (hwnd, NULL, TRUE);
 }
@@ -776,14 +1623,49 @@ static VOID _app_shell_onclick (
 {
 	POINT pt = {x, y};
 
+	shell_input_kbd = FALSE;
+
 	for (INT i = 0; i < SHELL_PAGE_MAX; i++)
 	{
 		if (PtInRect (&shell_rail_rects[i], pt))
 		{
-			if (shell_page != i)
+			_app_shell_selectpage (hwnd, i);
+			return;
+		}
+	}
+
+	if (shell_page == SHELL_PAGE_APPS && !shell_scrollbar_drag && shell_view_count)
+	{
+		RECT rows;
+
+		_app_shell_appsrowsrect (hwnd, &rows);
+
+		// scrollbar: thumb grab or track jump
+		if (PtInRect (&shell_scrollbar_rect, pt))
+		{
+			LONG scrollmax = _app_shell_scrollmax (hwnd);
+			LONG rows_height = rows.bottom - rows.top;
+			LONG track_h = rows_height - 8;
+			LONG thumb_h = max (24, MulDiv (rows_height, rows_height, (LONG)shell_view_count * SHELL_ROW_PITCH));
+
+			if (scrollmax > 0)
 			{
-				shell_page = i;
-				InvalidateRect (hwnd, NULL, TRUE);
+				thumb_h = min (thumb_h, track_h);
+
+				if (PtInRect (&shell_scrollbar_thumb, pt))
+				{
+					shell_scrollbar_drag = TRUE;
+					shell_scrollbar_drag_off = pt.y - shell_scrollbar_thumb.top;
+					SetCapture (hwnd);
+				}
+				else
+				{
+					LONG rel = pt.y - (rows.top + 4);
+
+					shell_scroll = (LONG)((LONG64)max (0, rel - thumb_h / 2) * scrollmax / (track_h - thumb_h));
+					_app_shell_scrollclamp (hwnd);
+					InvalidateRect (hwnd, NULL, FALSE);
+				}
 			}
 
 			return;
@@ -806,16 +1688,198 @@ static VOID _app_shell_onclick (
 		};
 		static const BOOLEAN defaults[] = {TRUE, TRUE, FALSE, FALSE};
 
-		for (ULONG i = 0; i < RTL_NUMBER_OF (keys); i++)
+		for (ULONG j = 0; j < RTL_NUMBER_OF (keys); j++)
 		{
-			if (PtInRect (&shell_check_rects[i], pt))
+			if (PtInRect (&shell_check_rects[j], pt))
 			{
-				_r_config_setboolean (keys[i], !_r_config_getboolean (keys[i], defaults[i], NULL), NULL);
+				_r_config_setboolean (keys[j], !_r_config_getboolean (keys[j], defaults[j], NULL), NULL);
 				InvalidateRect (hwnd, NULL, TRUE);
 				return;
 			}
 		}
+
+		// theme row (DEC-11 owner-selectable; r3 G1-M1)
+		if (PtInRect (&shell_check_rects[4], pt))
+		{
+			LONG current = _r_config_getlong (L"IsShellLightTheme", -1, NULL);
+			LONG next = (current == 1) ? 0 : 1;
+
+			_r_config_setlong (L"IsShellLightTheme", next, NULL);
+			_app_shell_themeapply (hwnd);
+			return;
+		}
 	}
+}
+
+static VOID _app_shell_onkeydown (
+	_In_ HWND hwnd,
+	_In_ ULONG key
+)
+{
+	shell_input_kbd = TRUE;
+
+	switch (key)
+	{
+		case VK_DOWN:
+		{
+			shell_rail_focus = (shell_rail_focus + 1) % SHELL_PAGE_MAX;
+			InvalidateRect (hwnd, NULL, FALSE);
+			break;
+		}
+
+		case VK_UP:
+		{
+			shell_rail_focus = (shell_rail_focus + SHELL_PAGE_MAX - 1) % SHELL_PAGE_MAX;
+			InvalidateRect (hwnd, NULL, FALSE);
+			break;
+		}
+
+		case VK_RETURN:
+		{
+			_app_shell_selectpage (hwnd, shell_rail_focus);
+			break;
+		}
+
+		case VK_NEXT:
+		{
+			if (shell_page == SHELL_PAGE_APPS)
+				_app_shell_scrollby (hwnd, _app_shell_pagedelta (hwnd));
+
+			break;
+		}
+
+		case VK_PRIOR:
+		{
+			if (shell_page == SHELL_PAGE_APPS)
+				_app_shell_scrollby (hwnd, -_app_shell_pagedelta (hwnd));
+
+			break;
+		}
+
+		case VK_HOME:
+		{
+			if (shell_page == SHELL_PAGE_APPS)
+			{
+				shell_scroll = 0;
+				InvalidateRect (hwnd, NULL, FALSE);
+			}
+
+			break;
+		}
+
+		case VK_END:
+		{
+			if (shell_page == SHELL_PAGE_APPS)
+			{
+				shell_scroll = _app_shell_scrollmax (hwnd);
+				InvalidateRect (hwnd, NULL, FALSE);
+			}
+
+			break;
+		}
+	}
+}
+
+// ---- a11y bridge helpers (G1-M6; consumed by composite_shell_a11y.c)
+
+// child ids: 1..6 rail entries, 7..6+shell_view_count rendered cards
+BOOLEAN _app_shell_a11ychild (
+	_In_ ULONG child_id,
+	_Out_ WCHAR *name,
+	_In_ ULONG cch,
+	_Out_ RECT *rect,
+	_Out_ LONG *role,
+	_Out_ LONG *state
+)
+{
+	HWND hwnd;
+	RECT rows;
+	ULONG card_index;
+	ULONG snap_index;
+	SHELL_APP_SNAPSHOT *snap;
+
+	if (!child_id)
+		return FALSE;
+
+	hwnd = _r_app_gethwnd ();
+
+	if (!hwnd)
+		return FALSE;
+
+	if (child_id <= (ULONG)SHELL_PAGE_MAX)
+	{
+		ULONG rail_index = child_id - 1;
+
+		if (!shell_rail_rects[rail_index].right && !shell_rail_rects[rail_index].left)
+			return FALSE;
+
+		_app_shell_locale (name, cch, shell_rail_ids[rail_index]);
+
+		*rect = shell_rail_rects[rail_index];
+		*role = 0x25; // ROLE_SYSTEM_PAGETAB
+		*state = 0x100000 | 0x200000; // FOCUSABLE | SELECTABLE
+
+		if ((ULONG)shell_page == rail_index)
+			*state |= 0x2 | 0x4; // SELECTED | FOCUSED
+
+		return TRUE;
+	}
+
+	// card
+	card_index = child_id - (ULONG)SHELL_PAGE_MAX - 1;
+
+	if (card_index >= shell_view_count)
+		return FALSE;
+
+	snap_index = shell_view[card_index];
+
+	if (snap_index >= shell_apps_count)
+		return FALSE;
+
+	snap = &shell_apps[snap_index];
+
+	// card name = "app — state" (locale pills; separate buffers, no
+	// aliasing between source and destination)
+	{
+		WCHAR state_word[SHELL_LINE_MAX];
+		ULONG state_id = snap->state == 2 ? IDS_SHELL_PILL_PROMPT : (snap->state == 1 ? IDS_SHELL_PILL_ALLOW : IDS_SHELL_PILL_BLOCK);
+
+		_app_shell_locale (state_word, RTL_NUMBER_OF (state_word), state_id);
+		_r_str_printf (name, cch, L"%s — %s", snap->name, state_word);
+	}
+
+	_app_shell_appsrowsrect (hwnd, &rows);
+
+	rect->left = rows.left;
+	rect->right = rows.right;
+	rect->top = rows.top + (LONG)(card_index * SHELL_ROW_PITCH) - shell_scroll;
+	rect->bottom = rect->top + SHELL_CARD_H;
+
+	*role = 0x22; // ROLE_SYSTEM_LISTITEM
+	*state = 0x100000 | 0x200000; // FOCUSABLE | SELECTABLE
+
+	if (rect->top < rows.top || rect->bottom > rows.bottom)
+		*state |= 0x10000; // OFFSCREEN
+
+	return TRUE;
+}
+
+VOID _app_shell_a11yselectpage (
+	_In_ HWND hwnd,
+	_In_ ULONG rail_index
+)
+{
+	_app_shell_selectpage (hwnd, (INT)rail_index);
+}
+
+ULONG _app_shell_a11ychildcount (VOID)
+{
+	return (ULONG)SHELL_PAGE_MAX + shell_view_count;
+}
+
+ULONG _app_shell_a11yfocuspage (VOID)
+{
+	return (ULONG)shell_page;
 }
 
 static LRESULT CALLBACK _app_shell_wndproc (
@@ -830,54 +1894,235 @@ static LRESULT CALLBACK _app_shell_wndproc (
 		case WM_CREATE:
 		{
 			HDC hdc;
+			WCHAR cue[SHELL_LINE_MAX];
+			WCHAR title[SHELL_LINE_MAX];
 
 			// populate apps_table from the profile (the shell replaces the
 			// main window, so the upstream WM_INITDIALOG load never runs)
-			// fix (2026-11-18, 4-dump crash): the -gui path skips the upstream
-			// _app_profile_initialize call - profile_info paths were empty
-			// stringrefs (NULL buffer) and the path converter dereferenced
-			// NULL inside _r_str_isnullterminated (AV 0xC0000005 at
-			// _r_fs_dospathnametontpathname+0x233, dumps simplewall-1794961299..422)
+			// fix (2026-11-18, 4-dump crash): profile_info paths were empty
+			// stringrefs without the profile load (AV 0xC0000005 at
+			// _r_fs_dospathnametontpathname+0x233, dumps
+			// simplewall-1794961299..422); the post-init -gui dispatch (r3
+			// G1-M4) guarantees locale/config are initialized BEFORE we get
+			// here, so localized strings resolve on fresh profiles too
 			_app_profile_initialize ();
 			_app_profile_load (NULL, NULL);
 
 			hdc = GetDC (hwnd);
 
+			_app_shell_fonts_create (hdc ? GetDeviceCaps (hdc, LOGPIXELSY) : 96);
+
 			if (hdc)
-			{
-				LONG dpi = GetDeviceCaps (hdc, LOGPIXELSY);
-
-				shell_font_title = CreateFontW (-MulDiv (15, dpi, 72), 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
-				shell_font_main = CreateFontW (-MulDiv (12, dpi, 72), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
-				shell_font_small = CreateFontW (-MulDiv (10, dpi, 72), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
-				shell_font_pill = CreateFontW (-MulDiv (10, dpi, 72), 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
-
 				ReleaseDC (hwnd, hdc);
-			}
 
 			_r_app_sethwnd (hwnd);
 
-			_app_shell_snapshot_apps ();
-			SetTimer (hwnd, SHELL_TIMER_ID, SHELL_TIMER_MS, NULL);
+			// window title through the locale pipeline (G1-M4)
+			_app_shell_locale (title, RTL_NUMBER_OF (title), IDS_SHELL_WINDOWTITLE);
+			SetWindowTextW (hwnd, title);
+
+			// global search box (DEC-11 §1; shell-global from M1 — the
+			// filter binds to the Apps page while it is the only content
+			// page; per-page semantics extend with G-2/G-3)
+			shell_hwnd_search = CreateWindowExW (
+				0,
+				L"EDIT",
+				NULL,
+				WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL,
+				0,
+				0,
+				0,
+				0,
+				hwnd,
+				(HMENU)(INT_PTR)SHELL_ID_SEARCH,
+				NULL,
+				NULL
+			);
+
+			if (shell_hwnd_search)
+			{
+				_app_shell_locale (cue, RTL_NUMBER_OF (cue), IDS_SHELL_SEARCH_CUE);
+				SendMessageW (shell_hwnd_search, WM_SETFONT, (WPARAM)shell_font_main, TRUE);
+				SendMessageW (shell_hwnd_search, EM_SETCUEBANNER, TRUE, (LPARAM)cue);
+			}
+
+			_app_shell_themeapply (hwnd);
+			_app_shell_layout (hwnd);
+
+			_app_shell_snapshot ();
+			_app_shell_applyfilter ();
+
+			SetTimer (hwnd, SHELL_TIMER_REFRESH, SHELL_TIMER_REFRESH_MS, NULL);
 
 			return 0;
 		}
 
-		case WM_TIMER:
+		case WM_SETTINGCHANGE:
+		case WM_THEMECHANGED:
 		{
-			if (wparam != SHELL_TIMER_ID)
-				break;
+			// system theme changed: re-evaluate only when the owner has no
+			// explicit choice (r3 G1-M1 auto-detect)
+			if (_r_config_getlong (L"IsShellLightTheme", -1, NULL) == -1)
+				_app_shell_themeapply (hwnd);
 
-			// cheap refresh: re-snapshot the counts/states, repaint
-			_app_shell_snapshot_apps ();
+			return 0;
+		}
+
+		case WM_DPICHANGED:
+		{
+			// per-monitor DPI (DEC-11 §2; the r3 G1-M1 awareness
+			// prerequisite makes this message actually arrive): recreate
+			// the fonts at the new dpi + adopt the suggested rect
+			LPRECT suggested = (LPRECT)lparam;
+			LONG dpi = HIWORD (wparam);
+
+			_app_shell_fonts_create (dpi);
+
+			if (suggested)
+				SetWindowPos (hwnd, NULL, suggested->left, suggested->top, suggested->right - suggested->left, suggested->bottom - suggested->top, SWP_NOZORDER | SWP_NOACTIVATE);
+
+			_app_shell_layout (hwnd);
 			InvalidateRect (hwnd, NULL, TRUE);
 			return 0;
 		}
 
+		case WM_SIZE:
+		{
+			_app_shell_layout (hwnd);
+			_app_shell_scrollclamp (hwnd);
+			InvalidateRect (hwnd, NULL, FALSE);
+			return 0;
+		}
+
+		case WM_COMMAND:
+		{
+			// search-as-you-type → debounced filter rebuild (System
+			// Informer SearchDelayMs precedent; r3 verification: typing
+			// 10 chars issues ONE rebuild)
+			if (LOWORD (wparam) == SHELL_ID_SEARCH && HIWORD (wparam) == EN_CHANGE)
+			{
+				SetTimer (hwnd, SHELL_TIMER_FILTER, SHELL_TIMER_FILTER_MS, NULL);
+				return 0;
+			}
+
+			break;
+		}
+
+		case WM_TIMER:
+		{
+			if (wparam == SHELL_TIMER_REFRESH)
+			{
+				// cheap refresh: re-snapshot; invalidate ONLY on change
+				// (r3 G1-M2 idle discipline — no repaints while the
+				// profile is untouched)
+				if (_app_shell_snapshot ())
+				{
+					_app_shell_applyfilter ();
+					_app_shell_scrollclamp (hwnd);
+					InvalidateRect (hwnd, NULL, FALSE);
+				}
+
+				return 0;
+			}
+
+			if (wparam == SHELL_TIMER_FILTER)
+			{
+				WCHAR filter[SHELL_FILTER_MAX];
+
+				KillTimer (hwnd, SHELL_TIMER_FILTER);
+
+				if (shell_hwnd_search)
+				{
+					GetWindowTextW (shell_hwnd_search, filter, RTL_NUMBER_OF (filter));
+					_r_str_copy (shell_filter, RTL_NUMBER_OF (shell_filter), filter);
+				}
+				else
+				{
+					shell_filter[0] = UNICODE_NULL;
+				}
+
+				_app_shell_applyfilter ();
+				shell_scroll = 0;
+				InvalidateRect (hwnd, NULL, FALSE);
+				return 0;
+			}
+
+			break;
+		}
+
+		case WM_MOUSEWHEEL:
+		{
+			if (shell_page == SHELL_PAGE_APPS)
+			{
+				LONG delta = (LONG)(SHORT)HIWORD (wparam);
+
+				_app_shell_scrollby (hwnd, -(delta / WHEEL_DELTA) * SHELL_ROW_PITCH);
+			}
+
+			return 0;
+		}
+
+		case WM_KEYDOWN:
+		{
+			_app_shell_onkeydown (hwnd, (ULONG)wparam);
+			return 0;
+		}
+
+		case WM_MOUSEMOVE:
+		{
+			if (shell_scrollbar_drag && GetCapture () == hwnd)
+			{
+				RECT rows;
+				POINT pt = {(LONG)(SHORT)LOWORD (lparam), (LONG)(SHORT)HIWORD (lparam)};
+				LONG scrollmax = _app_shell_scrollmax (hwnd);
+				LONG track_h;
+				LONG thumb_h;
+
+				if (scrollmax > 0)
+				{
+					_app_shell_appsrowsrect (hwnd, &rows);
+
+					track_h = (rows.bottom - rows.top) - 8;
+					thumb_h = shell_scrollbar_thumb.bottom - shell_scrollbar_thumb.top;
+
+					shell_scroll = (LONG)((LONG64)(pt.y - rows.top - 4 - shell_scrollbar_drag_off) * scrollmax / max (1, track_h - thumb_h));
+					_app_shell_scrollclamp (hwnd);
+					InvalidateRect (hwnd, NULL, FALSE);
+				}
+
+				return 0;
+			}
+
+			break;
+		}
+
+		case WM_LBUTTONUP:
+		{
+			if (shell_scrollbar_drag)
+			{
+				shell_scrollbar_drag = FALSE;
+				ReleaseCapture ();
+				return 0;
+			}
+
+			break;
+		}
+
 		case WM_LBUTTONDOWN:
 		{
+			SetFocus (hwnd);
 			_app_shell_onclick (hwnd, (LONG)(SHORT)LOWORD (lparam), (LONG)(SHORT)HIWORD (lparam));
 			return 0;
+		}
+
+		case WM_GETOBJECT:
+		{
+			// basic MSAA labels (r3 G1-M6: the approved M1 accessibility
+			// line; the full audit stays a later milestone per design r2)
+			if ((LONG)lparam == OBJID_CLIENT)
+				return _app_shell_a11y_getobject (hwnd, wparam, lparam);
+
+			break;
 		}
 
 		case WM_ERASEBKGND:
@@ -888,36 +2133,54 @@ static LRESULT CALLBACK _app_shell_wndproc (
 		case WM_PAINT:
 		{
 			PAINTSTRUCT ps;
+			HDC hdc_target;
+			HPAINTBUFFER_SHELL pb;
 
-			if (BeginPaint (hwnd, &ps))
-			{
-				_app_shell_paint (hwnd, ps.hdc);
-				EndPaint (hwnd, &ps);
-			}
+			if (!BeginPaint (hwnd, &ps))
+				return 0;
 
+			hdc_target = ps.hdc;
+			pb = 0;
+
+			// double-buffer through the documented uxtheme API (r3 G1-M1:
+			// kills the direct-paint progressive-composition tear)
+			if (shell_pfn_beginbufferedpaint && shell_pfn_endbufferedpaint)
+				pb = shell_pfn_beginbufferedpaint (ps.hdc, &ps.rcPaint, BPBF_COMPATIBLEBUFFERS, NULL, &hdc_target);
+
+			_app_shell_paint (hwnd, hdc_target);
+
+			if (pb && shell_pfn_endbufferedpaint)
+				shell_pfn_endbufferedpaint (pb, TRUE);
+
+			EndPaint (hwnd, &ps);
 			return 0;
 		}
 
 		case WM_DESTROY:
 		{
-			KillTimer (hwnd, SHELL_TIMER_ID);
+			KillTimer (hwnd, SHELL_TIMER_REFRESH);
+			KillTimer (hwnd, SHELL_TIMER_FILTER);
 
-			if (shell_font_title)
-				DeleteObject (shell_font_title);
+			shell_hwnd_search = NULL;
+			_r_app_sethwnd (NULL);
 
-			if (shell_font_main)
-				DeleteObject (shell_font_main);
+			_app_shell_fonts_destroy ();
 
-			if (shell_font_small)
-				DeleteObject (shell_font_small);
+			if (shell_apps)
+			{
+				HeapFree (GetProcessHeap (), 0, shell_apps);
+				shell_apps = NULL;
+				shell_apps_cap = 0;
+				shell_apps_count = 0;
+			}
 
-			if (shell_font_pill)
-				DeleteObject (shell_font_pill);
-
-			shell_font_title = NULL;
-			shell_font_main = NULL;
-			shell_font_small = NULL;
-			shell_font_pill = NULL;
+			if (shell_view)
+			{
+				HeapFree (GetProcessHeap (), 0, shell_view);
+				shell_view = NULL;
+				shell_view_cap = 0;
+				shell_view_count = 0;
+			}
 
 			PostQuitMessage (0);
 			return 0;
@@ -927,52 +2190,35 @@ static LRESULT CALLBACK _app_shell_wndproc (
 	return DefWindowProcW (hwnd, msg, wparam, lparam);
 }
 
-// TEMP debug (G-1): record faulting address to shell_crash.txt next to the
-// exe; remove after the crash is diagnosed
-static LONG WINAPI _app_shell_seh_filter (
-	_In_ PEXCEPTION_POINTERS ptrs
-)
-{
-	WCHAR path[MAX_PATH];
-	HANDLE file;
-	DWORD written = 0;
-	DWORD size;
-	CHAR line[160];
-
-	if (GetModuleFileNameW (NULL, path, RTL_NUMBER_OF (path)))
-	{
-		PWSTR slash = wcsrchr (path, L'\\');
-
-		if (slash)
-			*slash = UNICODE_NULL;
-
-		wcscat_s (path, RTL_NUMBER_OF (path), L"\\shell_crash.txt");
-
-		file = CreateFileW (path, GENERIC_WRITE, FILE_SHARE_READ, NULL, CREATE_ALWAYS, 0, NULL);
-
-		if (file != INVALID_HANDLE_VALUE)
-		{
-			size = (DWORD)_snprintf_s (line, RTL_NUMBER_OF (line), _TRUNCATE, "code=0x%08lx addr=%p rip=%p rbp=%p\n", (ULONG)ptrs->ExceptionRecord->ExceptionCode, (PVOID)ptrs->ExceptionRecord->ExceptionAddress, (PVOID)(ULONG_PTR)ptrs->ContextRecord->Rip, (PVOID)(ULONG_PTR)ptrs->ContextRecord->Rbp);
-			WriteFile (file, line, size, &written, NULL);
-			CloseHandle (file);
-		}
-	}
-
-	return EXCEPTION_EXECUTE_HANDLER;
-}
-
 INT APIENTRY _app_shell_run (
 	_In_ HINSTANCE hinst
 )
 {
 	WNDCLASSEXW wc = {0};
-	MSG msg;
+	MSG msg = {0}; // r3 G1-M5 (goldfish finding 9): zero-init, no hack
+	HMODULE huxtheme;
 	HWND hwnd;
 	RECT rect = {0, 0, SHELL_CLIENT_W, SHELL_CLIENT_H};
 
-	msg.message = WM_QUIT; // silence /W4 "possibly uninitialized" on early-exit paths
+	// COM for the MSAA bridge (r3 G1-M6); harmless when already up
+	CoInitializeEx (NULL, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
 
-	SetUnhandledExceptionFilter (&_app_shell_seh_filter);
+	// DPI awareness BEFORE any window exists (r3 G1-M1, goldfish
+	// finding 2 — without it WM_DPICHANGED is never delivered)
+	_app_shell_dpiaware ();
+
+	// buffered paint procs: documented named exports of uxtheme
+	// (NFR-02 dynamic-resolve; no library linkage, no ordinal hooking)
+	huxtheme = GetModuleHandleW (L"uxtheme.dll");
+
+	if (!huxtheme)
+		huxtheme = LoadLibraryW (L"uxtheme.dll");
+
+	if (huxtheme)
+	{
+		shell_pfn_beginbufferedpaint = (SHELL_PFN_BEGINBUFFEREDPAINT)GetProcAddress (huxtheme, "BeginBufferedPaint");
+		shell_pfn_endbufferedpaint = (SHELL_PFN_ENDBUFFEREDPAINT)GetProcAddress (huxtheme, "EndBufferedPaint");
+	}
 
 	wc.cbSize = sizeof (wc);
 	wc.style = CS_HREDRAW | CS_VREDRAW;
@@ -984,13 +2230,18 @@ INT APIENTRY _app_shell_run (
 	if (!RegisterClassExW (&wc))
 		return ERROR_APP_INIT_FAILURE;
 
-	AdjustWindowRect (&rect, WS_OVERLAPPEDWINDOW & ~(WS_THICKFRAME | WS_MAXIMIZEBOX), FALSE);
+	// NOTE: AdjustWindowRect uses the primary-monitor dpi; the initial
+	// size may differ by a few px at high dpi until WM_DPICHANGED —
+	// acceptable for M1 (documented in the r3 verification additions)
+	AdjustWindowRect (&rect, WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN, FALSE);
 
+	// resize enabled (r3 G1-M2): virtual scrolling makes resize safe
+	// (the r1 clip-at-bottom could not resize at all)
 	hwnd = CreateWindowExW (
 		0,
 		SHELL_CLASSNAME,
-		SHELL_WINDOWNAME,
-		WS_OVERLAPPEDWINDOW & ~(WS_THICKFRAME | WS_MAXIMIZEBOX),
+		SHELL_CLASSNAME, // replaced by the localized title at WM_CREATE
+		WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
 		CW_USEDEFAULT,
 		CW_USEDEFAULT,
 		rect.right - rect.left,

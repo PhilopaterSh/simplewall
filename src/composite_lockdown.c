@@ -898,6 +898,34 @@ BOOLEAN _app_lockdown_isactive (VOID)
 	return _r_config_getboolean (LOCKDOWN_CONFIG, FALSE, NULL);
 }
 
+// DEC-11 query API (GUI Lockdown page; declared in composite_lockdown.h):
+// read-only mirror of the enable refusal gates — already-engaged, policy
+// reachability, engine health, audit probe. NO mutation, NO snapshot, NO
+// audit write; the GUI surfaces the returned condition BEFORE commit
+// (verify-then-commit, DEC-04 — r3 G1-M5/goldfish finding 3).
+NTSTATUS _app_lockdown_preflight (VOID)
+{
+	INetFwPolicy2 *policy = NULL;
+	NTSTATUS status;
+
+	if (_r_config_getboolean (LOCKDOWN_CONFIG, FALSE, NULL))
+		return STATUS_ALREADY_REGISTERED; // already engaged
+
+	status = _app_lockdown_getpolicy (&policy);
+
+	if (!NT_SUCCESS (status))
+		return status;
+
+	INetFwPolicy2_Release (policy);
+
+	// engine-down: enable (unconfirmed) refuses with
+	// STATUS_LOCKDOWN_CONFIRM — the pre-flight surfaces exactly that
+	if (!_wfp_isfiltersinstalled ())
+		return STATUS_LOCKDOWN_CONFIRM;
+
+	return _app_audit_probe ();
+}
+
 // startup crash-residue consistency check (mirrors _app_audit_startupcheck)
 VOID _app_lockdown_startupcheck (VOID)
 {

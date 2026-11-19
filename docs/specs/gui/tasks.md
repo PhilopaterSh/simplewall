@@ -1,7 +1,10 @@
 # GUI tasks
 
-- [ ] G-1 (M1) shell scaffold: rail + theme engine + Apps page over the
-      existing apps table (FR-15, NFR-07) [enabling]
+- [x] G-1 (M1) shell scaffold: rail + theme engine + Apps page over the
+      existing apps table (FR-15, NFR-07) [enabling] — IMPLEMENTED
+      r3-integrated 2026-11-19 (research-grounded + goldfish round 2
+      integrated; compile 0/0 local, runtime verdict = CI/owner lane;
+      see design-gui-draft.md r3 + post-review record)
 - [ ] G-2 (M2) Rules/Packs/Lockdown pages over the query APIs (FR-15,
       DEC-11)
 - [ ] G-3 (M3) prompting redesign + Log page with decide actions
