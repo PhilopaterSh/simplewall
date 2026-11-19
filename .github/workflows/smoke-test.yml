@@ -116,11 +116,12 @@ jobs:
       - name: Composite selftest (query APIs, -gui-selftest)
         shell: pwsh
         run: |
-          & bin/64/simplewall.exe -gui-selftest
+          & bin/64/simplewall.exe -gui-selftest | Out-Host
           $code = $LASTEXITCODE
+          Write-Host "selftest process exit code: $code"
           if (Test-Path bin/64/selftest-result.txt) { Get-Content bin/64/selftest-result.txt }
-          else { Write-Host 'FAIL: selftest-result.txt was not produced'; $code = 99 }
-          if ($code -ne 0) { Write-Error "composite selftest failed ($code failures)"; exit 1 }
+          else { Write-Host 'FAIL: selftest-result.txt was not produced (process died before any flush)'; if (-not $code) { $code = 99 } }
+          if ($code -ne 0) { Write-Error "composite selftest failed (exit=$code)"; exit 1 }
 
       # composite GUI chain G-1/G-2: drive the shell on the runner desktop
       # (SAC-free) — one screenshot per rail page + search + theme paths;

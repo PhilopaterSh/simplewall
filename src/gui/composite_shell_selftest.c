@@ -105,6 +105,19 @@ static VOID _app_selftest_writefile (
 	}
 }
 
+// flush-as-you-go (the first CI run died before the final write — a
+// crash mid-run now leaves the partial log on disk as evidence)
+static VOID _app_selftest_flush (
+	VOID
+)
+{
+	CHAR marker[64];
+
+	_snprintf_s (marker, RTL_NUMBER_OF (marker), _TRUNCATE, "[flush] failures so far: %lu", selftest_failures);
+	_app_selftest_log (marker);
+	_app_selftest_writefile ();
+}
+
 static PR_STRING _app_selftest_sidecarpath (
 	VOID
 )
@@ -329,9 +342,16 @@ INT _app_shell_selftest_run (
 	VOID
 )
 {
+	_app_selftest_log ("composite selftest: enter");
+
 	_app_selftest_packscases ();
+	_app_selftest_flush ();
+
 	_app_selftest_statecases ();
+	_app_selftest_flush ();
+
 	_app_selftest_publishercases ();
+	_app_selftest_flush ();
 
 	_app_selftest_writefile ();
 

@@ -60,11 +60,19 @@ function Page([int]$downs) {
 
 Write-Host "Launching $ExePath -gui"
 $proc = Start-Process -FilePath $ExePath -ArgumentList '-gui' -PassThru
-Start-Sleep -Seconds 5
 
-$script:hwnd = [GuiDrive]::FindWindowW('quietwall_shell', $null)
+# retry the window find up to ~20s (init + first paint can be slow on a
+# cold runner; the G-2 selftest step also runs immediately before us)
+$script:hwnd = [IntPtr]::Zero
+for ($try = 0; $try -lt 20; $try++) {
+	Start-Sleep -Seconds 1
+	$script:hwnd = [GuiDrive]::FindWindowW('quietwall_shell', $null)
+	if ($script:hwnd -ne [IntPtr]::Zero) { break }
+}
+
 if ($script:hwnd -eq [IntPtr]::Zero) {
 	$manifest.errors += 'window quietwall_shell not found'
+	if ($proc.HasExited) { $manifest.errors += "process exited early, code $($proc.ExitCode)" }
 	$manifest | ConvertTo-Json | Set-Content (Join-Path $OutDir 'manifest.json')
 	Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
 	Write-Host 'FAIL: shell window not found'
