@@ -649,8 +649,7 @@ PR_STRING _r_app_getprofiledirectory ()
 				if (hbc != INVALID_HANDLE_VALUE)
 				{
 					SetFilePointer (hbc, 0, NULL, FILE_END);
-					_snprintf_s (bc_line, RTL_NUMBER_OF (bc_line), _TRUNCATE, "profiledir: portable=%d path=%ls (len=%lu)
-", _r_app_isportable () ? 1 : 0, cached_path ? cached_path->buffer : L"<NULL>", cached_path ? (ULONG)_r_str_getlength2 (&cached_path->sr) : 0);
+					_snprintf_s (bc_line, RTL_NUMBER_OF (bc_line), _TRUNCATE, "profiledir: portable=%d path=%ls (len=%lu)\n", _r_app_isportable () ? 1 : 0, cached_path ? cached_path->buffer : L"<NULL>", cached_path ? (ULONG)_r_str_getlength2 (&cached_path->sr) : 0);
 					WriteFile (hbc, bc_line, (DWORD)strlen (bc_line), &written, NULL);
 					CloseHandle (hbc);
 				}
