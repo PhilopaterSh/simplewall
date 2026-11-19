@@ -3,7 +3,7 @@
     "source": "henrypp/simplewall official v.3.8.7 portable (simplewall-3.8.7-bin.7z)",
     "sha256_of_archive": "9f5bd16936decf1ace052a0120452cdeef004d5f6563f99bef180e7ae874e2a3",
     "captured": "2026-11-07",
-    "note": "RSK-01 history: WS2_32.dll re-applied 2026-11-10 via the documented trigger (preflight FAIL with EXTRA WS2_32.dll) when the composite Phase 1 chain landed on master (merge 19f7da7d): composite_eventlog.c uses InetPtonW for 5157 endpoint parsing (T002, commit 926a4aba). Verified against the committed-tree CI build of 554c04b (25 DLLs)."
+    "note": "RSK-01 history: WS2_32.dll re-applied 2026-11-10 via the documented trigger (EXTRA WS2_32.dll) for composite T002 InetPtonW (commit 926a4aba), verified 25 DLLs on CI build 554c04b. OLEACC.dll added 2026-11-19 via the same trigger (EXTRA OLEACC.dll) for the GUI G-1 MSAA a11y bridge (LresultFromObject, commit f5c0c6aa), build+smoke PASS on CI run 44577128073."
   },
   "dlls": [
     "ADVAPI32.dll",
@@ -21,6 +21,7 @@
     "MSIMG32.dll",
     "ntdll.dll",
     "ole32.dll",
+    "OLEACC.dll",
     "OLEAUT32.dll",
     "SHELL32.dll",
     "SHLWAPI.dll",
