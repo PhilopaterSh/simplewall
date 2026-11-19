@@ -12,6 +12,7 @@ param(
 $ErrorActionPreference = 'Stop'
 
 Add-Type -AssemblyName System.Drawing
+Add-Type -AssemblyName System.Windows.Forms
 Add-Type @"
 using System;
 using System.Text;
@@ -31,6 +32,7 @@ public static class GuiDrive {
 	[DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hwnd);
 	[DllImport("user32.dll")] public static extern IntPtr GetProcessWindowStation();
 	[DllImport("user32.dll")] public static extern bool GetUserObjectInformationW(IntPtr h, int index, StringBuilder sb, int max, out uint needed);
+	[DllImport("user32.dll")] public static extern bool EnumChildWindows(IntPtr hwnd, EnumProc proc, IntPtr lparam);
 	[StructLayout(LayoutKind.Sequential)] public struct RECT { public int L, T, R, B; }
 	public static string DesktopName() {
 		var sb = new StringBuilder(256); uint n;
@@ -44,7 +46,19 @@ public static class GuiDrive {
 			if (wpid == pid) {
 				var t = new StringBuilder(128); GetWindowTextW(h, t, 128);
 				var c = new StringBuilder(128); GetClassNameW(h, c, 128);
-				sb.Append("[").Append(c).Append("] '").Append(t).Append("' visible=").Append(IsWindowVisible(h)).Append("; ");
+				sb.Append("[").Append(c).Append("] '").Append(t).Append("' visible=").Append(IsWindowVisible(h));
+				// modal-dialog forensics: enumerate control texts (#32770)
+				if (c.ToString() == "#32770") {
+					sb.Append(" {children: ");
+					EnumChildWindows(h, (ch, l2) => {
+						var ct = new StringBuilder(256); GetWindowTextW(ch, ct, 256);
+						var cc = new StringBuilder(64); GetClassNameW(ch, cc, 64);
+						sb.Append("(").Append(cc).Append(")'").Append(ct).Append("' ");
+						return true;
+					}, IntPtr.Zero);
+					sb.Append("}");
+				}
+				sb.Append("; ");
 			}
 			return true;
 		}, IntPtr.Zero);
@@ -102,6 +116,18 @@ if ($script:hwnd -eq [IntPtr]::Zero) {
 	if ($proc.HasExited) { $manifest.errors += "process exited early, code $($proc.ExitCode)" }
 	$manifest.desktop = [GuiDrive]::DesktopName()
 	$manifest.process_windows = [GuiDrive]::WindowsOfPid($proc.Id)
+	# full-screen capture regardless of window state (dialog evidence)
+	try {
+		$sw = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds.Width
+		$sh = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds.Height
+		$bmp = New-Object System.Drawing.Bitmap($sw, $sh)
+		$g = [System.Drawing.Graphics]::FromImage($bmp)
+		$g.CopyFromScreen(0, 0, 0, 0, (New-Object System.Drawing.Size($sw, $sh)))
+		$g.Dispose()
+		$bmp.Save((Join-Path $OutDir 'screen.png'), [System.Drawing.Imaging.ImageFormat]::Png)
+		$bmp.Dispose()
+		$manifest.shots += 'screen'
+	} catch { $manifest.errors += "screen capture failed: $_" }
 	$manifest | ConvertTo-Json | Set-Content (Join-Path $OutDir 'manifest.json')
 	Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
 	Write-Host 'FAIL: shell window not found'

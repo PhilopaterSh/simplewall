@@ -343,6 +343,7 @@ INT _app_shell_selftest_run (
 )
 {
 	_app_selftest_log ("composite selftest: enter");
+	_app_selftest_flush (); // bisect: file-on-disk = init completed
 
 	_app_selftest_packscases ();
 	_app_selftest_flush ();
