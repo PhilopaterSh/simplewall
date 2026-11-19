@@ -79,14 +79,15 @@
 | 40 | 2026-11-18 | PR-head race (GitHub eventual consistency) | PR #18 merge | the merge captured the branch head BEFORE the VERSION/VERSION.sig commit landed - master advertised 3.9.2 while the 3.9.3 release+assets were live; caught by post-merge live verification (raw vs master vs artifact hashes); fixed by cherry-pick PR #19 (b32a458c); raw CDN cache delayed visibility ~5 min (verified consistent-stale meanwhile - fail-safe direction) | REAL - closed | PR #19 + raw verification |
 | 41 | 2026-11-18 | independent pure-math verifier (arbiter rule) | the LIVE feed pair post-CDN | raw VERSION(3.9.3)+sig verified PASS by a from-scratch secp256r1 verifier - the live signed feed is consistent and authentic | REAL | verification output 2026-11-18 |
 
-| 42 | 2026-11-18 | crash-dump symbolication (owner reported 0xC0000005) | bin/mergetest/simplewall.exe (the composite lane scratch build) | 8 dumps ALL at the same RVA: _r_fs_setpos+0x23 <- _r_fs_readbytes+0x1B0 <- _r_app_getlocalepath+0xB (the language/locale file path) — an invalid-handle class crash in the file-IO path of the uncommitted gui-work build; the RELEASED v3.9.3 exe is unaffected (different build, CI-launch verified). Symbolication handed to the composite lane; mergetest rebuilds at 02:43 same-day suggest the lane is actively iterating | REAL | dumps simplewall-1794961299..2163.dmp + mergetest map |
+| 42b | 2026-11-19 | release engineering (G-3 continuation) | v3.9.4-hardened.1 | FIX-5 live: the setpos ABI sweep (4 scalar->PLARGE_INTEGER) released as v3.9.4-hardened.1 (id 450725439, exe cfb1afa6...c7348, v2 Authenticode) - full preflight gate 9/9 PASS; live feed serves 3.9.4 (verified post-CDN); the downloaded artifact hash matches + Authenticode Valid | REAL - release live | release + gate outputs |
+| 42c | 2026-11-19 | process (agent-3 class) | the security-fixes chain | TWO chain-discipline catches in one release cycle: (1) the T007 commit shipped WITHOUT the design amendment (invented-key drift caught by CI chain-gates - the gate defends its own contract); (2) the PR-18 head-race recurred (PR #19 pattern) - both fixed by the same protocols now proven twice | REAL | runs 44426638162(FAIL)/44427750949(PASS) |
 
 ## Owner-decision tracker (agent-3: the owner-gated queue was prose-scattered)
 
 | # | Decision | Blocking | Source |
 |---|---|---|---|
 | O-1 | ~~PFX re-key~~ CLOSED 2026-11-18: cert v2 FEC37DA0...83 44D signs everything; burned cert retired | - | row 39 |
-| O-2 | ~~Re-release~~ CLOSED 2026-11-18: v3.9.3-hardened.1 live (id 449359485, exe 0a1d5f44...85ff0) with the 3 MAJOR fixes | - | rows 39-40 |
+| O-2 | ~~Re-release~~ SUPERSEDED by v3.9.4-hardened.1 (id 450725439, exe cfb1afa6...c7348) - the 3 MAJOR fixes + the setpos ABI sweep LIVE (2026-11-19) | - | rows 39-42b |
 | O-3 | r6 decision (open the goldfish amendment round or keep frozen) | composite Phase 2 | RESUME frozen-decision |
 | O-4 | Product naming (Portcullis / Husn / simplewall CE / defer) | branding only | RESUME item 5 |
 | O-5 | goldfish pin upgrade 0.2.0 → 0.3.2 + full gate re-run | CI consistency | audit-2 F-4; PIN.md |
@@ -173,14 +174,15 @@
 | 40 | 2026-11-18 | PR-head race (GitHub eventual consistency) | PR #18 merge | the merge captured the branch head BEFORE the VERSION/VERSION.sig commit landed - master advertised 3.9.2 while the 3.9.3 release+assets were live; caught by post-merge live verification (raw vs master vs artifact hashes); fixed by cherry-pick PR #19 (b32a458c); raw CDN cache delayed visibility ~5 min (verified consistent-stale meanwhile - fail-safe direction) | REAL - closed | PR #19 + raw verification |
 | 41 | 2026-11-18 | independent pure-math verifier (arbiter rule) | the LIVE feed pair post-CDN | raw VERSION(3.9.3)+sig verified PASS by a from-scratch secp256r1 verifier - the live signed feed is consistent and authentic | REAL | verification output 2026-11-18 |
 
-| 42 | 2026-11-18 | crash-dump symbolication (owner reported 0xC0000005) | bin/mergetest/simplewall.exe (the composite lane scratch build) | 8 dumps ALL at the same RVA: _r_fs_setpos+0x23 <- _r_fs_readbytes+0x1B0 <- _r_app_getlocalepath+0xB (the language/locale file path) — an invalid-handle class crash in the file-IO path of the uncommitted gui-work build; the RELEASED v3.9.3 exe is unaffected (different build, CI-launch verified). Symbolication handed to the composite lane; mergetest rebuilds at 02:43 same-day suggest the lane is actively iterating | REAL | dumps simplewall-1794961299..2163.dmp + mergetest map |
+| 42b | 2026-11-19 | release engineering (G-3 continuation) | v3.9.4-hardened.1 | FIX-5 live: the setpos ABI sweep (4 scalar->PLARGE_INTEGER) released as v3.9.4-hardened.1 (id 450725439, exe cfb1afa6...c7348, v2 Authenticode) - full preflight gate 9/9 PASS; live feed serves 3.9.4 (verified post-CDN); the downloaded artifact hash matches + Authenticode Valid | REAL - release live | release + gate outputs |
+| 42c | 2026-11-19 | process (agent-3 class) | the security-fixes chain | TWO chain-discipline catches in one release cycle: (1) the T007 commit shipped WITHOUT the design amendment (invented-key drift caught by CI chain-gates - the gate defends its own contract); (2) the PR-18 head-race recurred (PR #19 pattern) - both fixed by the same protocols now proven twice | REAL | runs 44426638162(FAIL)/44427750949(PASS) |
 
 ## Owner-decision tracker (agent-3: the owner-gated queue was prose-scattered)
 
 | # | Decision | Blocking | Source |
 |---|---|---|---|
 | O-1 | ~~PFX re-key~~ CLOSED 2026-11-18: cert v2 FEC37DA0...83 44D signs everything; burned cert retired | - | row 39 |
-| O-2 | ~~Re-release~~ CLOSED 2026-11-18: v3.9.3-hardened.1 live (id 449359485, exe 0a1d5f44...85ff0) with the 3 MAJOR fixes | - | rows 39-40 |
+| O-2 | ~~Re-release~~ SUPERSEDED by v3.9.4-hardened.1 (id 450725439, exe cfb1afa6...c7348) - the 3 MAJOR fixes + the setpos ABI sweep LIVE (2026-11-19) | - | rows 39-42b |
 | O-3 | r6 decision (open the goldfish amendment round or keep frozen) | composite Phase 2 | RESUME frozen-decision |
 | O-4 | Product naming (Portcullis / Husn / simplewall CE / defer) | branding only | RESUME item 5 |
 | O-5 | goldfish pin upgrade 0.2.0 → 0.3.2 + full gate re-run | CI consistency | audit-2 F-4; PIN.md |

@@ -19,6 +19,14 @@ Derived from spec.md; preserves the approved decisions (design r2).
 - Gates: goldfish check (this chain) exit 0 + check-chain-artifacts 0 violations before and after the implementation commit.
 - CI dispatch-then-merge on feat/security-fixes (ledger row 34 protocol).
 
+## Approach (r3 addition: FIX-5)
+
+- FIX-5 (DEC-07): sweep every `_r_fs_setpos` caller in vendor/routine/rapp.c
+  (2214/2240 download-verify + 3207/3231 install-verify) to pass a zeroed
+  LARGE_INTEGER by pointer, matching the vendored PLARGE_INTEGER contract
+  (the log.c:146 + rapp.c:3305 idiom). `_r_fs_setsize` callers verified clean.
+  Re-release v3.9.4 follows immediately (RSK-06).
+
 ## Risks carried forward
 
 - DEC-03 (FR-12 DACL policy) reflected: FIX-2 implements Administrators FULL + SYSTEM FULL + process-token user READ, PROTECTED, non-fatal (Approach FIX-2).
@@ -29,3 +37,12 @@ Derived from spec.md; preserves the approved decisions (design r2).
 - RSK-05 (vendor-lane coordination): acknowledged - FIX-1 is a single-function minimal diff in vendor/routine/rapp.c, measured against the current vendor state (last vendor commit 999a9294, owner lane); no vendor refactoring.
 
 - RSK-01 (installer self-access) / RSK-02 (non-elevated writes; declined-UAC debug-log exception) / RSK-03 (parity refusal) - carried from design r2 with their gates.
+
+
+## r3 risks
+
+- RSK-06: v3.9.3 live with the setpos crash on language-verify/install paths
+  — v3.9.4 re-release owed immediately; the raw feed pair stays
+  consistent-stale meanwhile (fail-safe).
+- DEC-07 acknowledged: the setpos sweep becomes the standing ABI-check for
+  every future vendor call site (mechanical grep, not trust).
