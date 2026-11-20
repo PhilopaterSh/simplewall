@@ -49,9 +49,39 @@ is directly comparable to a runner verdict.
 ### 2. CI (the runner) - already instrumented, owner-gated
 
 The cdb-on-hang step (d9bf66e5) is committed and YAML-validated; the
-moment Actions dispatch works (owner: Settings -> Actions -> allow,
-check spending limit if private), the next run verifies the Finding-8
+moment Actions dispatch works, the next run verifies the Finding-8
 fix green - or prints the symbolized stacks if anything still hangs.
+
+**The 2026-11-20 gate forensics (every API lever exhausted, evidence
+quoted):** the repo reports `enabled: true, allowed_actions: all`
+(GET /actions/permissions) AND the workflow itself is `active`
+(GET /actions/workflows -> 409885825 smoke-test.yml active), yet
+dispatch returns exactly `"Actions has been disabled for this
+repository."` (422). A repo toggle cycle (PUT enabled=false -> 409
+Conflict, PUT enabled=true -> 204), the workflow-enable endpoint (204,
+no-op), and the user-level policy read (404 - no such endpoint for
+personal accounts) all failed to clear it. DECISIVE ISOLATION: the
+same dispatch call on the account's other repo (Ph.Sh-Subdomain,
+go.yml) returns a DIFFERENT error ("Workflow does not have
+'workflow_dispatch' trigger") = the request reaches the validation
+layer = **Actions is fine at the account level; the block is
+SPECIFIC to PhilopaterSh/simplewall**. A CI run DID execute on this
+repo at 2026-11-20T00:11 UTC (run 44643896974), so something reset
+the switch between that run and the checks. The two candidate
+ONE-CLICK owner fixes (UI-only, no API surface exists):
+
+1. **The fork-activation banner**: open the repo's Actions tab -
+   if GitHub shows "Workflows aren't being run on this forked
+   repository" with the activation button ("I understand my
+   workflows, go ahead and enable them"), click it once.
+2. **The personal repos policy**: Settings -> Actions -> General ->
+   Actions permissions - if "Enable for selected repositories" is
+   set, add PhilopaterSh/simplewall to the list (the isolation test
+   proves other repos of the account are allowed).
+
+feat/gui-g1 was ALSO added to the workflow's push branches
+(2026-11-20), so the first successful push after either fix runs
+the verification automatically - no dispatch needed.
 
 ### 3. The owner's host click-through - the decisive SHELL test
 

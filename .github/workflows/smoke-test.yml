@@ -5,7 +5,7 @@ name: smoke-test
 
 on:
   push:
-    branches: [feat/routine-hardening, feat/hardening-round-1, master, feat/tooling]
+    branches: [feat/routine-hardening, feat/hardening-round-1, master, feat/tooling, feat/gui-g1]
   workflow_dispatch:
 
 jobs:
