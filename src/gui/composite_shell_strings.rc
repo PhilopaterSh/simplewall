@@ -96,4 +96,5 @@ IDS_SHELL_LOG_HELDROW, "%lu held connection(s)"
 IDS_SHELL_LOG_DECIDE_ALLOW, "Allow"
 IDS_SHELL_LOG_DECIDE_BLOCK, "Block"
 IDS_SHELL_LOG_NOHELD, "No held connections"
+IDS_NOTIFY_HELDLINE, " - held: %lu awaiting batch review"
 }

@@ -100,3 +100,8 @@
 #define IDS_SHELL_LOG_DECIDE_ALLOW 402
 #define IDS_SHELL_LOG_DECIDE_BLOCK 403
 #define IDS_SHELL_LOG_NOHELD 404
+
+// G-3/2: the notification header held-line (design r2 §7 "held: N
+// connections" inside the prompt window; T006's counter was
+// statusbar/tray-only)
+#define IDS_NOTIFY_HELDLINE 406
