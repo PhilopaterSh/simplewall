@@ -1829,41 +1829,6 @@ VOID _app_tabs_init (
 	}
 }
 
-// TEMP DIAGNOSTIC (CI hang round): stage breadcrumbs to
-// <exedir>\breadcrumb.txt — REMOVE after the hang is identified
-static VOID _app_init_breadcrumb (
-	_In_ LPCSTR stage
-)
-{
-	WCHAR bc_path[MAX_PATH];
-	HANDLE hbc;
-	DWORD written = 0;
-	CHAR bc_line[160];
-
-	if (!GetModuleFileNameW (NULL, bc_path, RTL_NUMBER_OF (bc_path)))
-		return;
-
-	{
-		PWSTR bslash = wcsrchr (bc_path, L'\\');
-
-		if (!bslash)
-			return;
-
-		*bslash = UNICODE_NULL;
-		wcscat_s (bc_path, RTL_NUMBER_OF (bc_path), L"\\breadcrumb.txt");
-	}
-
-	hbc = CreateFileW (bc_path, FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_ALWAYS, 0, NULL);
-
-	if (hbc == INVALID_HANDLE_VALUE)
-		return;
-
-	SetFilePointer (hbc, 0, NULL, FILE_END);
-	_snprintf_s (bc_line, RTL_NUMBER_OF (bc_line), _TRUNCATE, "%s\n", stage);
-	WriteFile (hbc, bc_line, (DWORD)strlen (bc_line), &written, NULL);
-	CloseHandle (hbc);
-}
-
 // composite Phase 2 (FR-12/P2-2): the profile-directory DACL hardening
 // runs on the FILES workqueue - CI-proven (2026-11-19): the call can
 // deadlock inside SetNamedSecurityInfoW's inheritable-ACE propagation
@@ -1894,7 +1859,6 @@ VOID _app_initialize (
 	R_STRINGREF wusvc_sr = PR_STRINGREF_INIT (PATH_WUSVC);
 	R_ENVIRONMENT environment;
 
-	_app_init_breadcrumb ("init:enter");
 
 	// composite Phase 2 (FR-12/P2-2): the profile-directory DACL hardening
 	// runs FIRST - SYNCHRONOUSLY - before any code opens a handle inside
@@ -1912,7 +1876,6 @@ VOID _app_initialize (
 	// set privileges
 	_r_sys_setprocessprivilege (hwnd, NtCurrentProcess (), privileges, RTL_NUMBER_OF (privileges), TRUE);
 
-	_app_init_breadcrumb ("init:priv");
 
 	// set process priority
 	_r_sys_setenvironment (&environment, PROCESS_PRIORITY_CLASS_HIGH, IoPriorityHigh, MEMORY_PRIORITY_NORMAL);
@@ -1934,39 +1897,31 @@ VOID _app_initialize (
 
 	_r_workqueue_initialize (&wfp_queue, 1, &environment, L"FiltersQueue");
 
-	_app_init_breadcrumb ("init:queues");
 
 	// static initializer
 	_r_sys_getsystemroot (&config.windows_dir);
 
 	_app_profile_initialize ();
-	_app_init_breadcrumb ("cs:profile-init");
 
 	// composite Phase 1 (SEC-03): crash-residue check — a leftover audit
 	// inventory without the composite flag means the previous session never
 	// reverted the machine-wide audit change
 	_app_audit_startupcheck ();
-	_app_init_breadcrumb ("cs:audit-sc");
 
 	// composite Phase 1 (FR-06): crash-residue check for the lockdown seal
 	_app_lockdown_startupcheck ();
-	_app_init_breadcrumb ("cs:lockdown-sc");
 
 	// composite Phase 1 (FR-08): packs state hash-check at load
 	_app_packs_startupcheck ();
-	_app_init_breadcrumb ("cs:packs-sc");
 
 	// composite Phase 2 (FR-12): ledger baseline integrity
 	_app_ledger_startupcheck ();
-	_app_init_breadcrumb ("cs:ledger-sc");
 
 	// composite Phase 3 (P3-C): never-leave-DNS-broken crash residue
 	_app_resolver_startupcheck ();
-	_app_init_breadcrumb ("cs:resolver-sc");
 
 	// composite Phase 3 (T033b): seed the external-resolver detector
 	_app_bypass_seeddefaults ();
-	_app_init_breadcrumb ("cs:bypass-seed");
 
 	// composite Phase 3 (T032): ETW DNS attribution (gated, default OFF)
 	if (_r_config_getboolean (L"IsCompositeDnsAttributionEnabled", FALSE, NULL))
@@ -1980,7 +1935,6 @@ VOID _app_initialize (
 		config.my_path = _r_obj_createstring2 (&image_path_sr);
 	}
 
-	_app_init_breadcrumb ("init:paths-b");
 
 	config.svchost_path = _r_obj_concatstringrefs (
 		2,
@@ -1995,7 +1949,6 @@ VOID _app_initialize (
 	);
 
 	config.system_path = _r_obj_createstring (PROC_SYSTEM_NAME);
-	_app_init_breadcrumb ("init:kernelfile");
 
 	config.ntoskrnl_path = _r_sys_getkernelfilename (TRUE);
 
@@ -2007,7 +1960,6 @@ VOID _app_initialize (
 	config.wusvc_hash = _r_str_gethash (&config.wusvc_path->sr, TRUE);
 	config.my_hash = _r_str_gethash (&config.my_path->sr, TRUE);
 
-	_app_init_breadcrumb ("init:hashes");
 
 	// initialize free list
 	_r_freelist_initialize (&listview_free_list, sizeof (ITEM_LISTVIEW_CONTEXT), 0x800);
@@ -2027,12 +1979,10 @@ VOID _app_initialize (
 
 	_app_generate_credentials ();
 
-	_app_init_breadcrumb ("init:credentials");
 
 	// load default icons
 	_app_icons_getdefault ();
 
-	_app_init_breadcrumb ("init:icons");
 
 	// initialize global filters array object
 	filter_ids = _r_obj_createarray (sizeof (GUID), 0x10, NULL);
@@ -2059,7 +2009,6 @@ VOID _app_initialize (
 	_app_state_initialize ();
 	_app_publisher_initialize ();
 
-	_app_init_breadcrumb ("init:tables+state+publisher");
 
 	NtCreateEvent (&config.hnotify_evt, EVENT_ALL_ACCESS, NULL, NotificationEvent, TRUE);
 
@@ -2067,7 +2016,6 @@ VOID _app_initialize (
 		_r_sys_createthread (NULL, NtCurrentProcess (), (PUSER_THREAD_START_ROUTINE)&_app_package_threadproc, hwnd, &environment, L"ServicesMonitor");
 
 
-	_app_init_breadcrumb ("init:done");
 }
 
 INT FirstDriveFromMask (

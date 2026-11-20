@@ -135,11 +135,19 @@ jobs:
           $deadline = (Get-Date).AddSeconds(75)
           while (-not $p.HasExited -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 2 }
           if (-not $p.HasExited) {
-            Write-Host 'HANG: selftest still running after 75s - dumping + desktop evidence'
+            Write-Host 'HANG: selftest still running after 75s - cdb stacks + dump + desktop evidence'
             New-Item -ItemType Directory -Path "dumps" -Force | Out-Null
-            # system-built-in dump (no procdump dependency): the hanging
-            # stack IS the answer
-            Start-Process -FilePath rundll32.exe -ArgumentList "C:\Windows\System32\comsvcs.dll, MiniDump $($p.Id) $env:GITHUB_WORKSPACE\dumps\selftest-hang.dmp full" -Wait -NoNewWindow
+            # the decisive instrument: attach cdb (Windows SDK debuggers)
+            # to the HUNG process and print ALL thread stacks WITH SYMBOLS
+            $cdb = @("C:\Program Files (x86)\Windows Kits\Debuggersd\cdb.exe", "C:\Program Files (x86)\Windows Kits\Debuggersd\kd.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1
+            if ($cdb) {
+              Write-Host "cdb found: $cdb"
+              $env:_NT_SYMBOL_PATH = "$env:GITHUB_WORKSPACEin4;srv*C:\symbols*https://msdl.microsoft.com/download/symbols"
+              & $cdb -p $p.Id -c "~*k 40; ~* f; qd" 2>&1 | Out-Host
+            } else {
+              Write-Host 'cdb NOT FOUND on the runner - falling back to the comsvcs dump'
+              Start-Process -FilePath rundll32.exe -ArgumentList "C:\Windows\System32\comsvcs.dll, MiniDump $($p.Id) $env:GITHUB_WORKSPACE\dumps\selftest-hang.dmp full" -Wait -NoNewWindow
+            }
             Add-Type -AssemblyName System.Drawing
             Add-Type -AssemblyName System.Windows.Forms
             $sw = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds.Width
