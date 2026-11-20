@@ -186,6 +186,25 @@ static VOID _app_selftest_packscases (VOID)
 
 		if (sidecar)
 		{
+			// THE STAT IS THE HYPOTHESIS (2026-11-20): queryrefresh gates the
+			// rebuild on GetFileAttributesExW - if the stat fails on an
+			// EXISTING file, mtime stays -1 and no rebuild ever runs
+			{
+				WIN32_FILE_ATTRIBUTE_DATA fad;
+
+				if (GetFileAttributesExW (sidecar->buffer, GetFileExInfoStandard, &fad))
+				{
+					CHAR statdiag[160];
+					_snprintf_s (statdiag, RTL_NUMBER_OF (statdiag), _TRUNCATE, "DIAG: stat ok size=%lu mtime=%08x:%08x",
+						fad.nFileSizeLow, fad.ftLastWriteTime.dwHighDateTime, fad.ftLastWriteTime.dwLowDateTime);
+					_app_selftest_log (statdiag);
+				}
+				else
+				{
+					_app_selftest_log ("DIAG: stat FAILED on an existing sidecar (rebuild gate dead)");
+				}
+			}
+
 			HANDLE hfile = CreateFileW (sidecar->buffer, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
 
 			if (hfile != INVALID_HANDLE_VALUE)

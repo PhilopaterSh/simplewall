@@ -652,11 +652,19 @@ VOID _app_state_holdpending (
 
 	ptr_value = _r_obj_findhashtable (state_held, app_hash);
 
-	count = ptr_value ? *(PULONG)ptr_value : 0;
+	// UPDATE SEMANTICS (2026-11-20 verifier finding): addhashtableitem
+	// silently DROPS the write for an existing key (checkduplicates
+	// returns the old body) - the second hold left the count at 1. The
+	// value pointer is a borrowed view into the table; writing through
+	// it under this exclusive lock IS the update.
+	if (ptr_value)
+		*(PULONG)ptr_value += 1;
+	else
+	{
+		count = 1;
 
-	count += 1;
-
-	_r_obj_addhashtableitem (state_held, app_hash, &count);
+		_r_obj_addhashtableitem (state_held, app_hash, &count);
+	}
 
 	_r_queuedlock_releaseexclusive (&lock_state);
 }

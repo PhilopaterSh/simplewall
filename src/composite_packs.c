@@ -2335,6 +2335,9 @@ static VOID _app_packs_queryrebuild (_In_ LONG64 mtime)
 	{
 		BOOLEAN is_corrupt = (contents != NULL && !list);
 
+		// DIAGNOSTIC (2026-11-20): the commit decision IS the verdict path
+		_r_log (LOG_LEVEL_INFO, NULL, L"packs_rebuild", L"read/verify/parse done", (LONG)(list ? _r_obj_getlistsize (list) : (is_corrupt ? -1 : -2)));
+
 		if (list || is_corrupt || mtime == -1)
 		{
 			packs_query_rows_count = (list ? count : 0);
@@ -2360,6 +2363,10 @@ static VOID _app_packs_queryrefresh (VOID)
 	// side, no handle, no file read when the mtime is unchanged
 	if (!path || !GetFileAttributesExW (path->buffer, GetFileExInfoStandard, &attributes))
 	{
+		// DIAGNOSTIC (2026-11-20): distinguish stat-failure from absence
+		if (path && GetLastError () != ERROR_FILE_NOT_FOUND && GetLastError () != ERROR_PATH_NOT_FOUND)
+			_r_log (LOG_LEVEL_ERROR, NULL, L"packs_queryrefresh", L"stat FAILED on a path that may exist", (LONG)HRESULT_FROM_WIN32 (GetLastError ()));
+
 		mtime = -1; // missing sidecar = legitimate empty state (revert)
 	}
 	else
