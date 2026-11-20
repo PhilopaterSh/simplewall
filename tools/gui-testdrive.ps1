@@ -102,10 +102,11 @@ function Page([int]$downs) {
 Write-Host "Launching $ExePath -gui"
 $proc = Start-Process -FilePath $ExePath -ArgumentList '-gui' -PassThru
 
-# retry the window find up to ~20s (init + first paint can be slow on a
-# cold runner; the G-2 selftest step also runs immediately before us)
+# retry the window find up to ~45s (the 2026-11-20 verifier run proved a
+# cold runner needs >20s: the window was visible=True at the 24s enumeration
+# but the 20s find loop had already given up 4s earlier)
 $script:hwnd = [IntPtr]::Zero
-for ($try = 0; $try -lt 20; $try++) {
+for ($try = 0; $try -lt 45; $try++) {
 	Start-Sleep -Seconds 1
 	$script:hwnd = [GuiDrive]::FindWindowW('quietwall_shell', $null)
 	if ($script:hwnd -ne [IntPtr]::Zero) { break }
