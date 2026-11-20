@@ -1,4 +1,71 @@
-# RESUME — composite Phase 1 state snapshot
+# RESUME — canonical session-start pointer
+
+> **REFRESHED 2026-11-20** (GUI chain G-1+G-2+G-3/1 era). Read this FIRST
+> in any new session; refresh at each milestone.
+
+## CURRENT STATE (feat/gui-g1, PR #24 open unmerged)
+
+- GUI chain G-1+G-2+G-3/1 IMPLEMENTED (r3/r4-integrated, 20+ CI
+  iterations): shell (theme tri-state, buffered paint, DPI-aware,
+  virtualized Apps + debounced search + full-row signature idle
+  discipline), Rules page (adaptive countdowns + 4-state publisher
+  anchors), Packs page (mtime-checked sidecar snapshot), Log page
+  (held rows with ALLOW/BLOCK decide actions - the FR-05 loop closes
+  in the UI), elevation fix (APP_NO_GUEST lives in the VCXPROJ defines
+  - exempts -gui/-gui-selftest), crash dialogs show REAL addresses
+  (ntdll %p-template fix) + symbolized crash-report.txt via in-process
+  dbghelp.
+- Instruments standing: -gui-selftest (in-binary query-API
+  verification; real-serializer fixtures; real threadpool expiry),
+  tools/gui-testdrive.ps1 (drives all 6 pages + screenshots), crash
+  forensics pipeline (LocalDumps + cdb-on-hang step + app SEH dumps).
+- FINDING 8 (OPEN, O-8): a fresh-profile startup freeze on Server 2025
+  CI runners with a MOVING hang point; the blocking chain is DECODED
+  (createdirectory on a cached_path corrupted to the literal string
+  "false" - the config miss-path creates literal false/true strings
+  for missing keys at first boot = string-lifetime/heap-corruption
+  class); the portable-posture test ELIMINATED the profile-path cause.
+  Needs: a debugger session in CI (cdb step committed at d9bf66e5,
+  YAML-validated) OR a local repro with page-heap. The config-write-
+  at-read behavior (getstring_ex miss path movereferences the default
+  into the table) is the prime suspect area.
+- CI BLOCKED EXTERNALLY (2026-11-20): "Actions has been disabled for
+  this repository" (422) - OWNER ACTION: Settings -> Actions -> allow;
+  check the spending limit if private. The first re-enabled run runs
+  the cdb instrument and answers Finding 8.
+- Verification debt (runtime): SAC blocks fresh builds locally per-hash
+  (cloud verdicts; the v2 cert does NOT substitute); the owner's
+  manual run of the signed bin/64 exe (click through any SAC prompt)
+  is the decisive shell test - the elevation dialog he hit proved the
+  app executes on his machine.
+
+## NEXT STEPS (in order)
+
+1. OWNER: re-enable Actions -> first run = cdb stacks -> Finding 8
+   root cause -> fix -> green.
+2. OWNER: run the signed bin/64 simplewall.exe -gui manually (SAC
+   click-through) -> the M1/M2 checklist (testing-record.md +
+   docs/specs/gui/handoff.md AC-G-1..6).
+3. G-3/2: the prompt window redesign (tier + duration + held-line;
+   the research precedents are in design-gui-draft.md r3 citation
+   registry).
+4. G-4: i18n sweep + the LTR rail side (the direction-flag plumbing
+   is in) + upstream dialog phase-out.
+5. G-5: full verification + the next signed release.
+
+## STANDING RULES (paid for repeatedly)
+
+- chr(92) discipline: python heredocs + Windows paths = escape hell
+  (octal  -> 0x08,  -> 0x08, d -> 'd') - byte-repair +
+  YAML-validate after ANY path-bearing script. THREE incidents logged.
+- CWD drift: ALWAYS cd to the repo root first + pwd; a cwd-scoped
+  rm/add swept docs/ once (recovered from the parent commit, third
+  row-29-class event). USE ABSOLUTE PATHS IN TOOLS.
+- _r_sys_getopt matches by PREFIX; ordering of verb checks matters.
+- SAC verdicts are per-hash cloud calls: EVERY rebuild re-rolls the
+  verdict; sign after every rebuild AND expect blocks anyway.
+- APP_NO_GUEST lives in the VCXPROJ defines, not rconfig.h.
+t
 
 > Canonical resume pointer for this fork's composite work. Update at every
 > milestone. Last updated: 2026-11-07 (after the round-2 adversarial review).
