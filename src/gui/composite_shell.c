@@ -22,6 +22,7 @@
 #include "../composite_ledger.h" // composite Phase 2 (FR-10/DATA-03)
 #include "../composite_resolver.h" // composite Phase 3 (DNS attribution)
 #include "../composite_state.h" // composite Phase 1 (T005/T006)
+#include "../composite_publisher.h" // composite Phase 2 (anchor query APIs)
 #include "../composite_bypass.h" // composite Phase 3 (T033b)
 
 #include "../wfp.h" // engine-installed probe for the Log page honesty line
@@ -585,6 +586,9 @@ static ULONG _app_shell_rules_totalrows (VOID)
 {
 	return 2 + shell_decisions_count + shell_anchors_count;
 }
+
+// forward: scrollclamp/by (below) and the page handlers consume it
+static LONG _app_shell_scrollmax (_In_ HWND hwnd);
 
 static VOID _app_shell_scrollclamp (_In_ HWND hwnd)
 {
@@ -1806,7 +1810,6 @@ static VOID _app_shell_drawlog (
 		SHELL_HELD_ROW *row = &shell_log_held[i];
 		WCHAR fmt2[SHELL_LINE_MAX];
 		WCHAR rowtext[SHELL_LINE_MAX];
-		RECT btn;
 
 		rect.left = content->left;
 		rect.right = content->right;

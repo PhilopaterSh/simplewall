@@ -19,9 +19,18 @@
 - [ ] G-4 (M4) i18n + RTL mirror + upstream dialog phase-out (NFR-05,
       DEC-09) — PARTIAL 2026-11-20: the direction flag is config-driven
       (IsShellRtl, the LTR side testable); the shell strings were
-      localized at G-1 (day-one); REMAINING: the upstream dialog
-      phase-out (DEFERRED until runtime verification - destructive)
-      + any residual string sweep
+      localized at G-1 (day-one); the residual string sweep DONE:
+      automated parity check (res.h defines vs .rc entries vs
+      Arabic.ini keys vs code usage) = 73/73/73 zero gaps, zero
+      duplicate ids; 8 dead G-1/G-2 scaffold ids retired
+      (SUB_RULES/SUB_PACKS/PILL_ENABLED/PILL_DISABLED/RULES_LINE/
+      EXPIRES_FMT/RULES_EMPTY/ANCHORS_EMPTY — unreferenced, misleading
+      "placeholder" texts); the only drawn literals are the
+      language-neutral ✓ glyph; 5 latent shell warnings surfaced by the
+      resource rebuild fixed (scrollmax forward-decl C4013/C4142,
+      missing composite_publisher.h include C4013 x2, unused btn
+      C4101) = TRUE 0/0 build. REMAINING: the upstream dialog phase-out
+      (DEFERRED until runtime verification - destructive)
 - [ ] G-5 verification: regression + UI procedures + footprint budget
       (NFR-07, NFR-06, FR-15) — PRE-VERIFIED statically 2026-11-20:
       Finding 8's root cause found + fixed WITHOUT CI (Actions dispatch
