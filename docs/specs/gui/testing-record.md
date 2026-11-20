@@ -184,6 +184,15 @@
   corrupted path enters the object-manager/MUP wait. The hang points
   moving across runs fit the same class (wherever the corrupted object
   is consumed first).
+- Portable-posture test (2026-11-20): a portable.dat marker beside the
+  exe makes the selftest process resolve the profile to the exe dir
+  (portable=1, breadcrumb-verified) - AND THE FREEZE PERSISTS. This
+  ELIMINATES the APPDATA/known-folder path as the cause: the freeze is
+  independent of the profile location. Combined with the moving hang
+  point and the corrupted-string observations, the remaining class is a
+  concurrency corruption inside the startup FS path (vendor initonce /
+  PEB-lock / config miss-path interplay) - requires a debugger session
+  (cdb/TTD in CI) to settle.
 - Root-cause state: OPEN. The hang point moves with call order across runs
   -> a race/environment interaction, not a single fixed line. The
   corrupted-string observation (getprofiledirectory returned the literal
