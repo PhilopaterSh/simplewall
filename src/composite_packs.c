@@ -1559,7 +1559,9 @@ static NTSTATUS _app_packs_watermarkwrite (
 
 	_r_obj_deletestringbuilder (sb);
 
-	_r_obj_dereference (contents);
+	// REFERENCE CONTRACT: contents was BORROWED from the builder - the
+	// deletestringbuilder above is its only release (2026-11-20, same
+	// class as the statewrite raise the verifier dump caught)
 	_r_obj_dereference (path);
 
 	return status;
@@ -1847,21 +1849,24 @@ static NTSTATUS _app_packs_statewrite (
 	// tamper-evident trailer: FNV1a-32 over everything written so far;
 	// the hash is computed over the finalized bytes, then the trailer is
 	// appended to the same builder
+	// REFERENCE CONTRACT (2026-11-20, the verifier dump root cause):
+	// _r_obj_finalstringbuilder returns sb->string BORROWED (routine.h
+	// FORCEINLINE - the builder owns the only reference; any append may
+	// also GROW, which frees the old object via movereference). Never
+	// dereference the result and re-fetch after appends; the builder's
+	// deletestringbuilder is the ONLY release.
 	contents = _r_obj_finalstringbuilder (sb);
 
 	hash = _app_packs_fnv1a32 ((const BYTE *)contents->buffer, contents->length * sizeof (WCHAR));
 
-	_r_obj_dereference (contents);
-
 	_r_obj_appendstringbuilderformat (sb, L"state_hash=%08x\r\n", hash);
 
-	contents = _r_obj_finalstringbuilder (sb);
+	contents = _r_obj_finalstringbuilder (sb); // re-fetch: the append may have grown
 
 	status = _app_packs_writewide (path->buffer, contents);
 
 	_r_obj_deletestringbuilder (sb);
 
-	_r_obj_dereference (contents);
 	_r_obj_dereference (path);
 
 	return status;

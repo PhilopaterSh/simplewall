@@ -339,8 +339,10 @@ static NTSTATUS _app_ledger_write (
 		CloseHandle (hfile);
 	}
 
-	_r_obj_dereference (trailer);
-	_r_obj_dereference (final);
+	// REFERENCE CONTRACT (2026-11-20, the verifier dump root-cause class):
+	// final/trailer are BORROWED builder views - append may grow (freeing
+	// the old object) and deletestringbuilder is the ONLY release; the
+	// two manual dereferences here were an underflow/UAF pair
 	_r_obj_deletestringbuilder (sb);
 	_r_obj_dereference (path);
 

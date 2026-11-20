@@ -338,8 +338,9 @@ static NTSTATUS _app_lockdown_writesnapshot (
 cleanup:
 	_r_obj_deletestringbuilder (sb);
 
-	if (contents)
-		_r_obj_dereference (contents);
+	// REFERENCE CONTRACT (2026-11-20, the verifier dump root-cause class):
+	// contents was BORROWED from the builder - deletestringbuilder above
+	// is its only release; the manual dereference was an underflow
 
 	if (name_bstr)
 		SysFreeString (name_bstr);
