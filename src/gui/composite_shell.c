@@ -185,9 +185,10 @@ typedef struct _SHELL_APP_SNAPSHOT
 	INT state; // render state: 0 = block, 1 = allow, 2 = prompt (notification set)
 } SHELL_APP_SNAPSHOT;
 
-// shell_is_rtl is the direction-flag plumbing required in M1 (r3
-// G1-M3): the M4 i18n sweep wires it to the active pack's direction
-// metadata; the mockup authority (dir="rtl") makes RTL the M1 truth
+// shell_is_rtl is the direction-flag plumbing (r3 G1-M3): M4 wires it
+// to the active pack's direction metadata; until then it is config-
+// driven with the mockup authority (dir="rtl") as the default, so the
+// LTR side is testable by flipping IsShellRtl on the Settings page
 static BOOLEAN shell_is_rtl = TRUE;
 
 static const ULONG shell_rail_ids[SHELL_PAGE_MAX] = {
@@ -266,6 +267,13 @@ static LONG shell_scroll = 0; // px
 static BOOLEAN shell_is_light = FALSE;
 static const SHELL_PALETTE *shell_pal = &shell_palette_dark;
 static HWND shell_hwnd_search = NULL;
+
+// G-4: mirror the rail/content sides when the owner flips IsShellRtl
+// (the LTR side testable without a pack-metadata format change)
+static VOID _app_shell_readrtl (_VOID)
+{
+	shell_is_rtl = _r_config_getboolean (L"IsShellRtl", TRUE, NULL);
+}
 
 static HFONT shell_font_title = NULL;
 static HFONT shell_font_main = NULL;
@@ -2696,6 +2704,7 @@ static LRESULT CALLBACK _app_shell_wndproc (
 				SendMessageW (shell_hwnd_search, EM_SETCUEBANNER, TRUE, (LPARAM)cue);
 			}
 
+			_app_shell_readrtl (); // G-4: the direction flag (config-driven until pack metadata)
 			_app_shell_themeapply (hwnd);
 			_app_shell_layout (hwnd);
 
