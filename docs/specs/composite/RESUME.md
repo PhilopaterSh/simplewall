@@ -19,20 +19,31 @@
   verification; real-serializer fixtures; real threadpool expiry),
   tools/gui-testdrive.ps1 (drives all 6 pages + screenshots), crash
   forensics pipeline (LocalDumps + cdb-on-hang step + app SEH dumps).
-- FINDING 8 (OPEN, O-8): a fresh-profile startup freeze on Server 2025
-  CI runners with a MOVING hang point; the blocking chain is DECODED
-  (createdirectory on a cached_path corrupted to the literal string
-  "false" - the config miss-path creates literal false/true strings
-  for missing keys at first boot = string-lifetime/heap-corruption
-  class); the portable-posture test ELIMINATED the profile-path cause.
-  Needs: a debugger session in CI (cdb step committed at d9bf66e5,
-  YAML-validated) OR a local repro with page-heap. The config-write-
-  at-read behavior (getstring_ex miss path movereferences the default
-  into the table) is the prime suspect area.
+- FINDING 8 (ROOT CAUSE FOUND 2026-11-20 — testing-record.md): the
+  freeze was a REFCOUNT VIOLATION in the fork's own code, not a vendor
+  or concurrency issue: `_app_packs_getpath` dereferenced the result of
+  `_r_app_getprofiledirectory ()` — the routine path accessors return
+  BORROWED pointers (the static cache owns the only reference; upstream
+  callers never dereference: profile.c, messages.c, rapp.c ->buffer
+  inline). Every packs call freed the profile string under the rapp.c
+  statics; the freed tiny block was reused by the config miss-path's
+  literal "false" boolean (the breadcrumb: cached_path = "false"),
+  fs_exists("false")=FALSE, createdirectory("false") froze in
+  dospathnametontpathname. Explains the moving hang point, the literal
+  "false" content, the portable-posture null result, and packscases as
+  chain head. Full composite surface audited: exactly ONE violation;
+  fix = the invalid dereference removed (convention documented at the
+  function); Finding 5's pre-flush fastfails = same UAF class via the
+  fail-fast heap checks. Build x64 0/0. CI = the empirical confirmation
+  (arbiter rule) — the cdb instrument stays as the safety net.
 - CI BLOCKED EXTERNALLY (2026-11-20): "Actions has been disabled for
   this repository" (422) - OWNER ACTION: Settings -> Actions -> allow;
-  check the spending limit if private. The first re-enabled run runs
-  the cdb instrument and answers Finding 8.
+  check the spending limit if private. The API layer reports
+  enabled=true but dispatch still 422 = account/billing-layer block.
+  The first re-enabled run verifies the Finding-8 fix green.
+- G-3 design-complete (held-line landed at 6bc9d110); G-4 partial
+  (IsShellRtl config-driven at 4a9d2f0f; upstream dialog phase-out
+  DEFERRED until runtime verification — destructive).
 - Verification debt (runtime): SAC blocks fresh builds locally per-hash
   (cloud verdicts; the v2 cert does NOT substitute); the owner's
   manual run of the signed bin/64 exe (click through any SAC prompt)
@@ -41,17 +52,14 @@
 
 ## NEXT STEPS (in order)
 
-1. OWNER: re-enable Actions -> first run = cdb stacks -> Finding 8
-   root cause -> fix -> green.
+1. OWNER: re-enable Actions -> next run verifies the Finding-8 fix
+   green (cdb stacks if anything still hangs) -> merge PR #24.
 2. OWNER: run the signed bin/64 simplewall.exe -gui manually (SAC
    click-through) -> the M1/M2 checklist (testing-record.md +
    docs/specs/gui/handoff.md AC-G-1..6).
-3. G-3/2: the prompt window redesign (tier + duration + held-line;
-   the research precedents are in design-gui-draft.md r3 citation
-   registry).
-4. G-4: i18n sweep + the LTR rail side (the direction-flag plumbing
-   is in) + upstream dialog phase-out.
-5. G-5: full verification + the next signed release.
+3. G-4 remainder: upstream dialog phase-out (AFTER runtime
+   verification - destructive) + residual string sweep.
+4. G-5: full verification + the next signed release.
 
 ## STANDING RULES (paid for repeatedly)
 
@@ -65,10 +73,12 @@
 - SAC verdicts are per-hash cloud calls: EVERY rebuild re-rolls the
   verdict; sign after every rebuild AND expect blocks anyway.
 - APP_NO_GUEST lives in the VCXPROJ defines, not rconfig.h.
-t
+- Routine path accessors (_r_app_getprofiledirectory/_r_app_getdirectory/
+  _r_app_getlogpath) return BORROWED pointers - NEVER dereference the
+  result (Finding 8's root cause; see testing-record.md).
 
 > Canonical resume pointer for this fork's composite work. Update at every
-> milestone. Last updated: 2026-11-07 (after the round-2 adversarial review).
+> milestone. Last updated: 2026-11-20 (Finding 8 root cause found+fixed).
 > Purpose: the work must be resumable from a brand-new session with zero
 > dependence on any chat session surviving in a UI sidebar.
 

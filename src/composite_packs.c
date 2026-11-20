@@ -145,6 +145,20 @@ static VOID _app_packs_freepack (
 	}
 }
 
+// CI freeze root cause (2026-11-20, testing-record.md Finding 8): the
+// routine path accessors (_r_app_getprofiledirectory, _r_app_getdirectory,
+// _r_app_getlogpath, ...) return BORROWED pointers - the static cache owns
+// the object's only reference and the return does NOT increment it (the
+// upstream callers prove the convention: profile.c builds with concatstringrefs
+// and never dereferences; messages.c dereferences only _app_getlogviewer's
+// genuinely-referenced result). Dereferencing here dropped that only
+// reference: the profile string was freed while both rapp.c statics still
+// pointed at it; the freed block was then reused by the next tiny string
+// allocation (the config miss-path's literal L"false" boolean), so
+// getprofiledirectory's cached_path CONTENT became "false" -> fs_exists()
+// failed -> _r_fs_createdirectory ("false") froze the process inside
+// _r_fs_dospathnametontpathname (the Server-2025 runner hang, with the
+// UAF's allocation-timing randomness explaining the moving hang point).
 static VOID _app_packs_getpath (
 	_In_ LPCWSTR file_name,
 	_Out_ PR_STRING_PTR out_path
@@ -155,14 +169,12 @@ static VOID _app_packs_getpath (
 
 	*out_path = NULL;
 
-	profile_dir = _r_app_getprofiledirectory ();
+	profile_dir = _r_app_getprofiledirectory (); // borrowed - never dereference
 
 	if (!profile_dir)
 		return;
 
 	path = _r_obj_concatstrings (3, profile_dir->buffer, L"\\", file_name);
-
-	_r_obj_dereference (profile_dir);
 
 	*out_path = path;
 }

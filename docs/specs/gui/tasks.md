@@ -23,4 +23,11 @@
       phase-out (DEFERRED until runtime verification - destructive)
       + any residual string sweep
 - [ ] G-5 verification: regression + UI procedures + footprint budget
-      (NFR-07, NFR-06, FR-15)
+      (NFR-07, NFR-06, FR-15) — PRE-VERIFIED statically 2026-11-20:
+      Finding 8's root cause found + fixed WITHOUT CI (Actions dispatch
+      still 422): _app_packs_getpath dereferenced a BORROWED
+      _r_app_getprofiledirectory result (the routine static owns the
+      only ref) = UAF whose freed block was reused by the config
+      miss-path's literal "false" — the exact decoded freeze chain;
+      full composite surface audited, one violation total; CI runs the
+      empirical confirmation when the owner re-enables Actions

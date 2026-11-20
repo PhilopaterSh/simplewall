@@ -117,6 +117,12 @@
   uninstall story). Tracked in the owner-decision tracker backlog;
   the selftest uses TerminateProcess(0) after its final flush so the
   test verdict is faithful while the product-level question stays open.
+- Update (2026-11-20): Finding 8's root cause (the borrowed-pointer
+  dereference UAF in packs_getpath) is the same corruption class the
+  fail-fast heap checks catch — the first selftest round's 0xC0000409
+  before any flush is now explained as heap corruption, not teardown
+  ordering. Re-verdict at the next CI run: if the exit path comes back
+  clean with the UAF fixed, this finding CLOSES as a duplicate root.
 - Sources: ntdll fastfail class (winnt.h); CI exit-code evidence.
 
 ## Finding 6 — _r_sys_getopt matches by PREFIX
@@ -160,7 +166,7 @@
    theme toggle — the PNGs are read and judged in the session report.
 
 
-## Finding 8 — the fresh-profile startup freeze on Server 2025 runners (OPEN)
+## Finding 8 — the fresh-profile startup freeze on Server 2025 runners (ROOT CAUSE FOUND 2026-11-20)
 
 - Symptom: after Finding-2's fix, the composite startup completes
   (breadcrumbs prove init:enter -> ... -> init:done) but the process then
@@ -193,21 +199,49 @@
   concurrency corruption inside the startup FS path (vendor initonce /
   PEB-lock / config miss-path interplay) - requires a debugger session
   (cdb/TTD in CI) to settle.
-- Root-cause state: OPEN. The hang point moves with call order across runs
-  -> a race/environment interaction, not a single fixed line. The
-  corrupted-string observation (getprofiledirectory returned the literal
-  string "false" for two calls) points at a string-object lifetime issue
-  in the vendor path helpers under concurrency; the kernel waits on a
-  garbage path would then be secondary. Requires a debugger session on the
-  runner (cdb/TTD step in CI) - the dump channel is exhausted (comsvcs
-  wrote non-Memory64 dumps for two of three captures).
-- Mitigations shipped (each CI-proven): the portable-model DACL skip; the
-  hardenacl first-and-alone relocation; the IsProfileDaclHardeningEnabled
-  config gate (default OFF - O-8).
+- Root-cause state: **FOUND (static audit, 2026-11-20) — fix shipped, CI
+  confirmation pending (Actions dispatch still 422 at audit time)**. The
+  corruption was not inside the vendor helpers and not a race: it was a
+  REFCOUNT VIOLATION in the fork's own code. `_app_packs_getpath`
+  (composite_packs.c) called `_r_obj_dereference (profile_dir)` on the
+  result of `_r_app_getprofiledirectory ()` — but the routine path
+  accessors (_r_app_getprofiledirectory, _r_app_getdirectory,
+  _r_app_getlogpath, ...) return BORROWED pointers: the static cache owns
+  the object's ONLY reference and the return does not increment it (the
+  upstream callers prove the convention: profile.c consumes the result via
+  concatstringrefs and never dereferences; messages.c dereferences only
+  _app_getlogviewer's genuinely-referenced result; rapp.c itself uses
+  `->buffer` inline). Dereferencing it freed the profile string while the
+  rapp.c statics still pointed at it; the freed tiny-string block was then
+  reused by the next allocation — on a fresh CI profile the config
+  miss-path's literal boolean strings ("false"/"true") — so the cached
+  path's CONTENT became the literal "false" (the breadcrumb observation,
+  len=5), fs_exists("false")=FALSE, and _r_fs_createdirectory("false")
+  froze inside _r_fs_dospathnametontpathname. Every earlier observation
+  fits exactly: the moving hang point (UAF consumption order varies with
+  allocation timing), the literal "false" content (boolean literal pool),
+  the portable-posture test failing to fix it (the violation exists in
+  both branches), and packscases as the chain head (packs_getpath is
+  called ~10x per packscase pass - the first consumer of the freed
+  object). Fix: the invalid dereference REMOVED (composite_packs.c, with
+  the borrowed convention documented at the function); the full composite
+  surface was audited for the same class - audit/lockdown/resolver/
+  ledger/integrity borrow correctly, every other composite dereference
+  frees a NEW concatstrings result. The fix is unconditionally correct
+  (removing an invalid dereference cannot regress); CI remains the
+  empirical confirmation per the arbiter rule.
+- Finding 5 cross-link: the clean-exit 0xC0000409 fast-fails are the same
+  UAF class consumed differently (heap corruption detected by the fail-
+  fast heap checks instead of the FS wait) — one root, two symptoms.
+- Mitigations shipped (each CI-proven, now belt-and-suspenders on top of
+  the real fix): the portable-model DACL skip; the hardenacl
+  first-and-alone relocation; the IsProfileDaclHardeningEnabled config
+  gate (default OFF - O-8).
 - Impact honesty: the freeze affects the CI verification instruments
   (selftest + testdrive) on fresh runner profiles - NOT the released
   v3.9.4 on the owner's machine. The CI chain stays honestly RED on the
-  selftest step until settled.
+  selftest step until the next CI run (owner-gated: Actions dispatch 422,
+  re-enabled at the API layer but still blocked at the account layer).
 
 ## Finding 9 — the smoke gate's blind spot
 
