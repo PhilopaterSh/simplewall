@@ -34,6 +34,22 @@ public static class GuiDrive {
 	[DllImport("user32.dll")] public static extern bool GetUserObjectInformationW(IntPtr h, int index, StringBuilder sb, int max, out uint needed);
 	[DllImport("user32.dll")] public static extern bool EnumChildWindows(IntPtr hwnd, EnumProc proc, IntPtr lparam);
 	[StructLayout(LayoutKind.Sequential)] public struct RECT { public int L, T, R, B; }
+	public static IntPtr FindWindowOfClassOfPid(uint pid, string cls) {
+		// FindWindowW deterministically FAILED on the runners while this
+		// enumeration finds the window every time (2026-11-20: the shell
+		// was visible=True in every post-fail enumeration AND in the
+		// run-1 artifact screenshot) - use the proven path
+		IntPtr found = IntPtr.Zero;
+		EnumWindows((h, l) => {
+			uint wpid; GetWindowThreadProcessId(h, out wpid);
+			if (wpid == pid && IsWindowVisible(h)) {
+				var c = new StringBuilder(128); GetClassNameW(h, c, 128);
+				if (c.ToString() == cls) { found = h; return false; }
+			}
+			return true;
+		}, IntPtr.Zero);
+		return found;
+	}
 	public static string DesktopName() {
 		var sb = new StringBuilder(256); uint n;
 		GetUserObjectInformationW(GetProcessWindowStation(), 2, sb, 256, out n); // UOI_NAME
@@ -109,7 +125,7 @@ $proc = Start-Process -FilePath $ExePath -ArgumentList '-gui' -PassThru
 $script:hwnd = [IntPtr]::Zero
 for ($try = 0; $try -lt 120; $try++) {
 	Start-Sleep -Seconds 1
-	$script:hwnd = [GuiDrive]::FindWindowW('quietwall_shell', $null)
+	$script:hwnd = [GuiDrive]::FindWindowOfClassOfPid($proc.Id, 'quietwall_shell')
 	if ($script:hwnd -ne [IntPtr]::Zero) { break }
 }
 
