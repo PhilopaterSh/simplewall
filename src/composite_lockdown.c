@@ -229,7 +229,9 @@ static NTSTATUS _app_lockdown_writesnapshot (
 
 	_r_obj_initializestringbuilder (sb, 0x1000);
 
-	_r_obj_appendstringbuilder_ex (sb, LOCKDOWN_SNAPSHOT_MAGIC, RTL_NUMBER_OF (LOCKDOWN_SNAPSHOT_MAGIC) - 1);
+	// appendstringbuilder_ex takes BYTE length (2026-11-20 verifier
+	// round-trip finding): the magic was written as half its UTF-16 bytes
+	_r_obj_appendstringbuilder_ex (sb, LOCKDOWN_SNAPSHOT_MAGIC, (RTL_NUMBER_OF (LOCKDOWN_SNAPSHOT_MAGIC) - 1) * sizeof (WCHAR));
 
 	// per-profile defaults (FR-06 step 1)
 	for (i = 0; i < RTL_NUMBER_OF (profile_types); i++)
@@ -323,7 +325,8 @@ static NTSTATUS _app_lockdown_writesnapshot (
 		goto cleanup;
 	}
 
-	if (!WriteFile (hfile, contents->buffer, (DWORD)(contents->length * sizeof (WCHAR)), &written, NULL) || written != (DWORD)(contents->length * sizeof (WCHAR)))
+	// PR_STRING length is ALREADY bytes - the ×sizeof(WCHAR) wrote 2x
+	if (!WriteFile (hfile, contents->buffer, (DWORD)contents->length, &written, NULL) || written != (DWORD)contents->length)
 	{
 		status = HRESULT_FROM_WIN32 (GetLastError ());
 		_r_log (LOG_LEVEL_WARNING, NULL, L"_app_lockdown_writesnapshot", L"WriteFile", status);

@@ -567,7 +567,9 @@ VOID _app_state_applyall (
 		if (hash_count == hash_cap)
 		{
 			ULONG new_cap = hash_cap ? hash_cap * 2 : 16;
-			ULONG *grown = (ULONG *)HeapReAlloc (GetProcessHeap (), HEAP_ZERO_MEMORY, hashes, new_cap * sizeof (ULONG));
+			// HeapReAlloc cannot grow a NULL base (2026-11-20: the first
+			// grow always failed -> the applyall hash snapshot stayed empty)
+			ULONG *grown = (ULONG *)(hashes ? HeapReAlloc (GetProcessHeap (), HEAP_ZERO_MEMORY, hashes, new_cap * sizeof (ULONG)) : HeapAlloc (GetProcessHeap (), HEAP_ZERO_MEMORY, new_cap * sizeof (ULONG)));
 
 			if (!grown)
 				break;
@@ -737,7 +739,9 @@ static VOID _app_state_queryrefresh (VOID)
 				if (count == state_query_cap)
 				{
 					ULONG new_cap = state_query_cap ? state_query_cap * 2 : 16;
-					STATE_QUERY_ROW *grown = (STATE_QUERY_ROW *)HeapReAlloc (GetProcessHeap (), HEAP_ZERO_MEMORY, state_query_rows, new_cap * sizeof (STATE_QUERY_ROW));
+					// HeapReAlloc cannot grow a NULL base (2026-11-20: the
+					// first grow always failed -> snapshots stayed empty)
+					STATE_QUERY_ROW *grown = (STATE_QUERY_ROW *)(state_query_rows ? HeapReAlloc (GetProcessHeap (), HEAP_ZERO_MEMORY, state_query_rows, new_cap * sizeof (STATE_QUERY_ROW)) : HeapAlloc (GetProcessHeap (), HEAP_ZERO_MEMORY, new_cap * sizeof (STATE_QUERY_ROW)));
 
 					if (!grown)
 						break; // OOM: serve the partial snapshot
@@ -770,7 +774,8 @@ static VOID _app_state_queryrefresh (VOID)
 					if (hcount == state_held_cap)
 					{
 						ULONG hcap = state_held_cap ? state_held_cap * 2 : 16;
-						STATE_HELD_ROW *grown = (STATE_HELD_ROW *)HeapReAlloc (GetProcessHeap (), HEAP_ZERO_MEMORY, state_held_rows, hcap * sizeof (STATE_HELD_ROW));
+						// HeapReAlloc cannot grow a NULL base (same finding)
+						STATE_HELD_ROW *grown = (STATE_HELD_ROW *)(state_held_rows ? HeapReAlloc (GetProcessHeap (), HEAP_ZERO_MEMORY, state_held_rows, hcap * sizeof (STATE_HELD_ROW)) : HeapAlloc (GetProcessHeap (), HEAP_ZERO_MEMORY, hcap * sizeof (STATE_HELD_ROW)));
 
 						if (!grown)
 							break;

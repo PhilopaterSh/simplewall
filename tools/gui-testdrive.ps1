@@ -102,11 +102,12 @@ function Page([int]$downs) {
 Write-Host "Launching $ExePath -gui"
 $proc = Start-Process -FilePath $ExePath -ArgumentList '-gui' -PassThru
 
-# retry the window find up to ~45s (the 2026-11-20 verifier run proved a
-# cold runner needs >20s: the window was visible=True at the 24s enumeration
-# but the 20s find loop had already given up 4s earlier)
+# retry the window find up to ~120s (the 2026-11-20 verifier runs showed
+# cold-runner first-launch latency DRIFT: 20-24s on run 1, 45-48s on run 3
+# - first-launch Defender cloud scan of the fresh unsigned exe is the
+# likely driver; the window was visible=True at every post-fail enumeration)
 $script:hwnd = [IntPtr]::Zero
-for ($try = 0; $try -lt 45; $try++) {
+for ($try = 0; $try -lt 120; $try++) {
 	Start-Sleep -Seconds 1
 	$script:hwnd = [GuiDrive]::FindWindowW('quietwall_shell', $null)
 	if ($script:hwnd -ne [IntPtr]::Zero) { break }

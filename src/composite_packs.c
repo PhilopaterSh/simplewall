@@ -1249,7 +1249,9 @@ static NTSTATUS _app_packs_writewide (
 		return status;
 	}
 
-	if (!WriteFile (hfile, contents->buffer, (DWORD)(contents->length * sizeof (WCHAR)), &written, NULL) || written != (DWORD)(contents->length * sizeof (WCHAR)))
+	// PR_STRING length is ALREADY bytes (2026-11-20 verifier round-trip
+	// finding): the ×sizeof(WCHAR) here wrote 2x the buffer
+	if (!WriteFile (hfile, contents->buffer, (DWORD)contents->length, &written, NULL) || written != (DWORD)contents->length)
 	{
 		NTSTATUS status = HRESULT_FROM_WIN32 (GetLastError ());
 
@@ -1543,7 +1545,7 @@ static NTSTATUS _app_packs_watermarkwrite (
 	}
 	else
 	{
-		_r_obj_appendstringbuilder_ex (sb, PACKS_WATERMARK_MAGIC, RTL_NUMBER_OF (PACKS_WATERMARK_MAGIC) - 1);
+		_r_obj_appendstringbuilder_ex (sb, PACKS_WATERMARK_MAGIC, (RTL_NUMBER_OF (PACKS_WATERMARK_MAGIC) - 1) * sizeof (WCHAR));
 		_r_obj_appendstringbuilder_ex (sb, L"\r\n", 2 * sizeof (WCHAR));
 	}
 
@@ -1815,7 +1817,9 @@ static NTSTATUS _app_packs_statewrite (
 
 	_r_obj_initializestringbuilder (sb, 0x1000);
 
-	_r_obj_appendstringbuilder_ex (sb, PACKS_STATE_MAGIC, RTL_NUMBER_OF (PACKS_STATE_MAGIC) - 1);
+	// appendstringbuilder_ex takes BYTE length - the magic was written as
+	// half its UTF-16 bytes (chars), corrupting every store header
+	_r_obj_appendstringbuilder_ex (sb, PACKS_STATE_MAGIC, (RTL_NUMBER_OF (PACKS_STATE_MAGIC) - 1) * sizeof (WCHAR));
 
 	_r_obj_appendstringbuilder_ex (sb, L"\r\n", 2 * sizeof (WCHAR));
 
@@ -1857,7 +1861,10 @@ static NTSTATUS _app_packs_statewrite (
 	// deletestringbuilder is the ONLY release.
 	contents = _r_obj_finalstringbuilder (sb);
 
-	hash = _app_packs_fnv1a32 ((const BYTE *)contents->buffer, contents->length * sizeof (WCHAR));
+	// contents->length is ALREADY bytes - the ×sizeof(WCHAR) here hashed
+	// past the buffer into heap junk, so verify never matched (the store
+	// was fail-closed-empty on every read-back)
+	hash = _app_packs_fnv1a32 ((const BYTE *)contents->buffer, contents->length);
 
 	_r_obj_appendstringbuilderformat (sb, L"state_hash=%08x\r\n", hash);
 
@@ -2269,7 +2276,9 @@ static VOID _app_packs_queryrebuild (_In_ LONG64 mtime)
 			if (count == packs_query_cap)
 			{
 				ULONG new_cap = packs_query_cap ? packs_query_cap * 2 : 8;
-				PACKS_QUERY_ROW *grown = (PACKS_QUERY_ROW *)HeapReAlloc (GetProcessHeap (), HEAP_ZERO_MEMORY, packs_query_rows, new_cap * sizeof (PACKS_QUERY_ROW));
+				// HeapReAlloc cannot grow a NULL base (2026-11-20: the first
+				// grow always failed -> every snapshot stayed empty)
+				PACKS_QUERY_ROW *grown = (PACKS_QUERY_ROW *)(packs_query_rows ? HeapReAlloc (GetProcessHeap (), HEAP_ZERO_MEMORY, packs_query_rows, new_cap * sizeof (PACKS_QUERY_ROW)) : HeapAlloc (GetProcessHeap (), HEAP_ZERO_MEMORY, new_cap * sizeof (PACKS_QUERY_ROW)));
 
 				if (!grown)
 					break;

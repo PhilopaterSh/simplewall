@@ -384,6 +384,10 @@ INT _app_shell_selftest_run (
 	// result file is on disk, so exit hard to report success faithfully.
 	// The clean-exit finding itself is recorded in testing-record.md and
 	// belongs to the keep-or-release/uninstall work, not to this verb.
-	TerminateProcess (GetCurrentProcess (), 0);
+	// HONESTY FIX (2026-11-20, verifier run 3): the exit code IS the
+	// failure count now — TerminateProcess(0) unconditionally reported
+	// green while the result file carried 23 real failures (the run-1/2
+	// crashes had always masked the assertion verdicts).
+	TerminateProcess (GetCurrentProcess (), (UINT)selftest_failures);
 	return 0; // unreachable (silences the missing-return warning)
 }
