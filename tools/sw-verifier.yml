@@ -11,6 +11,11 @@ name: sw-verifier (simplewall fork CI judge)
 
 on:
   workflow_dispatch:
+    inputs:
+      sw_ref:
+        description: 'simplewall ref to verify (branch or full SHA - a SHA bypasses the public-clone edge cache that served stale heads on runs 4-5)'
+        required: false
+        default: 'feat/gui-g1'
 
 jobs:
   verify:
@@ -21,7 +26,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: PhilopaterSh/simplewall
-          ref: feat/gui-g1
+          ref: ${{ github.event.inputs.sw_ref || 'feat/gui-g1' }}
 
       # process gates: mechanical traceability (goldfish check) + artifact
       # completeness - identical to the fork's smoke-test.yml
