@@ -45,10 +45,14 @@
   (IsShellRtl config-driven at 4a9d2f0f; upstream dialog phase-out
   DEFERRED until runtime verification — destructive).
 - Verification debt (runtime): SAC blocks fresh builds locally per-hash
-  (cloud verdicts; the v2 cert does NOT substitute); the owner's
-  manual run of the signed bin/64 exe (click through any SAC prompt)
-  is the decisive shell test - the elevation dialog he hit proved the
-  app executes on his machine.
+  (cloud verdicts; the v2 cert does NOT substitute; no developer
+  exception exists). Windows Sandbox is NOT a judge (it inherits the
+  host's SAC policy - research-sourced). The verified judges are in
+  docs/specs/gui/runtime-judges.md: (1) Hyper-V full VM without SAC =
+  the recommended local judge (in-VM runner tools/local-judge-vm.ps1
+  mirrors the CI selftest step), (2) CI via the owner's Actions
+  re-enable, (3) the owner's host click-through = the decisive SHELL
+  test.
 
 ## NEXT STEPS (in order)
 
