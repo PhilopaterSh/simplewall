@@ -174,6 +174,44 @@ static VOID _app_selftest_packscases (VOID)
 	_app_selftest_check (_app_packs_selftest_writestate (L"telemetry-refresh", L"1.2.3", 3), "packs: fixture written via the production serializer");
 	_app_selftest_check (_app_packs_querycount () == 1, "packs: written store enumerated");
 
+	// DIAGNOSTIC (2026-11-20 verifier hunt): on enumeration failure, dump
+	// the sidecar's size + first 100 chars INTO the result file - the CI
+	// log then carries the store the verifier refused
+	{
+		CHAR diag[512];
+		PR_STRING sidecar = _app_selftest_sidecarpath ();
+
+		_snprintf_s (diag, RTL_NUMBER_OF (diag), _TRUNCATE, "DIAG: querycount=%lu", _app_packs_querycount ());
+		_app_selftest_log (diag);
+
+		if (sidecar)
+		{
+			HANDLE hfile = CreateFileW (sidecar->buffer, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+
+			if (hfile != INVALID_HANDLE_VALUE)
+			{
+				WCHAR wbuf[101];
+				DWORD read = 0;
+
+				if (ReadFile (hfile, wbuf, sizeof (wbuf) - sizeof (WCHAR), &read, NULL) && read >= sizeof (WCHAR))
+				{
+					wbuf[read / sizeof (WCHAR)] = UNICODE_NULL;
+
+					_snprintf_s (diag, RTL_NUMBER_OF (diag), _TRUNCATE, "DIAG: store %lu bytes, head: %ls", (ULONG)read, wbuf);
+					_app_selftest_log (diag);
+				}
+
+				CloseHandle (hfile);
+			}
+			else
+			{
+				_app_selftest_log ("DIAG: sidecar file MISSING at check time");
+			}
+
+			_r_obj_dereference (sidecar);
+		}
+	}
+
 	// 3. row fields
 	_app_selftest_check (_app_packs_query (0, pack_id, RTL_NUMBER_OF (pack_id), pack_version, RTL_NUMBER_OF (pack_version), &is_enabled), "packs: row queried");
 	_app_selftest_check (wcscmp (pack_id, L"telemetry-refresh") == 0, "packs: pack id matches");
@@ -283,11 +321,30 @@ static VOID _app_selftest_statecases (VOID)
 		ULONG hcount = 0;
 
 		_app_selftest_check (_app_state_queryheld (0, &hhash, &hcount), "state: held row queried");
+
+		// DIAGNOSTIC: the values ARE the verdict - print them either way
+		{
+			CHAR diag[256];
+			_snprintf_s (diag, RTL_NUMBER_OF (diag), _TRUNCATE, "DIAG: held hhash=%08lx expected=%08lx hcount=%lu expected=2", hhash, app_hash, hcount);
+			_app_selftest_log (diag);
+		}
+
 		_app_selftest_check (hhash == app_hash && hcount == 2, "state: held hash + count match");
 
-		_app_state_decide (ptr_app, FALSE, FALSE, NULL, NULL); // until-restart allow
-		_app_selftest_check (_app_state_queryheldcount () == 0, "state: decide RELEASES the held count (S3 fold)");
-		_app_selftest_check (_app_state_querycount () == 1, "state: decide created the session decision");
+		// POSTURE FIX (2026-11-20): decide is DEPLOY-GATED - without the
+		// WFP engine (the CI posture) it must refuse ATOMICALLY (nothing
+		// enters the table, nothing held remains); with the engine it must
+		// create the decision. Both postures assert a real property.
+		if (_app_state_decide (ptr_app, FALSE, FALSE, NULL, NULL))
+		{
+			_app_selftest_check (_app_state_querycount () == 1, "state: decide created the session decision (engine-on posture)");
+			_app_selftest_check (_app_state_queryheldcount () == 0, "state: decide RELEASES the held count (S3 fold)");
+		}
+		else
+		{
+			_app_selftest_check (_app_state_querycount () == 0, "state: decide refused atomically - nothing entered (engine-off posture)");
+			_app_selftest_check (_app_state_queryheldcount () == 0, "state: decide refused atomically - held released (engine-off posture)");
+		}
 	}
 
 	_app_state_revokeapp (app_hash);

@@ -144,5 +144,9 @@ jobs:
             exe-hash.txt
             gui-screens/
             dumps/
+            bin/64/simplewall_debug.log
+            bin/64/selftest-result.txt
+            bin/64/breadcrumb.txt
+            bin/64/crash-report.txt
             bin/64/simplewall.pdb
             bin/64/simplewall.exe

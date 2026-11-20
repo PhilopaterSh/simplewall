@@ -1589,7 +1589,12 @@ static NTSTATUS _app_packs_stateverify (
 	BYTE *prefix_bytes;
 
 	if (wcsncmp (contents->buffer, PACKS_STATE_MAGIC, RTL_NUMBER_OF (PACKS_STATE_MAGIC) - 1) != 0)
+	{
+		// distinct statuses = the CI post-mortem reads the failure class
+		// straight from the log (2026-11-20 verifier round-trip hunt)
+		_app_packs_logpack (LOG_LEVEL_ERROR, L"stateverify: magic mismatch", (LONG)STATUS_INVALID_PARAMETER);
 		return STATUS_INVALID_PARAMETER;
+	}
 
 	// locate the trailer line (the last "state_hash=" line-start)
 	line = contents->buffer;
@@ -1609,7 +1614,10 @@ static NTSTATUS _app_packs_stateverify (
 	}
 
 	if (!trailer)
-		return STATUS_INVALID_PARAMETER;
+	{
+		_app_packs_logpack (LOG_LEVEL_ERROR, L"stateverify: trailer line not found", (LONG)STATUS_DATA_NOT_ACCEPTED);
+		return STATUS_DATA_NOT_ACCEPTED;
+	}
 
 	// the hash covers every WCHAR byte written before the trailer line
 	prefix_bytes = (BYTE *)contents->buffer;
@@ -1618,10 +1626,16 @@ static NTSTATUS _app_packs_stateverify (
 	hash_actual = _app_packs_fnv1a32 (prefix_bytes, prefix_length);
 
 	if (swscanf_s (trailer, L"state_hash=%8x", &hash_stored) != 1)
-		return STATUS_INVALID_PARAMETER;
+	{
+		_app_packs_logpack (LOG_LEVEL_ERROR, L"stateverify: trailer parse failed", (LONG)STATUS_DATA_NOT_ACCEPTED);
+		return STATUS_DATA_NOT_ACCEPTED;
+	}
 
 	if (hash_stored != hash_actual)
-		return STATUS_INVALID_PARAMETER;
+	{
+		_r_log (LOG_LEVEL_ERROR, NULL, L"stateverify", L"tamper hash mismatch (stored vs actual)", (LONG)STATUS_CRC_ERROR);
+		return STATUS_CRC_ERROR;
+	}
 
 	return STATUS_SUCCESS;
 }
@@ -2260,8 +2274,15 @@ static VOID _app_packs_queryrebuild (_In_ LONG64 mtime)
 
 		_app_packs_readwide (path->buffer, &contents, &is_present);
 
-		if (is_present && contents && NT_SUCCESS (_app_packs_stateverify (contents)))
-			list = _app_packs_stateparse (contents, &status);
+		if (is_present && contents)
+		{
+			status = _app_packs_stateverify (contents);
+
+			if (NT_SUCCESS (status))
+				list = _app_packs_stateparse (contents, &status);
+			else
+				_app_packs_logpack (LOG_LEVEL_ERROR, L"rebuild: verify refused the store", (LONG)status); // the class IS the diagnosis
+		}
 	}
 
 	if (list)
