@@ -122,6 +122,12 @@ jobs:
           reg add "HKLM\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps\simplewall.exe" /v DumpFolder /t REG_EXPAND_SZ /d "$env:GITHUB_WORKSPACE\dumps" /f | Out-Null
           reg add "HKLM\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps\simplewall.exe" /v DumpType /t REG_DWORD /d 2 /f | Out-Null
           reg add "HKLM\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps\simplewall.exe" /v DumpCount /t REG_DWORD /d 3 /f | Out-Null
+          # portable posture (2026-11-20): the freeze chain runs through
+          # the APPDATA profile path (SHGetKnownFolderPath + the config
+          # "false" entry pool) - the portable model (marker file beside
+          # the exe) bypasses that path entirely; the composite portable-
+          # skip in hardenacl already covers this case
+          New-Item -ItemType File -Path "bin/64/portable.dat" -Force | Out-Null
           # watchdog: the first post-fix run HUNG in _app_initialize (modal
           # dialog on a fresh runner profile?) - turn any hang into
           # screenshot evidence instead of a 30-minute stall
