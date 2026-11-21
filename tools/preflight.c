@@ -1665,8 +1665,12 @@ static BOOLEAN ps_query (LPCWSTR exe_path, WCHAR *status_tok, ULONG status_cch, 
 		if (!base64_encode (utf16le, byte_length, encoded, RTL_NUMBER_OF (encoded)))
 			goto CleanupExit;
 
+		// THE RUNNER QUIRK (2026-11-21, run-15 CLIXML evidence): a pwsh7
+		// parent poisons PSModulePath for the child powershell.exe (5.1) -
+		// Microsoft.PowerShell.Security fails to load and the query errors
+		// as CLIXML. The cmd wrapper pins the 5.1 module path explicitly.
 		_snwprintf_s (cmdline, RTL_NUMBER_OF (cmdline), _TRUNCATE,
-			L"powershell.exe -NoProfile -EncodedCommand %ls", encoded);
+			L"cmd.exe /c set \"PSModulePath=%SystemRoot%\\System32\\WindowsPowerShell\\v1.0\\Modules\" && powershell.exe -NoProfile -EncodedCommand %ls", encoded);
 	}
 
 	_r_obj_dereference (snippet);
