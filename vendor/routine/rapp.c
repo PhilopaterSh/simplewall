@@ -115,7 +115,16 @@ ULONG NTAPI _r_app_exceptionfilter_callback (
 
 						frame_count = (ULONG)RtlCaptureStackBackTrace (0, 16, frames, NULL);
 
-						if (SymInitialize (NtCurrentProcess (), exe_path, TRUE))
+						// SymInitialize's search path is ANSI (PCSTR) - the
+						// wide exe path was passed raw (C4133), so symbol
+						// resolution leaned on _NT_SYMBOL_PATH alone
+						{
+							CHAR exe_path_a[520];
+
+							if (!WideCharToMultiByte (CP_UTF8, 0, exe_path, -1, exe_path_a, RTL_NUMBER_OF (exe_path_a), NULL, NULL))
+								exe_path_a[0] = 0;
+
+							if (SymInitialize (NtCurrentProcess (), exe_path_a[0] ? exe_path_a : NULL, TRUE))
 						{
 							union
 							{
@@ -148,6 +157,7 @@ ULONG NTAPI _r_app_exceptionfilter_callback (
 							}
 
 							SymCleanup (NtCurrentProcess ());
+						}
 						}
 
 						_r_mem_free (frames);
@@ -632,36 +642,6 @@ PR_STRING _r_app_getprofiledirectory ()
 		}
 
 		_r_initonce_end (&init_once);
-	}
-
-	// TEMP DIAGNOSTIC (CI hang round): print the resolved profile path —
-	// REMOVE after the hang is identified
-	{
-		HANDLE hbc;
-		WCHAR bc_path[MAX_PATH];
-		CHAR bc_line[1024];
-		DWORD written = 0;
-
-		if (GetModuleFileNameW (NULL, bc_path, RTL_NUMBER_OF (bc_path)))
-		{
-			PWSTR bslash = wcsrchr (bc_path, L'\\');
-
-			if (bslash)
-			{
-				*bslash = UNICODE_NULL;
-				wcscat_s (bc_path, RTL_NUMBER_OF (bc_path), L"\\breadcrumb.txt");
-
-				hbc = CreateFileW (bc_path, FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_ALWAYS, 0, NULL);
-
-				if (hbc != INVALID_HANDLE_VALUE)
-				{
-					SetFilePointer (hbc, 0, NULL, FILE_END);
-					_snprintf_s (bc_line, RTL_NUMBER_OF (bc_line), _TRUNCATE, "profiledir: portable=%d path=%ls (len=%lu)\n", _r_app_isportable () ? 1 : 0, cached_path ? cached_path->buffer : L"<NULL>", cached_path ? (ULONG)_r_str_getlength2 (&cached_path->sr) : 0);
-					WriteFile (hbc, bc_line, (DWORD)strlen (bc_line), &written, NULL);
-					CloseHandle (hbc);
-				}
-			}
-		}
 	}
 
 	if (cached_path && !_r_fs_exists (&cached_path->sr))
@@ -4687,7 +4667,7 @@ INT_PTR CALLBACK _r_settings_wndproc (
 					// made backup of existing configuration
 					path = _r_app_getconfigpath ();
 
-					_r_path_makebackup (path, TRUE);
+					_r_path_makebackup (&path->sr, TRUE); // PR_STRING's first member IS the stringref (C4133 convention)
 
 					// reinitialize configuration
 					_r_config_initialize (); // reload config
