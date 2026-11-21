@@ -5,7 +5,7 @@ name: smoke-test
 
 on:
   push:
-    branches: [feat/routine-hardening, feat/hardening-round-1, master, feat/tooling]
+    branches: [feat/routine-hardening, feat/hardening-round-1, master, feat/tooling, feat/gui-g1]
   workflow_dispatch:
 
 jobs:
@@ -110,6 +110,78 @@ jobs:
         shell: pwsh
         run: bin/64/dnsrig.exe -selftest
 
+      # composite GUI chain G-2 (NFR-06/r4): the six DEC-11 query-API
+      # enumerators verified INSIDE the real binary (fixtures via the real
+      # serializer; REAL threadpool-timer expiry). Exit code = failure count.
+      - name: Composite selftest (query APIs, -gui-selftest)
+        shell: pwsh
+        run: |
+          # crash evidence: full LocalDumps for simplewall.exe (the selftest
+          # fastfailed 0xC0000409 in the first CI run before any flush)
+          New-Item -ItemType Directory -Path "$env:GITHUB_WORKSPACE\dumps" -Force | Out-Null
+          reg add "HKLM\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps\simplewall.exe" /v DumpFolder /t REG_EXPAND_SZ /d "$env:GITHUB_WORKSPACE\dumps" /f | Out-Null
+          reg add "HKLM\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps\simplewall.exe" /v DumpType /t REG_DWORD /d 2 /f | Out-Null
+          reg add "HKLM\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps\simplewall.exe" /v DumpCount /t REG_DWORD /d 3 /f | Out-Null
+          # portable posture (2026-11-20): the freeze chain runs through
+          # the APPDATA profile path (SHGetKnownFolderPath + the config
+          # "false" entry pool) - the portable model (marker file beside
+          # the exe) bypasses that path entirely; the composite portable-
+          # skip in hardenacl already covers this case
+          New-Item -ItemType File -Path "bin/64/portable.dat" -Force | Out-Null
+          # watchdog: the first post-fix run HUNG in _app_initialize (modal
+          # dialog on a fresh runner profile?) - turn any hang into
+          # screenshot evidence instead of a 30-minute stall
+          $p = Start-Process -FilePath "bin/64/simplewall.exe" -ArgumentList '-gui-selftest' -PassThru
+          $deadline = (Get-Date).AddSeconds(75)
+          while (-not $p.HasExited -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 2 }
+          if (-not $p.HasExited) {
+            Write-Host 'HANG: selftest still running after 75s - cdb stacks + dump + desktop evidence'
+            New-Item -ItemType Directory -Path "dumps" -Force | Out-Null
+            # the decisive instrument: attach cdb (Windows SDK debuggers)
+            # to the HUNG process and print ALL thread stacks WITH SYMBOLS
+            $cdb = @("C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\cdb.exe", "C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\kd.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1
+            if ($cdb) {
+              Write-Host "cdb found: $cdb"
+              $env:_NT_SYMBOL_PATH = "$env:GITHUB_WORKSPACE\bin\64;srv*C:\symbols*https://msdl.microsoft.com/download/symbols"
+              & $cdb -p $p.Id -c "~*k 40; ~* f; qd" 2>&1 | Out-Host
+            } else {
+              Write-Host 'cdb NOT FOUND on the runner - falling back to the comsvcs dump'
+              Start-Process -FilePath rundll32.exe -ArgumentList "C:\Windows\System32\comsvcs.dll, MiniDump $($p.Id) $env:GITHUB_WORKSPACE\dumps\selftest-hang.dmp full" -Wait -NoNewWindow
+            }
+            Add-Type -AssemblyName System.Drawing
+            Add-Type -AssemblyName System.Windows.Forms
+            $sw = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds.Width
+            $sh = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds.Height
+            $bmp = New-Object System.Drawing.Bitmap($sw, $sh)
+            $g = [System.Drawing.Graphics]::FromImage($bmp)
+            $g.CopyFromScreen(0, 0, 0, 0, (New-Object System.Drawing.Size($sw, $sh)))
+            $g.Dispose()
+            $bmp.Save("gui-screens-selftest-hang.png", [System.Drawing.Imaging.ImageFormat]::Png)
+            $bmp.Dispose()
+            Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+            Write-Host '--- breadcrumbs (stage trace):'
+            if (Test-Path bin/64/breadcrumb.txt) { Get-Content bin/64/breadcrumb.txt } else { Write-Host 'NO breadcrumb.txt — hung BEFORE init:enter' }
+            Write-Error 'selftest hung (dump at dumps/selftest-hang.dmp)'; exit 1
+          }
+          $code = $p.ExitCode
+          Write-Host "selftest process exit code: $code (0xC0000409 = -1073740791 = fail-fast)"
+          if (Test-Path bin/64/selftest-result.txt) { Get-Content bin/64/selftest-result.txt }
+          else { Write-Host 'FAIL: selftest-result.txt was not produced (process died before any flush)'; if (-not $code) { $code = 99 } }
+          if ($code -ne 0) { Write-Error "composite selftest failed (exit=$code)"; exit 1 }
+          # collect the app's own SEH dumps (Desktop\simplewall_crash) +
+          # the symbolized crash report (crash-report.txt) when present
+          if (Test-Path "$env:USERPROFILE\Desktop\simplewall_crash") { Copy-Item "$env:USERPROFILE\Desktop\simplewall_crash\*" gui-screens/ -Force -ErrorAction SilentlyContinue }
+          if (Test-Path bin/64/crash-report.txt) { Copy-Item bin/64/crash-report.txt gui-screens/ -Force; Get-Content bin/64/crash-report.txt }
+          else { Write-Host 'no crash-report.txt (no SEH exception this run)' }
+
+      # composite GUI chain G-1/G-2: drive the shell on the runner desktop
+      # (SAC-free) — one screenshot per rail page + search + theme paths;
+      # the PNGs are the acceptance evidence read by the implementer
+      - name: GUI testdrive (shell screenshots)
+        if: always()
+        shell: pwsh
+        run: powershell -ExecutionPolicy Bypass -File tools/gui-testdrive.ps1 -ExePath "bin/64/simplewall.exe" -OutDir "gui-screens"
+
       - name: Upload artifacts
         if: always()
         uses: actions/upload-artifact@v4
@@ -120,6 +192,10 @@ jobs:
             smoke-result.txt
             preflight.json
             smoke-artifacts/
+            gui-screens/
+            dumps/
+            bin/64/simplewall.pdb
+            bin/64/simplewall.exe
 
       - name: Verdict
         shell: pwsh

@@ -107,11 +107,9 @@ VOID _app_state_collectguids (
 );
 
 // DEC-11 query API (GUI Rules/Apps pages): enumerate live session
-// decisions with the remaining seconds (0 for until-restart)
-ULONG _app_state_querycount (
-	VOID
-);
-
+// decisions with the remaining seconds (0 for until-restart); the
+// count lives in the single _app_state_querycount declaration above
+// (r3 finding 4: the duplicate declaration collapsed)
 BOOLEAN _app_state_query (
 	_In_ ULONG index,
 	_Out_ ULONG *app_hash,
@@ -120,4 +118,26 @@ BOOLEAN _app_state_query (
 	_Out_ PBOOLEAN is_block,
 	_Out_ PBOOLEAN is_once,
 	_Out_ PULONG remaining_seconds
+);
+
+// TEST INSTRUMENT (r4 G2-M1; NFR-06): seed a decision without WFP —
+// the query layer under test; real threadpool timer for "once" seeds.
+// Used only by -gui-selftest; never called from production paths.
+BOOLEAN _app_state_selftest_seed (
+	_In_ ULONG app_hash,
+	_In_ BOOLEAN is_block,
+	_In_ BOOLEAN is_once,
+	_In_ ULONG expires_seconds
+);
+
+// G-3 Log page (FR-05 loop): held-pending enumerators (DEC-11 additive;
+// same snapshot + lock discipline as _app_state_query)
+ULONG _app_state_queryheldcount (
+	VOID
+);
+
+BOOLEAN _app_state_queryheld (
+	_In_ ULONG index,
+	_Out_ ULONG *app_hash,
+	_Out_ PULONG held_count
 );

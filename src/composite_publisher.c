@@ -26,7 +26,7 @@
 typedef struct _ITEM_PUBLISHER_PATH
 {
 	PR_STRING path; // canonical (original_path) binary path
-	PR_STRING signer_hash; // hex SHA1 of the signer certificate (NULL when invalid)
+	PR_STRING signer_hash; // hex SHA1 of the signer certificate — RETAINED on invalidation (r3 goldfish finding 2: NULLing it would unlink the path from its anchor and make anchor-invalid states unreachable); NULL only when never validated
 	PR_STRING signer_name; // signer common name (informational)
 	PR_ARRAY guids; // deployed per-path PERMIT filters (FWW_APP)
 
@@ -353,7 +353,14 @@ static VOID _app_publisher_querypath (
 		ptr_path->mtime = mtime;
 		ptr_path->is_selfsigned = is_selfsigned;
 
-		_r_obj_movereference ((PVOID_PTR)&ptr_path->signer_hash, signer_hash);
+		// RETAIN the previous signer_hash on an invalid result (r3
+		// goldfish finding 2): NULLing it would unlink the path from its
+		// anchor and make anchor-invalid states unreachable — every
+		// deploy/bind path already gates on is_valid, so the retained
+		// hash is inert for enforcement
+		if (signer_hash)
+			_r_obj_movereference ((PVOID_PTR)&ptr_path->signer_hash, signer_hash);
+
 		_r_obj_movereference ((PVOID_PTR)&ptr_path->signer_name, signer_name);
 
 		ptr_path->is_valid = (status == ERROR_SUCCESS && ptr_path->signer_hash != NULL);
@@ -705,6 +712,188 @@ VOID _app_publisher_clearfilters (VOID)
 	}
 
 	_r_queuedlock_releaseexclusive (&lock_publisher);
+}
+
+// ---- DEC-11 query API (GUI Rules page; r4 G2-M1/G2-M2) ----
+
+// DEC-11 query API (GUI Rules page): number of publisher anchors
+ULONG _app_publisher_queryanchorcount (
+	VOID
+)
+{
+	ULONG count = 0;
+
+	_r_queuedlock_acquireshared (&lock_publisher);
+
+	if (publisher_anchors && !_r_obj_isempty2 (publisher_anchors))
+		count = (ULONG)publisher_anchors->count;
+
+	_r_queuedlock_releaseshared (&lock_publisher);
+
+	return count;
+}
+
+// DEC-11 query API (GUI Rules page): anchor signer name, materialized-
+// path count and validity. Validity (r3 goldfish findings 2+7): ≥1
+// matching path AND all valid → TRUE; zero matching paths → FALSE with
+// path_count 0 (the caller's "not checked" gray — an anchor is unknown
+// until a path materializes under it); any invalid member → FALSE (the
+// revoked-class red, reachable because invalidation now RETAINS
+// signer_hash). The mtime != validated_mtime staleness signal needs a
+// 3-state contract addition — recorded as backlog, NOT smuggled into
+// this 2-state BOOLEAN.
+BOOLEAN _app_publisher_queryanchor (
+	_In_ ULONG index,
+	_Out_writes_ (name_chars) WCHAR *name_buffer,
+	_In_ ULONG name_chars,
+	_Out_ PULONG path_count,
+	_Out_ PBOOLEAN is_valid
+)
+{
+	PITEM_PUBLISHER ptr_anchor = NULL;
+	PITEM_PUBLISHER_PATH ptr_path;
+	ULONG_PTR anchor_key = 0;
+	ULONG anchor_index = 0;
+	ULONG paths_total = 0;
+	ULONG paths_valid = 0;
+	BOOLEAN found = FALSE;
+
+	if (!name_buffer || !name_chars || !path_count || !is_valid)
+		return FALSE;
+
+	name_buffer[0] = UNICODE_NULL;
+	*path_count = 0;
+	*is_valid = FALSE;
+
+	_r_queuedlock_acquireshared (&lock_publisher);
+
+	if (publisher_anchors && !_r_obj_isempty2 (publisher_anchors))
+	{
+		while (_r_obj_enumhashtablepointer (publisher_anchors, (PVOID_PTR)&ptr_anchor, NULL, &anchor_key))
+		{
+			if (anchor_index == index)
+			{
+				found = TRUE;
+				break;
+			}
+
+			anchor_index++;
+		}
+	}
+
+	if (found)
+	{
+		// materialized-path count + validity scan; both tables live under
+		// the ONE shared acquisition (O(A×P) over small tables)
+		if (publisher_paths && !_r_obj_isempty2 (publisher_paths))
+		{
+			ULONG_PTR path_key = 0;
+
+			while (_r_obj_enumhashtablepointer (publisher_paths, (PVOID_PTR)&ptr_path, NULL, &path_key))
+			{
+				if (!ptr_path->signer_hash || !ptr_anchor->signer_hash)
+					continue;
+
+				if (wcscmp (ptr_path->signer_hash->buffer, ptr_anchor->signer_hash->buffer) == 0)
+				{
+					paths_total++;
+
+					if (ptr_path->is_valid)
+						paths_valid++;
+				}
+			}
+		}
+
+		if (ptr_anchor->signer_name)
+			_r_str_copy (name_buffer, name_chars, ptr_anchor->signer_name->buffer);
+
+		*path_count = paths_total;
+		*is_valid = (paths_total > 0 && paths_valid == paths_total);
+	}
+
+	_r_queuedlock_releaseshared (&lock_publisher);
+
+	return found;
+}
+
+// TEST INSTRUMENT (r4 G2-M2 verification additions; NFR-06): seed a
+// path + its anchor DIRECTLY (no WinVerifyTrust, no filesystem) so the
+// anchor validity semantics — including the red state's reachability
+// after the r3 finding-2 retain fix — are testable headlessly. Not
+// called from any production path.
+BOOLEAN _app_publisher_selftest_seedpath (
+	_In_ LPCWSTR path,
+	_In_ LPCWSTR signer_hash_hex,
+	_In_ LPCWSTR signer_name,
+	_In_ BOOLEAN is_valid
+)
+{
+	R_STRINGREF path_sr;
+	PITEM_PUBLISHER_PATH ptr_path;
+	PITEM_PUBLISHER ptr_anchor;
+	PR_STRING path_string;
+	ULONG path_hash;
+
+	if (!path || !path[0])
+		return FALSE;
+
+	path_string = _r_obj_createstring (path);
+	_r_obj_initializestringref2 (&path_sr, &path_string->sr);
+	path_hash = _r_str_gethash (&path_sr, TRUE);
+
+	_r_queuedlock_acquireexclusive (&lock_publisher);
+
+	ptr_path = (PITEM_PUBLISHER_PATH)_r_obj_findhashtablepointer (publisher_paths, path_hash);
+
+	if (!ptr_path)
+	{
+		ptr_path = (PITEM_PUBLISHER_PATH)_r_obj_allocate (sizeof (ITEM_PUBLISHER_PATH), &_app_publisher_dereferencepath);
+
+		ptr_path->path = _r_obj_createstring2 (&path_sr);
+		ptr_path->path_hash = path_hash;
+		ptr_path->guids = _r_obj_createarray (sizeof (GUID), 0x04, NULL);
+
+		_r_obj_addhashtablepointer (publisher_paths, ptr_path->path_hash, ptr_path);
+	}
+
+	if (ptr_path->signer_hash)
+		_r_obj_clearreference ((PVOID_PTR)&ptr_path->signer_hash);
+
+	if (ptr_path->signer_name)
+		_r_obj_clearreference ((PVOID_PTR)&ptr_path->signer_name);
+
+	if (signer_hash_hex && signer_hash_hex[0])
+		ptr_path->signer_hash = _r_obj_createstring (signer_hash_hex);
+
+	if (signer_name && signer_name[0])
+		ptr_path->signer_name = _r_obj_createstring (signer_name);
+
+	ptr_path->is_valid = is_valid;
+	ptr_path->is_selfsigned = FALSE;
+	ptr_path->mtime = 0;
+	ptr_path->validated_mtime = 0;
+
+	// anchor upsert — the exact production pattern (bind path)
+	if (ptr_path->signer_hash)
+	{
+		ptr_anchor = (PITEM_PUBLISHER)_r_obj_findhashtablepointer (publisher_anchors, _app_publisher_anchork (&ptr_path->signer_hash->sr));
+
+		if (!ptr_anchor)
+		{
+			ptr_anchor = (PITEM_PUBLISHER)_r_obj_allocate (sizeof (ITEM_PUBLISHER), &_app_publisher_dereferenceanchor);
+
+			ptr_anchor->signer_hash = _r_obj_reference (ptr_path->signer_hash);
+			ptr_anchor->signer_name = ptr_path->signer_name ? _r_obj_reference (ptr_path->signer_name) : NULL;
+
+			_r_obj_addhashtablepointer (publisher_anchors, _app_publisher_anchork (&ptr_path->signer_hash->sr), ptr_anchor);
+		}
+	}
+
+	_r_queuedlock_releaseexclusive (&lock_publisher);
+
+	_r_obj_dereference (path_string);
+
+	return TRUE;
 }
 
 VOID _app_publisher_uninitialize (VOID)

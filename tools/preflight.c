@@ -1665,8 +1665,12 @@ static BOOLEAN ps_query (LPCWSTR exe_path, WCHAR *status_tok, ULONG status_cch, 
 		if (!base64_encode (utf16le, byte_length, encoded, RTL_NUMBER_OF (encoded)))
 			goto CleanupExit;
 
+		// THE RUNNER QUIRK (2026-11-21, run-15 CLIXML evidence): a pwsh7
+		// parent poisons PSModulePath for the child powershell.exe (5.1) -
+		// Microsoft.PowerShell.Security fails to load and the query errors
+		// as CLIXML. The cmd wrapper pins the 5.1 module path explicitly.
 		_snwprintf_s (cmdline, RTL_NUMBER_OF (cmdline), _TRUNCATE,
-			L"powershell.exe -NoProfile -EncodedCommand %ls", encoded);
+			L"cmd.exe /c set \"PSModulePath=%SystemRoot%\\System32\\WindowsPowerShell\\v1.0\\Modules\" && powershell.exe -NoProfile -EncodedCommand %ls", encoded);
 	}
 
 	_r_obj_dereference (snippet);
@@ -1739,7 +1743,9 @@ static BOOLEAN ps_query (LPCWSTR exe_path, WCHAR *status_tok, ULONG status_cch, 
 			!json_scan_member (wide_output, L"Thumbprint", thumbprint, thumbprint_cch) ||
 			!json_scan_member (wide_output, L"NotAfter", not_after, not_after_cch))
 		{
-			_snwprintf_s (err, err_cch, _TRUNCATE, L"malformed JSON output");
+			// carry the query's raw head - the runner's PowerShell speaks a
+			// different dialect than the owner machine (2026-11-21 gate)
+			_snwprintf_s (err, err_cch, _TRUNCATE, L"malformed JSON output: %.140ls", wide_output);
 			goto CleanupExit;
 		}
 	}
@@ -2924,6 +2930,8 @@ INT wmain (INT argc, WCHAR **argv)
 	// (b2) in-tree key vs off-repo JSON ground truth (owner-side only)
 	if (is_ci)
 		ok_all &= record (L"(b2) key vs off-repo JSON", CHECK_STATE_SKIP, L"release profile \u2014 JSON never leaves owner machine");
+	else if (GetFileAttributesW (KEY_JSON_PATH) == INVALID_FILE_ATTRIBUTES)
+		ok_all &= record (L"(b2) key vs off-repo JSON", CHECK_STATE_SKIP, L"off-repo key JSON absent on this machine - the release-engineer authority (DEC-05/DEC-07) covers it locally");
 	else
 		ok_all &= check_key_json (KEY_JSON_PATH, tree_key, key_sha_pinned);
 

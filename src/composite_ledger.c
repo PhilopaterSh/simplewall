@@ -246,7 +246,8 @@ static NTSTATUS _app_ledger_enumlive (
 
 			_r_str_printf (line, RTL_NUMBER_OF (line), L"rule=%08x|%d|%s\r\n", hash, is_enabled == VARIANT_TRUE ? 1 : 0, name_bstr);
 
-			_r_obj_appendstringbuilder_ex (sb, line, wcslen (line));
+			// appendstringbuilder_ex takes BYTE length - wcslen is chars
+			_r_obj_appendstringbuilder_ex (sb, line, wcslen (line) * sizeof (WCHAR));
 
 			count++;
 		}
@@ -307,8 +308,10 @@ static NTSTATUS _app_ledger_write (
 
 	_r_obj_initializestringbuilder (sb, 0x100);
 
-	_r_obj_appendstringbuilder_ex (sb, LEDGER_BASELINE_MAGIC, RTL_NUMBER_OF (LEDGER_BASELINE_MAGIC) - 1);
-	_r_obj_appendstringbuilder_ex (sb, L"\r\n", 1);
+	// appendstringbuilder_ex takes BYTE length (2026-11-20 verifier
+	// round-trip finding): magic was half-written, separator was one byte
+	_r_obj_appendstringbuilder_ex (sb, LEDGER_BASELINE_MAGIC, (RTL_NUMBER_OF (LEDGER_BASELINE_MAGIC) - 1) * sizeof (WCHAR));
+	_r_obj_appendstringbuilder_ex (sb, L"\r\n", 2 * sizeof (WCHAR));
 	_r_obj_appendstringbuilder_ex (sb, stream, stream_length);
 
 	final = _r_obj_finalstringbuilder (sb);
@@ -326,7 +329,8 @@ static NTSTATUS _app_ledger_write (
 	}
 	else
 	{
-		if (!WriteFile (hfile, trailer->buffer, (DWORD)(trailer->length * sizeof (WCHAR)), &written, NULL) || written != (DWORD)(trailer->length * sizeof (WCHAR)))
+		// PR_STRING length is ALREADY bytes - the ×sizeof(WCHAR) wrote 2x
+		if (!WriteFile (hfile, trailer->buffer, (DWORD)trailer->length, &written, NULL) || written != (DWORD)trailer->length)
 		{
 			status = HRESULT_FROM_WIN32 (GetLastError ());
 			_r_log (LOG_LEVEL_WARNING, NULL, L"_app_ledger_write", L"WriteFile", status);
@@ -339,8 +343,10 @@ static NTSTATUS _app_ledger_write (
 		CloseHandle (hfile);
 	}
 
-	_r_obj_dereference (trailer);
-	_r_obj_dereference (final);
+	// REFERENCE CONTRACT (2026-11-20, the verifier dump root-cause class):
+	// final/trailer are BORROWED builder views - append may grow (freeing
+	// the old object) and deletestringbuilder is the ONLY release; the
+	// two manual dereferences here were an underflow/UAF pair
 	_r_obj_deletestringbuilder (sb);
 	_r_obj_dereference (path);
 

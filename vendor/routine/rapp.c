@@ -54,7 +54,132 @@ ULONG NTAPI _r_app_exceptionfilter_callback (
 			_r_log (LOG_LEVEL_ERROR, NULL, L"_r_fs_createfile", path->buffer, status);
 		_r_fs_deletedirectory (&path->sr, FALSE); // remove if it is empty
 	}
-	_r_report_error (APP_EXCEPTION_TITLE, NULL, exception_ptr->ExceptionRecord->ExceptionCode, ET_NATIVE);
+	// fork (CI crash-forensics round): the system FormatMessage template
+	// for STATUS_ACCESS_VIOLATION carries LITERAL %p placeholders (the
+	// ntdll message-table entries are not FormatMessage insert
+	// sequences) — the dialog showed "0x%p" verbatim with the real
+	// addresses unreadable. Format the actual addresses ourselves and
+	// hand _r_report_error a completed string.
+	{
+		PR_STRING description = NULL;
+		ULONG_PTR fault_addr = 0;
+		LPCWSTR op = L"read";
+
+		if (exception_ptr->ExceptionRecord->ExceptionCode == STATUS_ACCESS_VIOLATION && exception_ptr->ExceptionRecord->NumberParameters >= 2)
+		{
+			fault_addr = exception_ptr->ExceptionRecord->ExceptionInformation[1];
+			op = exception_ptr->ExceptionRecord->ExceptionInformation[0] ? L"written" : L"read";
+		}
+
+		description = _r_format_string (
+			L"The instruction at 0x%p referenced memory at 0x%p. The memory could not be %s.\r\n\r\nException code: 0x%08x",
+			exception_ptr->ExceptionRecord->ExceptionAddress,
+			(PVOID)fault_addr,
+			op,
+			(ULONG)exception_ptr->ExceptionRecord->ExceptionCode
+		);
+
+		// symbolized report next to the exe (dbghelp is an existing
+		// import; the CI runner ships the PDB beside the binary) — the
+		// stack below the filter frame IS the faulting chain
+		{
+			HANDLE hreport = INVALID_HANDLE_VALUE;
+			WCHAR exe_path[MAX_PATH];
+			WCHAR report_path[MAX_PATH];
+			PVOID *frames = NULL;
+			ULONG frame_count = 0;
+			CHAR report[(8 * 256) + 256];
+			ULONG report_len = 0;
+			DWORD written = 0;
+			ULONG i;
+
+			if (GetModuleFileNameW (NULL, exe_path, RTL_NUMBER_OF (exe_path)))
+			{
+				PWSTR slash = wcsrchr (exe_path, L'\\');
+
+				if (slash)
+				{
+					*slash = UNICODE_NULL;
+					_r_str_copy (report_path, RTL_NUMBER_OF (report_path), exe_path);
+					wcscat_s (report_path, RTL_NUMBER_OF (report_path), L"\\crash-report.txt");
+					*slash = L'\\';
+
+					frames = (PVOID *)_r_mem_allocate (16 * sizeof (PVOID));
+
+					if (frames)
+					{
+						HMODULE hmodule = GetModuleHandleW (L"simplewall.exe");
+
+						if (!hmodule)
+							hmodule = GetModuleHandleW (NULL);
+
+						frame_count = (ULONG)RtlCaptureStackBackTrace (0, 16, frames, NULL);
+
+						// SymInitialize's search path is ANSI (PCSTR) - the
+						// wide exe path was passed raw (C4133), so symbol
+						// resolution leaned on _NT_SYMBOL_PATH alone
+						{
+							CHAR exe_path_a[520];
+
+							if (!WideCharToMultiByte (CP_UTF8, 0, exe_path, -1, exe_path_a, RTL_NUMBER_OF (exe_path_a), NULL, NULL))
+								exe_path_a[0] = 0;
+
+							if (SymInitialize (NtCurrentProcess (), exe_path_a[0] ? exe_path_a : NULL, TRUE))
+						{
+							union
+							{
+								SYMBOL_INFO info;
+								BYTE buffer[512];
+							} symbol;
+
+							for (i = 0; i < frame_count && report_len < RTL_NUMBER_OF (report) - 256; i++)
+							{
+								DWORD64 displacement = 0;
+
+								memset (&symbol, 0, sizeof (symbol));
+								symbol.info.SizeOfStruct = sizeof (SYMBOL_INFO);
+								symbol.info.MaxNameLen = RTL_NUMBER_OF (symbol.buffer) - sizeof (SYMBOL_INFO);
+
+								if (SymFromAddr (NtCurrentProcess (), (DWORD64)(ULONG_PTR)frames[i], &displacement, &symbol.info))
+								{
+									ULONG base = (ULONG)SymGetModuleBase64 (NtCurrentProcess (), (DWORD64)(ULONG_PTR)frames[i]);
+									ULONG rva = base ? ((ULONG)(ULONG_PTR)frames[i] - base) : 0;
+
+									report_len += (ULONG)_snprintf_s (&report[report_len], RTL_NUMBER_OF (report) - report_len, _TRUNCATE, "#%lu %s+0x%x (rva +0x%08x)\r\n", i, symbol.info.Name, (ULONG)(DWORD_PTR)displacement, rva);
+								}
+								else
+								{
+									ULONG base = (ULONG)SymGetModuleBase64 (NtCurrentProcess (), (DWORD64)(ULONG_PTR)frames[i]);
+									ULONG rva = base ? ((ULONG)(ULONG_PTR)frames[i] - base) : 0;
+
+									report_len += (ULONG)_snprintf_s (&report[report_len], RTL_NUMBER_OF (report) - report_len, _TRUNCATE, "#%lu rva +0x%08x\r\n", i, rva);
+								}
+							}
+
+							SymCleanup (NtCurrentProcess ());
+						}
+						}
+
+						_r_mem_free (frames);
+					}
+
+					hreport = CreateFileW (report_path, GENERIC_WRITE, FILE_SHARE_READ, NULL, CREATE_ALWAYS, 0, NULL);
+
+					if (hreport != INVALID_HANDLE_VALUE)
+					{
+						WriteFile (hreport, report, report_len, &written, NULL);
+						CloseHandle (hreport);
+					}
+				}
+			}
+		}
+
+		_r_report_error (APP_EXCEPTION_TITLE, description ? description->buffer : NULL, exception_ptr->ExceptionRecord->ExceptionCode, ET_NATIVE);
+
+		if (description)
+			_r_obj_dereference (description);
+	}
+
 	_r_obj_dereference (path);
 	RtlExitUserProcess (exception_ptr->ExceptionRecord->ExceptionCode);
 	return EXCEPTION_EXECUTE_HANDLER;
@@ -260,7 +385,14 @@ BOOLEAN _r_app_initialize (
 
 #if defined(APP_NO_GUEST)
 	// use "only admin"-mode
-	if (!_r_sys_iselevated ())
+	// fork (GUI chain G-1): the composite shell (-gui) and its selftest
+	// (-gui-selftest) are read-mostly surfaces - no engine, no filters -
+	// and legitimately run WITHOUT elevation; their elevated actions
+	// (Lockdown) carry their own on-demand elevation semantics (DEC-11).
+	// The engine path keeps the "only admin" mode. _r_sys_getopt matches
+	// by prefix but rejects non-separator remainders, so "gui" does not
+	// swallow "gui-selftest" (testing-record.md Finding 6).
+	if (!_r_sys_iselevated () && !_r_sys_getopt (_r_sys_getcommandline (), L"gui", NULL) && !_r_sys_getopt (_r_sys_getcommandline (), L"gui-selftest", NULL))
 	{
 		if (!_r_app_runasadmin ())
 			_r_report_error (NULL, APP_FAILED_ADMIN_RIGHTS, STATUS_ELEVATION_REQUIRED, ET_NATIVE);
@@ -4535,7 +4667,7 @@ INT_PTR CALLBACK _r_settings_wndproc (
 					// made backup of existing configuration
 					path = _r_app_getconfigpath ();
 
-					_r_path_makebackup (path, TRUE);
+					_r_path_makebackup (&path->sr, TRUE); // PR_STRING's first member IS the stringref (C4133 convention)
 
 					// reinitialize configuration
 					_r_config_initialize (); // reload config

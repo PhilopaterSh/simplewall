@@ -12,9 +12,9 @@
 #include "composite_resolver.h"
 #include "composite_dnsetw.h" // composite Phase 3 (T032)
 #include "composite_bypass.h" // composite Phase 3 (T033b)
-#include "gui/composite_shell.h" // composite GUI chain G-1 (DEC-11) // composite Phase 3 (T033b) // composite Phase 3 (P3-C) // composite Phase 2 (FR-12) // composite Phase 2 (FR-10/DATA-03) // composite Phase 1 (FR-08/DATA-02) // composite Phase 1 (FR-06/DEC-04)
+#include "gui/composite_shell.h" // composite shell (G-1): -gui replaces the main window (DEC-11)
+#include "gui/composite_shell_selftest.h" // composite shell selftest (G-2, NFR-06): -gui-selftest
 #include "composite_state.h" // composite Phase 1 (T005 durations/T006 single-flight)
-#include "gui/composite_shell.h" // composite shell (G-1): -gui replaces the main window
 #include "composite_publisher.h" // composite Phase 1 (T004 publisher rules)
 
 BOOLEAN _app_changefilters (
@@ -1829,6 +1829,18 @@ VOID _app_tabs_init (
 	}
 }
 
+// composite Phase 2 (FR-12/P2-2): the profile-directory DACL hardening
+// runs on the FILES workqueue - CI-proven (2026-11-19): the call can
+// deadlock inside SetNamedSecurityInfoW's inheritable-ACE propagation
+// (Windows Server 2025 runner), and init must NEVER block on external
+// systems (the S4 discipline). Non-fatal by NFR-01 either way.
+static VOID NTAPI _app_integrity_hardenacl_thread (
+	_In_ PVOID arglist
+)
+{
+	_app_integrity_hardenacl ();
+}
+
 VOID _app_initialize (
 	_In_opt_ HWND hwnd
 )
@@ -1847,12 +1859,23 @@ VOID _app_initialize (
 	R_STRINGREF wusvc_sr = PR_STRINGREF_INIT (PATH_WUSVC);
 	R_ENVIRONMENT environment;
 
+
+	// composite Phase 2 (FR-12/P2-2): the profile-directory DACL hardening
+	// runs FIRST - SYNCHRONOUSLY - before any code opens a handle inside
+	// the profile tree. CI-proven (2026-11-19): when propagation runs
+	// while OTHER threads/calls hold handles in the same tree, the main
+	// thread freezes on FS ops against that tree (the hang MOVED between
+	// file operations across runs). First-and-alone = no concurrent
+	// handles = no contention. Non-fatal by NFR-01 + config-gated (O-8).
+	_app_integrity_hardenacl ();
+
 	// hardening round 2 (FR-03/DEC-05): embed the update feed verification
 	// public key (the private key is held off-repository by the fork owner)
 	_r_update_setpublickey (UPDATE_PUBLIC_KEY, RTL_NUMBER_OF (UPDATE_PUBLIC_KEY));
 
 	// set privileges
 	_r_sys_setprocessprivilege (hwnd, NtCurrentProcess (), privileges, RTL_NUMBER_OF (privileges), TRUE);
+
 
 	// set process priority
 	_r_sys_setenvironment (&environment, PROCESS_PRIORITY_CLASS_HIGH, IoPriorityHigh, MEMORY_PRIORITY_NORMAL);
@@ -1874,6 +1897,7 @@ VOID _app_initialize (
 
 	_r_workqueue_initialize (&wfp_queue, 1, &environment, L"FiltersQueue");
 
+
 	// static initializer
 	_r_sys_getsystemroot (&config.windows_dir);
 
@@ -1893,10 +1917,6 @@ VOID _app_initialize (
 	// composite Phase 2 (FR-12): ledger baseline integrity
 	_app_ledger_startupcheck ();
 
-	// composite Phase 2 (FR-12/P2-2): profile-directory DACL hardening
-	// (non-fatal; non-elevated sessions log and skip)
-	_app_integrity_hardenacl ();
-
 	// composite Phase 3 (P3-C): never-leave-DNS-broken crash residue
 	_app_resolver_startupcheck ();
 
@@ -1915,6 +1935,7 @@ VOID _app_initialize (
 		config.my_path = _r_obj_createstring2 (&image_path_sr);
 	}
 
+
 	config.svchost_path = _r_obj_concatstringrefs (
 		2,
 		_r_sys_getsystemdirectory (),
@@ -1928,6 +1949,7 @@ VOID _app_initialize (
 	);
 
 	config.system_path = _r_obj_createstring (PROC_SYSTEM_NAME);
+
 	config.ntoskrnl_path = _r_sys_getkernelfilename (TRUE);
 
 	if (!config.ntoskrnl_path)
@@ -1937,6 +1959,7 @@ VOID _app_initialize (
 	config.svchost_hash = _r_str_gethash (&config.svchost_path->sr, TRUE);
 	config.wusvc_hash = _r_str_gethash (&config.wusvc_path->sr, TRUE);
 	config.my_hash = _r_str_gethash (&config.my_path->sr, TRUE);
+
 
 	// initialize free list
 	_r_freelist_initialize (&listview_free_list, sizeof (ITEM_LISTVIEW_CONTEXT), 0x800);
@@ -1956,8 +1979,10 @@ VOID _app_initialize (
 
 	_app_generate_credentials ();
 
+
 	// load default icons
 	_app_icons_getdefault ();
+
 
 	// initialize global filters array object
 	filter_ids = _r_obj_createarray (sizeof (GUID), 0x10, NULL);
@@ -1984,10 +2009,13 @@ VOID _app_initialize (
 	_app_state_initialize ();
 	_app_publisher_initialize ();
 
+
 	NtCreateEvent (&config.hnotify_evt, EVENT_ALL_ACCESS, NULL, NotificationEvent, TRUE);
 
 	if (hwnd)
 		_r_sys_createthread (NULL, NtCurrentProcess (), (PUSER_THREAD_START_ROUTINE)&_app_package_threadproc, hwnd, &environment, L"ServicesMonitor");
+
+
 }
 
 INT FirstDriveFromMask (
@@ -3767,23 +3795,40 @@ INT APIENTRY wWinMain (
 {
 	HWND hwnd;
 
-	// composite GUI chain G-1 (DEC-11): `-gui` launches the experimental
-	// composite shell standalone (no engine/session needed for the
-	// scaffold; pages consume query APIs once G-2 lands)
-	if (_r_sys_getopt (_r_sys_getcommandline (), L"gui", NULL))
-	{
-		_app_shell_run (hinst);
-		return ERROR_SUCCESS;
-	}
-
 	if (!_r_app_initialize (&_app_parseargs))
 		return ERROR_APP_INIT_FAILURE;
 
+	// composite verbs (G-1/G-2) run OUTSIDE the upstream dialog path:
+	// _r_app_initialize dispatches cmd_callback ONLY for the four known
+	// classes (Help/Clean/Install/Uninstall — routine rapp.c), so for
+	// `-gui`/`-gui-selftest` _app_parseargs NEVER runs and
+	// _app_initialize (the global-tables creator: apps_table/rules_config/
+	// state/publisher/credentials/icons) never runs either. CI-proven:
+	// WM_CREATE → _app_profile_load → _r_obj_clearhashtable (apps_table =
+	// NULL) → AV +0x40. The upstream dialog path was unaffected because
+	// WM_INITDIALOG calls _app_initialize itself.
+	if (!apps_table)
+		_app_initialize (NULL);
+
+	// composite GUI chain G-2 (NFR-06/r4): headless selftest instrument —
+	// verifies the six DEC-11 query-API enumerators INSIDE the real
+	// binary (fixtures via the real serializer; real threadpool-timer
+	// expiry), writes selftest-result.txt and exits with the failure
+	// count. MUST be checked BEFORE the `-gui` verb: _r_sys_getopt
+	// matches by PREFIX (_r_str_isstartswith), so "gui" would otherwise
+	// also fire on "-gui-selftest"
+	if (_r_sys_getopt (_r_sys_getcommandline (), L"gui-selftest", NULL))
+		return _app_shell_selftest_run ();
+
 	// composite shell (G-1): -gui replaces the main window. Runs AFTER
-	// _r_app_initialize (apps_table/config populated) and BEFORE
-	// _r_app_createwindow; engine/filters are NOT started in -gui mode
-	// (read-mostly shell — Lockdown actions go through the module APIs
-	// with their own elevation semantics)
+	// _r_app_initialize (locale/config populated — required for the
+	// shell's locale-pipeline strings on fresh profiles; r3 G1-M4) and
+	// BEFORE _r_app_createwindow; engine/filters are NOT started in
+	// -gui mode (read-mostly shell — Lockdown actions go through the
+	// module APIs with their own elevation semantics). The former
+	// pre-init dispatch was removed (r3 G1-M5, goldfish finding 1: it
+	// made _r_locale_getstring return NULL for every string on fresh
+	// profiles and skipped the DLL hardening).
 	if (_r_sys_getopt (_r_sys_getcommandline (), L"gui", NULL))
 		return _app_shell_run (hinst);
 

@@ -45,3 +45,4 @@ bin/mergetest/
 *.map
 bin/imports_master.json
 test_dns.exe
+.testruns/

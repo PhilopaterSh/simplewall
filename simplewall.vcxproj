@@ -413,7 +413,6 @@
     <ClCompile Include="src\composite_dnscache.c" />
     <ClCompile Include="src\composite_doh.c" />
     <ClCompile Include="src\composite_dnsetw.c" />
-    <ClCompile Include="src\gui\composite_shell.c" />
     <ClCompile Include="src\composite_resolver.c" />
     <ClCompile Include="src\composite_zones.c" />
     <ClCompile Include="src\composite_packs.c" />
@@ -422,9 +421,16 @@
     <ClCompile Include="src\gui\composite_shell.c">
       <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
+    <ClCompile Include="src\gui\composite_shell_a11y.c">
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <ClCompile Include="src\gui\composite_shell_selftest.c">
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\gui\composite_shell.h" />
+    <ClInclude Include="src\gui\composite_shell_res.h" />
     <ClInclude Include="..\routine\src\ntapi.h" />
     <ClInclude Include="..\routine\src\ntrtl.h" />
     <ClInclude Include="..\routine\src\rapp.h" />
@@ -473,6 +479,7 @@
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="src\resource.rc" />
+    <ResourceCompile Include="src\gui\composite_shell_strings.rc" />
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />

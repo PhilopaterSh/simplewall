@@ -1,0 +1,189 @@
+name: sw-verifier (simplewall fork CI judge)
+
+# The fork (PhilopaterSh/simplewall) has its Actions dispatch blocked at the
+# repo layer - the desync is fully evidenced in the fork's
+# docs/specs/gui/runtime-judges.md (repo reports enabled=true and the workflow
+# is active, yet dispatch returns "Actions has been disabled for this
+# repository"; a run DID execute at 2026-11-20T00:11 UTC, so the switch was
+# reset after it). THIS lane runs the SAME verification steps on THIS repo's
+# working Actions against the fork's branch head. Nothing here is
+# fork-secret: the build is the CI profile (unsigned, no PFX, no keys).
+
+on:
+  workflow_dispatch:
+    inputs:
+      sw_ref:
+        description: 'simplewall ref to verify (branch or full SHA - a SHA bypasses the public-clone edge cache that served stale heads on runs 4-5)'
+        required: false
+        default: 'feat/gui-g1'
+
+jobs:
+  verify:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout the fork under test
+        uses: actions/checkout@v4
+        with:
+          repository: PhilopaterSh/simplewall
+          ref: ${{ github.event.inputs.sw_ref || 'feat/gui-g1' }}
+
+      # process gates: mechanical traceability (goldfish check) + artifact
+      # completeness - identical to the fork's smoke-test.yml
+      - name: Chain gates (goldfish check + artifact completeness)
+        shell: pwsh
+        run: |
+          pip install tools/vendor/goldfish-gate-pin
+          $failed = $false
+          Get-ChildItem docs/specs -Directory | Where-Object { Test-Path "$($_.FullName)/design.md" } | ForEach-Object {
+            Push-Location $_.FullName
+            goldfish check design.md spec.md plan.md tasks.md
+            if ($LASTEXITCODE -ne 0) { $failed = $true }
+            Pop-Location
+          }
+          python tools/check-chain-artifacts.py docs/specs
+          if ($LASTEXITCODE -ne 0) { $failed = $true }
+          if ($failed) { Write-Error 'chain gates failed'; exit 1 }
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Restore CppWinRT
+        shell: cmd
+        run: |
+          curl -L -o nuget.exe https://dist.nuget.org/win-x86-commandline/latest/nuget.exe
+          nuget.exe install Microsoft.Windows.CppWinRT -Version 2.0.230706.1 -OutputDirectory packages -NonInteractive -Source https://api.nuget.org/v3/index.json
+
+      - name: Build (Release x64)
+        shell: cmd
+        run: msbuild simplewall.vcxproj -p:Configuration=Release -p:Platform=x64 -p:PlatformToolset=v143 -p:WindowsTargetPlatformVersion=10.0 -p:TreatWarningAsError=false -m -nologo -v:m
+
+      - name: Verify exe exists
+        shell: pwsh
+        run: |
+          $exe = 'bin/64/simplewall.exe'
+          if (-not (Test-Path $exe)) { Write-Error 'exe missing'; exit 1 }
+          $h = (Get-FileHash $exe -Algorithm SHA256).Hash
+          Write-Host "exe OK: $((Get-Item $exe).Length) bytes, SHA256=$h"
+          "sha256=$h" | Out-File -Encoding utf8 exe-hash.txt
+
+      # tooling round (FR-05): the REQUIRED preflight gate (CI profile —
+      # the runner builds are unsigned; the release-authoritative checks
+      # run on the signed exe at the release step)
+      - name: Build tool suite (Release x64)
+        shell: cmd
+        run: msbuild tools\preflight.vcxproj -p:Configuration=Release -p:Platform=x64 -p:PlatformToolset=v143 -p:WindowsTargetPlatformVersion=10.0 -p:TreatWarningAsError=false -m -nologo -v:m
+
+      - name: Release preflight (CI profile, C tool)
+        shell: pwsh
+        run: bin/64/preflight.exe bin/64/simplewall.exe --ci --json | Tee-Object -FilePath preflight.json
+
+      # composite selftest: the startup verdict (Finding 8's empirical
+      # confirmation - the UAF fix in _app_packs_getpath is under test here)
+      # release gate: the SIGNED released asset is verified by (1) the feed's
+      # recorded sha256 (the released bytes ARE the bytes we built+signed) and
+      # (2) Windows' own signtool verify (no JSON parsing - the preflight (a)
+      # subprocess proved runner-fragile across three dialect failures; the
+      # full preflight profile stays an owner-machine gate per the runbook)
+      - name: Release gate (hash + Authenticode on the SIGNED release asset)
+        shell: pwsh
+        run: |
+          $feed = Invoke-WebRequest 'https://raw.githubusercontent.com/PhilopaterSh/simplewall/master/VERSION' -UseBasicParsing
+          $line = ($feed.Content -split "`n" | Where-Object { $_ -like 'simplewall=*' }) | Select-Object -First 1
+          $url = ($line -split '\|')[1]
+          $expected = (($line -split '\|')[2]).TrimEnd(';').Trim()
+          Write-Host "release asset: $url"
+          Write-Host "feed sha256  : $expected"
+          Invoke-WebRequest $url -OutFile release-signed.exe -UseBasicParsing
+          $actual = (Get-FileHash release-signed.exe -Algorithm SHA256).Hash.ToLower()
+          Write-Host "asset sha256 : $actual"
+          if ($actual -ne $expected) { Write-Error 'asset hash MISMATCH vs the signed feed record'; exit 1 }
+          # the v2 release cert is a SELF-SIGNED root: install the public
+          # half into the runner's Root store (the documented trust anchor)
+          Import-Certificate -FilePath tools\fork-signing-v2.cer -CertStoreLocation Cert:\LocalMachine\Root | Out-Host
+          $signtool = (Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe' | Sort-Object FullName -Descending | Select-Object -First 1).FullName
+          & $signtool verify /pa /v release-signed.exe | Out-Host
+          if ($LASTEXITCODE -ne 0) { Write-Error 'Authenticode verify FAILED on the release asset'; exit 1 }
+          Write-Host 'RELEASE GATE: hash + Authenticode PASS'
+
+      - name: Composite selftest (query APIs, -gui-selftest)
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path "$env:GITHUB_WORKSPACE\dumps" -Force | Out-Null
+          reg add "HKLM\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps\simplewall.exe" /v DumpFolder /t REG_EXPAND_SZ /d "$env:GITHUB_WORKSPACE\dumps" /f | Out-Null
+          reg add "HKLM\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps\simplewall.exe" /v DumpType /t REG_DWORD /d 2 /f | Out-Null
+          reg add "HKLM\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps\simplewall.exe" /v DumpCount /t REG_DWORD /d 3 /f | Out-Null
+          New-Item -ItemType File -Path "bin/64/portable.dat" -Force | Out-Null
+          $p = Start-Process -FilePath "bin/64/simplewall.exe" -ArgumentList '-gui-selftest' -PassThru
+          $deadline = (Get-Date).AddSeconds(75)
+          while (-not $p.HasExited -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 2 }
+          if (-not $p.HasExited) {
+            Write-Host 'HANG: selftest still running after 75s - cdb stacks + dump + desktop evidence'
+            New-Item -ItemType Directory -Path "dumps" -Force | Out-Null
+            $cdb = @("C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\cdb.exe", "C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\kd.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1
+            if ($cdb) {
+              Write-Host "cdb found: $cdb"
+              $env:_NT_SYMBOL_PATH = "$env:GITHUB_WORKSPACE\bin\64;srv*C:\symbols*https://msdl.microsoft.com/download/symbols"
+              & $cdb -p $p.Id -c "~*k 40; ~* f; qd" 2>&1 | Out-Host
+            } else {
+              Write-Host 'cdb NOT FOUND on the runner - falling back to the comsvcs dump'
+              Start-Process -FilePath rundll32.exe -ArgumentList "C:\Windows\System32\comsvcs.dll, MiniDump $($p.Id) $env:GITHUB_WORKSPACE\dumps\selftest-hang.dmp full" -Wait -NoNewWindow
+            }
+            Add-Type -AssemblyName System.Drawing
+            Add-Type -AssemblyName System.Windows.Forms
+            $sw = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds.Width
+            $sh = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds.Height
+            $bmp = New-Object System.Drawing.Bitmap($sw, $sh)
+            $g = [System.Drawing.Graphics]::FromImage($bmp)
+            $g.CopyFromScreen(0, 0, 0, 0, (New-Object System.Drawing.Size($sw, $sh)))
+            $g.Dispose()
+            $bmp.Save("gui-screens-selftest-hang.png", [System.Drawing.Imaging.ImageFormat]::Png)
+            $bmp.Dispose()
+            Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+            Write-Host '--- breadcrumbs (stage trace):'
+            if (Test-Path bin/64/breadcrumb.txt) { Get-Content bin/64/breadcrumb.txt } else { Write-Host 'NO breadcrumb.txt - hung BEFORE init:enter' }
+            Write-Error 'selftest hung (dump at dumps/selftest-hang.dmp)'; exit 1
+          }
+          $code = $p.ExitCode
+          Write-Host "selftest process exit code: $code"
+          if (Test-Path bin/64/selftest-result.txt) { Get-Content bin/64/selftest-result.txt }
+          else { Write-Host 'FAIL: selftest-result.txt was not produced (process died before any flush)'; if (-not $code) { $code = 99 } }
+          # POST-MORTEM: any WER dump = analyze it with cdb (symbols from the
+          # just-built PDB + msdl) BEFORE failing - the faulting frame is the
+          # answer, not a red X
+          if ($code -ne 0) {
+            $cdb = "C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\cdb.exe"
+            $dump = Get-ChildItem "dumps" -Filter "simplewall.exe.*.dmp" -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+            if ((Test-Path $cdb) -and $dump) {
+              Write-Host "POST-MORTEM cdb on $($dump.Name)"
+              $env:_NT_SYMBOL_PATH = "$env:GITHUB_WORKSPACE\bin\64;srv*C:\symbols*https://msdl.microsoft.com/download/symbols"
+              & $cdb -z $dump.FullName -c ".symfix+; .reload; !analyze -v; ~*k 30; qd" 2>&1 | Out-Host
+            } else { Write-Host 'no cdb or no dump for post-mortem' }
+            Write-Error "composite selftest failed (exit=$code)"
+            exit 1
+          }
+          if (Test-Path "$env:USERPROFILE\Desktop\simplewall_crash") { Copy-Item "$env:USERPROFILE\Desktop\simplewall_crash\*" gui-screens/ -Force -ErrorAction SilentlyContinue }
+          if (Test-Path bin/64/crash-report.txt) { Copy-Item bin/64/crash-report.txt gui-screens/ -Force; Get-Content bin/64/crash-report.txt }
+          else { Write-Host 'no crash-report.txt (no SEH exception this run)' }
+
+      # drive the shell on the runner desktop: one screenshot per rail page
+      - name: GUI testdrive (shell screenshots)
+        if: always()
+        shell: pwsh
+        run: powershell -ExecutionPolicy Bypass -File tools/gui-testdrive.ps1 -ExePath "bin/64/simplewall.exe" -OutDir "gui-screens"
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sw-verifier-artifacts
+          path: |
+            exe-hash.txt
+            gui-screens/
+            dumps/
+            bin/64/simplewall_debug.log
+            bin/64/selftest-result.txt
+            bin/64/breadcrumb.txt
+            bin/64/crash-report.txt
+            bin/64/simplewall.pdb
+            bin/64/simplewall.exe

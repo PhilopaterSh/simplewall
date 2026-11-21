@@ -87,8 +87,10 @@ static NTSTATUS _app_resolver_snapshot (
 
 	_r_obj_initializestringbuilder (sb, 0x400);
 
-	_r_obj_appendstringbuilder_ex (sb, RESOLVER_SNAPSHOT_MAGIC, RTL_NUMBER_OF (RESOLVER_SNAPSHOT_MAGIC) - 1);
-	_r_obj_appendstringbuilder_ex (sb, L"\r\n", 1);
+	// appendstringbuilder_ex takes BYTE length (2026-11-20 verifier
+	// round-trip finding): magic was half-written, separator was one byte
+	_r_obj_appendstringbuilder_ex (sb, RESOLVER_SNAPSHOT_MAGIC, (RTL_NUMBER_OF (RESOLVER_SNAPSHOT_MAGIC) - 1) * sizeof (WCHAR));
+	_r_obj_appendstringbuilder_ex (sb, L"\r\n", 2 * sizeof (WCHAR));
 
 	if (RegOpenKeyExW (HKEY_LOCAL_MACHINE, L"SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters\\Interfaces", 0, KEY_READ, &hkey) == ERROR_SUCCESS)
 	{
@@ -147,7 +149,8 @@ static NTSTATUS _app_resolver_snapshot (
 	}
 	else
 	{
-		if (!WriteFile (hfile, trailer->buffer, (DWORD)(trailer->length * sizeof (WCHAR)), &written, NULL) || written != (DWORD)(trailer->length * sizeof (WCHAR)))
+		// PR_STRING length is ALREADY bytes - the ×sizeof(WCHAR) wrote 2x
+		if (!WriteFile (hfile, trailer->buffer, (DWORD)trailer->length, &written, NULL) || written != (DWORD)trailer->length)
 		{
 			status = HRESULT_FROM_WIN32 (GetLastError ());
 			_r_log (LOG_LEVEL_WARNING, NULL, L"_app_resolver_snapshot", L"WriteFile", status);
@@ -160,8 +163,10 @@ static NTSTATUS _app_resolver_snapshot (
 		CloseHandle (hfile);
 	}
 
-	_r_obj_dereference (trailer);
-	_r_obj_dereference (final);
+	// REFERENCE CONTRACT (2026-11-20, the verifier dump root-cause class):
+	// final/trailer are BORROWED builder views - append may grow (freeing
+	// the old object) and deletestringbuilder is the ONLY release; the
+	// two manual dereferences here were an underflow/UAF pair
 	_r_obj_deletestringbuilder (sb);
 	_r_obj_dereference (path);
 

@@ -5,6 +5,7 @@
 
 #include "composite_publisher.h" // composite Phase 1 (T003 tier3/T004)
 #include "composite_state.h" // composite Phase 1 (T003 gate/T005 durations/T006 single-flight)
+#include "gui/composite_shell_res.h" // composite G-3/2: the fork-owned IDS block (IDS_NOTIFY_HELDLINE)
 
 #include "composite.h"
 
@@ -1435,7 +1436,35 @@ INT_PTR CALLBACK NotificationProc (
 			_app_notify_drawgradient (draw_info->hDC, &draw_info->rcItem);
 
 			// draw title text
+			// composite G-3/2 (design r2 §7): the prompt carries the held
+			// line itself (T006's counter was statusbar/tray-only) - the
+			// user sees the batch-review context IN the decision moment
 			string = _r_locale_getstring_ex (IDS_NOTIFY_HEADER);
+
+			if (string)
+			{
+				ULONG held_count = _app_state_getheldtotal ();
+
+				if (held_count)
+				{
+					LPCWSTR held_fmt_src = _r_locale_getstring (IDS_NOTIFY_HELDLINE); // " - held: %lu ..."
+
+					if (held_fmt_src)
+					{
+						PR_STRING held_line = _r_format_string (held_fmt_src, held_count);
+
+						if (held_line)
+						{
+							PR_STRING combined = _r_format_string (L"%s%s", string->buffer, held_line->buffer);
+
+							if (combined)
+								_r_obj_movereference (&string, combined);
+
+							_r_obj_dereference (held_line);
+						}
+					}
+				}
+			}
 
 			if (string)
 			{

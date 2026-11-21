@@ -229,7 +229,9 @@ static NTSTATUS _app_lockdown_writesnapshot (
 
 	_r_obj_initializestringbuilder (sb, 0x1000);
 
-	_r_obj_appendstringbuilder_ex (sb, LOCKDOWN_SNAPSHOT_MAGIC, RTL_NUMBER_OF (LOCKDOWN_SNAPSHOT_MAGIC) - 1);
+	// appendstringbuilder_ex takes BYTE length (2026-11-20 verifier
+	// round-trip finding): the magic was written as half its UTF-16 bytes
+	_r_obj_appendstringbuilder_ex (sb, LOCKDOWN_SNAPSHOT_MAGIC, (RTL_NUMBER_OF (LOCKDOWN_SNAPSHOT_MAGIC) - 1) * sizeof (WCHAR));
 
 	// per-profile defaults (FR-06 step 1)
 	for (i = 0; i < RTL_NUMBER_OF (profile_types); i++)
@@ -323,7 +325,8 @@ static NTSTATUS _app_lockdown_writesnapshot (
 		goto cleanup;
 	}
 
-	if (!WriteFile (hfile, contents->buffer, (DWORD)(contents->length * sizeof (WCHAR)), &written, NULL) || written != (DWORD)(contents->length * sizeof (WCHAR)))
+	// PR_STRING length is ALREADY bytes - the ×sizeof(WCHAR) wrote 2x
+	if (!WriteFile (hfile, contents->buffer, (DWORD)contents->length, &written, NULL) || written != (DWORD)contents->length)
 	{
 		status = HRESULT_FROM_WIN32 (GetLastError ());
 		_r_log (LOG_LEVEL_WARNING, NULL, L"_app_lockdown_writesnapshot", L"WriteFile", status);
@@ -338,8 +341,9 @@ static NTSTATUS _app_lockdown_writesnapshot (
 cleanup:
 	_r_obj_deletestringbuilder (sb);
 
-	if (contents)
-		_r_obj_dereference (contents);
+	// REFERENCE CONTRACT (2026-11-20, the verifier dump root-cause class):
+	// contents was BORROWED from the builder - deletestringbuilder above
+	// is its only release; the manual dereference was an underflow
 
 	if (name_bstr)
 		SysFreeString (name_bstr);
@@ -896,6 +900,34 @@ NTSTATUS _app_lockdown_disable (VOID)
 BOOLEAN _app_lockdown_isactive (VOID)
 {
 	return _r_config_getboolean (LOCKDOWN_CONFIG, FALSE, NULL);
+}
+
+// DEC-11 query API (GUI Lockdown page; declared in composite_lockdown.h):
+// read-only mirror of the enable refusal gates — already-engaged, policy
+// reachability, engine health, audit probe. NO mutation, NO snapshot, NO
+// audit write; the GUI surfaces the returned condition BEFORE commit
+// (verify-then-commit, DEC-04 — r3 G1-M5/goldfish finding 3).
+NTSTATUS _app_lockdown_preflight (VOID)
+{
+	INetFwPolicy2 *policy = NULL;
+	NTSTATUS status;
+
+	if (_r_config_getboolean (LOCKDOWN_CONFIG, FALSE, NULL))
+		return STATUS_ALREADY_REGISTERED; // already engaged
+
+	status = _app_lockdown_getpolicy (&policy);
+
+	if (!NT_SUCCESS (status))
+		return status;
+
+	INetFwPolicy2_Release (policy);
+
+	// engine-down: enable (unconfirmed) refuses with
+	// STATUS_LOCKDOWN_CONFIRM — the pre-flight surfaces exactly that
+	if (!_wfp_isfiltersinstalled ())
+		return STATUS_LOCKDOWN_CONFIRM;
+
+	return _app_audit_probe ();
 }
 
 // startup crash-residue consistency check (mirrors _app_audit_startupcheck)

@@ -145,6 +145,20 @@ static VOID _app_packs_freepack (
 	}
 }
 
+// CI freeze root cause (2026-11-20, testing-record.md Finding 8): the
+// routine path accessors (_r_app_getprofiledirectory, _r_app_getdirectory,
+// _r_app_getlogpath, ...) return BORROWED pointers - the static cache owns
+// the object's only reference and the return does NOT increment it (the
+// upstream callers prove the convention: profile.c builds with concatstringrefs
+// and never dereferences; messages.c dereferences only _app_getlogviewer's
+// genuinely-referenced result). Dereferencing here dropped that only
+// reference: the profile string was freed while both rapp.c statics still
+// pointed at it; the freed block was then reused by the next tiny string
+// allocation (the config miss-path's literal L"false" boolean), so
+// getprofiledirectory's cached_path CONTENT became "false" -> fs_exists()
+// failed -> _r_fs_createdirectory ("false") froze the process inside
+// _r_fs_dospathnametontpathname (the Server-2025 runner hang, with the
+// UAF's allocation-timing randomness explaining the moving hang point).
 static VOID _app_packs_getpath (
 	_In_ LPCWSTR file_name,
 	_Out_ PR_STRING_PTR out_path
@@ -155,14 +169,12 @@ static VOID _app_packs_getpath (
 
 	*out_path = NULL;
 
-	profile_dir = _r_app_getprofiledirectory ();
+	profile_dir = _r_app_getprofiledirectory (); // borrowed - never dereference
 
 	if (!profile_dir)
 		return;
 
 	path = _r_obj_concatstrings (3, profile_dir->buffer, L"\\", file_name);
-
-	_r_obj_dereference (profile_dir);
 
 	*out_path = path;
 }
@@ -1237,7 +1249,9 @@ static NTSTATUS _app_packs_writewide (
 		return status;
 	}
 
-	if (!WriteFile (hfile, contents->buffer, (DWORD)(contents->length * sizeof (WCHAR)), &written, NULL) || written != (DWORD)(contents->length * sizeof (WCHAR)))
+	// PR_STRING length is ALREADY bytes (2026-11-20 verifier round-trip
+	// finding): the ×sizeof(WCHAR) here wrote 2x the buffer
+	if (!WriteFile (hfile, contents->buffer, (DWORD)contents->length, &written, NULL) || written != (DWORD)contents->length)
 	{
 		NTSTATUS status = HRESULT_FROM_WIN32 (GetLastError ());
 
@@ -1531,7 +1545,7 @@ static NTSTATUS _app_packs_watermarkwrite (
 	}
 	else
 	{
-		_r_obj_appendstringbuilder_ex (sb, PACKS_WATERMARK_MAGIC, RTL_NUMBER_OF (PACKS_WATERMARK_MAGIC) - 1);
+		_r_obj_appendstringbuilder_ex (sb, PACKS_WATERMARK_MAGIC, (RTL_NUMBER_OF (PACKS_WATERMARK_MAGIC) - 1) * sizeof (WCHAR));
 		_r_obj_appendstringbuilder_ex (sb, L"\r\n", 2 * sizeof (WCHAR));
 	}
 
@@ -1547,7 +1561,9 @@ static NTSTATUS _app_packs_watermarkwrite (
 
 	_r_obj_deletestringbuilder (sb);
 
-	_r_obj_dereference (contents);
+	// REFERENCE CONTRACT: contents was BORROWED from the builder - the
+	// deletestringbuilder above is its only release (2026-11-20, same
+	// class as the statewrite raise the verifier dump caught)
 	_r_obj_dereference (path);
 
 	return status;
@@ -1573,7 +1589,12 @@ static NTSTATUS _app_packs_stateverify (
 	BYTE *prefix_bytes;
 
 	if (wcsncmp (contents->buffer, PACKS_STATE_MAGIC, RTL_NUMBER_OF (PACKS_STATE_MAGIC) - 1) != 0)
+	{
+		// distinct statuses = the CI post-mortem reads the failure class
+		// straight from the log (2026-11-20 verifier round-trip hunt)
+		_app_packs_logpack (LOG_LEVEL_INFO, L"stateverify: magic mismatch", (LONG)STATUS_INVALID_PARAMETER);
 		return STATUS_INVALID_PARAMETER;
+	}
 
 	// locate the trailer line (the last "state_hash=" line-start)
 	line = contents->buffer;
@@ -1593,7 +1614,10 @@ static NTSTATUS _app_packs_stateverify (
 	}
 
 	if (!trailer)
-		return STATUS_INVALID_PARAMETER;
+	{
+		_app_packs_logpack (LOG_LEVEL_ERROR, L"stateverify: trailer line not found", (LONG)STATUS_DATA_NOT_ACCEPTED);
+		return STATUS_DATA_NOT_ACCEPTED;
+	}
 
 	// the hash covers every WCHAR byte written before the trailer line
 	prefix_bytes = (BYTE *)contents->buffer;
@@ -1602,10 +1626,16 @@ static NTSTATUS _app_packs_stateverify (
 	hash_actual = _app_packs_fnv1a32 (prefix_bytes, prefix_length);
 
 	if (swscanf_s (trailer, L"state_hash=%8x", &hash_stored) != 1)
-		return STATUS_INVALID_PARAMETER;
+	{
+		_app_packs_logpack (LOG_LEVEL_ERROR, L"stateverify: trailer parse failed", (LONG)STATUS_DATA_NOT_ACCEPTED);
+		return STATUS_DATA_NOT_ACCEPTED;
+	}
 
 	if (hash_stored != hash_actual)
-		return STATUS_INVALID_PARAMETER;
+	{
+		_r_log (LOG_LEVEL_ERROR, NULL, L"stateverify", L"tamper hash mismatch (stored vs actual)", (LONG)STATUS_CRC_ERROR);
+		return STATUS_CRC_ERROR;
+	}
 
 	return STATUS_SUCCESS;
 }
@@ -1623,6 +1653,7 @@ static PR_LIST _app_packs_stateparse (
 	LPCWSTR line;
 	LPCWSTR next;
 	SIZE_T line_length;
+	ULONG line_no = 0;
 
 	*out_status = STATUS_SUCCESS;
 
@@ -1634,6 +1665,8 @@ static PR_LIST _app_packs_stateparse (
 	while (line && *line)
 	{
 		_app_packs_nextline (line, &line_length, &next);
+
+		line_no++;
 
 		if (!line_length)
 			break;
@@ -1701,6 +1734,7 @@ static PR_LIST _app_packs_stateparse (
 		else if (_app_packs_lineis (line, line_length, L"filter="))
 		{
 			GUID guid;
+			LPCWSTR guid_sep;
 
 			if (!ptr_entry)
 			{
@@ -1708,7 +1742,13 @@ static PR_LIST _app_packs_stateparse (
 				break;
 			}
 
-			if (!_app_packs_toguid (line + 7, &guid))
+			// WRITER/PARSER FORMAT (2026-11-20 verifier: "refused at line 3"):
+			// the writer emits "filter=<pack_id>|<guid>" - skip the pack_id
+			// separator before parsing the GUID (toguid on line+7 fed scanf
+			// the pack id, which cannot parse as hex)
+			guid_sep = wcschr (line + 7, L'|');
+
+			if (!guid_sep || !_app_packs_toguid (guid_sep + 1, &guid))
 			{
 				*out_status = STATUS_INVALID_PARAMETER;
 				break;
@@ -1733,6 +1773,16 @@ static PR_LIST _app_packs_stateparse (
 
 	if (!NT_SUCCESS (*out_status))
 	{
+		// DIAGNOSTIC (2026-11-20): the parse was the silent-refuser class -
+		// name the line + the reason (the debug log drops ERROR rows)
+		{
+			WCHAR diag[96];
+
+			_r_str_printf (diag, RTL_NUMBER_OF (diag), L"stateparse: refused at line %lu", line_no);
+
+			_app_packs_logpack (LOG_LEVEL_INFO, diag, (LONG)(*out_status));
+		}
+
 		_r_obj_dereference (list); // cleanup callback releases entries + guids
 
 		return NULL;
@@ -1801,7 +1851,9 @@ static NTSTATUS _app_packs_statewrite (
 
 	_r_obj_initializestringbuilder (sb, 0x1000);
 
-	_r_obj_appendstringbuilder_ex (sb, PACKS_STATE_MAGIC, RTL_NUMBER_OF (PACKS_STATE_MAGIC) - 1);
+	// appendstringbuilder_ex takes BYTE length - the magic was written as
+	// half its UTF-16 bytes (chars), corrupting every store header
+	_r_obj_appendstringbuilder_ex (sb, PACKS_STATE_MAGIC, (RTL_NUMBER_OF (PACKS_STATE_MAGIC) - 1) * sizeof (WCHAR));
 
 	_r_obj_appendstringbuilder_ex (sb, L"\r\n", 2 * sizeof (WCHAR));
 
@@ -1835,21 +1887,27 @@ static NTSTATUS _app_packs_statewrite (
 	// tamper-evident trailer: FNV1a-32 over everything written so far;
 	// the hash is computed over the finalized bytes, then the trailer is
 	// appended to the same builder
+	// REFERENCE CONTRACT (2026-11-20, the verifier dump root cause):
+	// _r_obj_finalstringbuilder returns sb->string BORROWED (routine.h
+	// FORCEINLINE - the builder owns the only reference; any append may
+	// also GROW, which frees the old object via movereference). Never
+	// dereference the result and re-fetch after appends; the builder's
+	// deletestringbuilder is the ONLY release.
 	contents = _r_obj_finalstringbuilder (sb);
 
-	hash = _app_packs_fnv1a32 ((const BYTE *)contents->buffer, contents->length * sizeof (WCHAR));
-
-	_r_obj_dereference (contents);
+	// contents->length is ALREADY bytes - the ×sizeof(WCHAR) here hashed
+	// past the buffer into heap junk, so verify never matched (the store
+	// was fail-closed-empty on every read-back)
+	hash = _app_packs_fnv1a32 ((const BYTE *)contents->buffer, contents->length);
 
 	_r_obj_appendstringbuilderformat (sb, L"state_hash=%08x\r\n", hash);
 
-	contents = _r_obj_finalstringbuilder (sb);
+	contents = _r_obj_finalstringbuilder (sb); // re-fetch: the append may have grown
 
 	status = _app_packs_writewide (path->buffer, contents);
 
 	_r_obj_deletestringbuilder (sb);
 
-	_r_obj_dereference (contents);
 	_r_obj_dereference (path);
 
 	return status;
@@ -2185,6 +2243,288 @@ BOOLEAN _app_packs_isenabled (
 	_r_obj_dereference (path);
 
 	return is_enabled;
+}
+
+// ---- DEC-11 query API (GUI Packs page; r4 G2-M3) ----
+// mtime-checked snapshot of the packstate sidecar (r3 finding 6):
+// stat WITHOUT opening (GetFileAttributesExW) — the sidecar is written
+// IN PLACE (truncate-then-write under lock_packs exclusive), so a
+// reader hitting that window gets a sharing violation or 0 bytes; we
+// KEEP the previous snapshot and retry (the final write moves mtime so
+// the retry converges). A MISSING sidecar is a legitimate empty state
+// (revert), not a failure.
+
+typedef struct _PACKS_QUERY_ROW
+{
+	WCHAR pack_id[PACKS_MAX_PACKID + 1];
+	WCHAR version[PACKS_VERSION_LENGTH];
+	ULONG filter_count; // deployed filters recorded at apply time
+} PACKS_QUERY_ROW;
+
+static R_QUEUED_LOCK lock_packs_query = PR_QUEUED_LOCK_INIT; // dedicated: never nests with lock_packs
+static PACKS_QUERY_ROW *packs_query_rows = NULL;
+static ULONG packs_query_cap = 0;
+static ULONG packs_query_rows_count = 0;
+static LONG64 packs_query_mtime = -2; // -2 = never built
+// NTFS LastWriteTime COARSENESS (2026-11-20, the verifier's tamper-check
+// finding): two writes inside one FS timer tick share the SAME mtime even
+// though the content changed - mtime alone missed the tamper overwrite and
+// the snapshot kept serving the pre-tamper rows. The FILE SIZE completes
+// the invalidation key (both come from the same handle-free stat).
+static LONG64 packs_query_size = -2;
+
+static VOID _app_packs_queryrebuild (
+	_In_ LONG64 mtime,
+	_In_ LONG64 size
+)
+{
+	PR_STRING path = NULL;
+	PR_STRING contents = NULL;
+	PR_LIST list = NULL;
+	PPACK_STATE_ENTRY ptr_entry;
+	NTSTATUS status;
+	ULONG count = 0;
+	ULONG_PTR i;
+	LONG commit_class;
+
+	_r_queuedlock_acquireexclusive (&lock_packs_query);
+
+	// one reader won the race: re-check under the lock (BOTH key halves)
+	if (packs_query_mtime == mtime && packs_query_size == size)
+	{
+		_r_queuedlock_releaseexclusive (&lock_packs_query);
+		return;
+	}
+
+	_app_packs_getpath (COMPOSITE_SIDECAR_PACKSTATE, &path);
+
+	if (path)
+	{
+		BOOLEAN is_present = FALSE;
+
+		_app_packs_readwide (path->buffer, &contents, &is_present);
+
+		if (is_present && contents)
+		{
+			status = _app_packs_stateverify (contents);
+
+			if (NT_SUCCESS (status))
+				list = _app_packs_stateparse (contents, &status);
+			else
+				_app_packs_logpack (LOG_LEVEL_INFO, L"rebuild: verify refused the store", (LONG)status); // the class IS the diagnosis
+		}
+	}
+
+	if (list)
+	{
+		for (i = 0; i < _r_obj_getlistsize (list); i++)
+		{
+			ptr_entry = (PPACK_STATE_ENTRY)_r_obj_getlistitem (list, i);
+
+			if (!ptr_entry)
+				continue;
+
+			if (count == packs_query_cap)
+			{
+				ULONG new_cap = packs_query_cap ? packs_query_cap * 2 : 8;
+				// HeapReAlloc cannot grow a NULL base (2026-11-20: the first
+				// grow always failed -> every snapshot stayed empty)
+				PACKS_QUERY_ROW *grown = (PACKS_QUERY_ROW *)(packs_query_rows ? HeapReAlloc (GetProcessHeap (), HEAP_ZERO_MEMORY, packs_query_rows, new_cap * sizeof (PACKS_QUERY_ROW)) : HeapAlloc (GetProcessHeap (), HEAP_ZERO_MEMORY, new_cap * sizeof (PACKS_QUERY_ROW)));
+
+				if (!grown)
+					break;
+
+				packs_query_rows = grown;
+				packs_query_cap = new_cap;
+			}
+
+			memset (&packs_query_rows[count], 0, sizeof (PACKS_QUERY_ROW));
+			_r_str_copy (packs_query_rows[count].pack_id, RTL_NUMBER_OF (packs_query_rows[count].pack_id), ptr_entry->pack_id);
+			_r_str_copy (packs_query_rows[count].version, RTL_NUMBER_OF (packs_query_rows[count].version), ptr_entry->version);
+			packs_query_rows[count].filter_count = (ULONG)_r_obj_getarraysize (ptr_entry->guids);
+			count++;
+
+		}
+
+			_r_obj_dereference (list);
+	}
+
+	// the commit class is computed BEFORE the list is released (2026-11-20:
+	// the first draft read the freed list here - its own diagnostic UAF)
+	commit_class = (list ? (LONG)_r_obj_getlistsize (list) : ((contents != NULL && !list) ? -1 : -2));
+
+	if (contents)
+		_r_obj_dereference (contents);
+
+	if (path)
+		_r_obj_dereference (path);
+
+	// r4 G2-M1 refinement (r3 finding 6 + G2-M3 combined): THREE failure
+	// classes, three behaviors —
+	//   torn    (stat succeeded, open/read failed: the in-place
+	//           truncate-then-write window)   -> keep previous, retry later
+	//   corrupt (contents present, verify/parse failed: tamper posture)
+	//                                          -> fail-closed EMPTY commit
+	//   missing (stat failed: legitimate revert state) -> empty commit
+	{
+		BOOLEAN is_corrupt = (contents != NULL && !list);
+
+		// DIAGNOSTIC: the commit decision IS the verdict path (rows / -1
+		// corrupt / -2 missing)
+		_r_log (LOG_LEVEL_INFO, NULL, L"packs_rebuild", L"read/verify/parse done", commit_class);
+
+		if (list || is_corrupt || mtime == -1)
+		{
+			packs_query_rows_count = (list ? count : 0);
+			packs_query_mtime = mtime;
+			packs_query_size = size;
+		}
+		// else: torn — keep the previous snapshot; the key stays
+		// uncommitted so the next call retries
+	}
+
+	_r_queuedlock_releaseexclusive (&lock_packs_query);
+}
+
+static VOID _app_packs_queryrefresh (VOID)
+{
+	WIN32_FILE_ATTRIBUTE_DATA attributes;
+	PR_STRING path = NULL;
+	LARGE_INTEGER li;
+	LONG64 mtime;
+	LONG64 size;
+
+	_app_packs_getpath (COMPOSITE_SIDECAR_PACKSTATE, &path);
+
+	// stat WITHOUT opening (r3 finding 6): no sharing-violation on our
+	// side, no handle, no file read when the key is unchanged
+	if (!path || !GetFileAttributesExW (path->buffer, GetFileExInfoStandard, &attributes))
+	{
+		// DIAGNOSTIC: distinguish stat-failure from absence
+		if (path && GetLastError () != ERROR_FILE_NOT_FOUND && GetLastError () != ERROR_PATH_NOT_FOUND)
+			_r_log (LOG_LEVEL_INFO, NULL, L"packs_queryrefresh", L"stat FAILED on a path that may exist", (LONG)HRESULT_FROM_WIN32 (GetLastError ()));
+
+		mtime = -1; // missing sidecar = legitimate empty state (revert)
+		size = -1;
+	}
+	else
+	{
+		li.LowPart = attributes.ftLastWriteTime.dwLowDateTime;
+		li.HighPart = attributes.ftLastWriteTime.dwHighDateTime;
+		mtime = li.QuadPart;
+		size = ((LONG64)attributes.nFileSizeHigh << 32) | attributes.nFileSizeLow;
+	}
+
+	if (path)
+		_r_obj_dereference (path);
+
+	// BOTH halves of the key (2026-11-20: mtime alone missed same-tick
+	// rewrites - the tamper check served pre-tamper rows)
+	if (mtime != packs_query_mtime || size != packs_query_size)
+		_app_packs_queryrebuild (mtime, size);
+}
+
+// DEC-11 query API (GUI Packs page): number of packs recorded in the
+// packstate sidecar (enabled packs only — the store IS the enabled set)
+ULONG _app_packs_querycount (
+	VOID
+)
+{
+	_app_packs_queryrefresh ();
+
+	return packs_query_rows_count;
+}
+
+// DEC-11 query API (GUI Packs page): pack id, version string and the
+// enabled flag (every sidecar entry is enabled by construction)
+BOOLEAN _app_packs_query (
+	_In_ ULONG index,
+	_Out_writes_ (id_chars) WCHAR *id_buffer,
+	_In_ ULONG id_chars,
+	_Out_writes_ (ver_chars) WCHAR *version_buffer,
+	_In_ ULONG ver_chars,
+	_Out_ PBOOLEAN is_enabled
+)
+{
+	if (!id_buffer || !id_chars || !version_buffer || !ver_chars || !is_enabled)
+		return FALSE;
+
+	id_buffer[0] = UNICODE_NULL;
+	version_buffer[0] = UNICODE_NULL;
+	*is_enabled = FALSE;
+
+	_app_packs_queryrefresh ();
+
+	if (index >= packs_query_rows_count)
+		return FALSE;
+
+	_r_str_copy (id_buffer, id_chars, packs_query_rows[index].pack_id);
+	_r_str_copy (version_buffer, ver_chars, packs_query_rows[index].version);
+	*is_enabled = TRUE;
+
+	return TRUE;
+}
+
+// GUI Packs page helper (r4 G2-M3): deployed-filter count for the row
+// rendered by _app_packs_query (served from the same snapshot)
+ULONG _app_packs_queryfiltercount (
+	_In_ ULONG index
+)
+{
+	_app_packs_queryrefresh ();
+
+	if (index >= packs_query_rows_count)
+		return 0;
+
+	return packs_query_rows[index].filter_count;
+}
+
+// ---- TEST INSTRUMENTS (r4 G2-M1 verification additions; NFR-06) ----
+// Used ONLY by `simplewall.exe -gui-selftest`. They expose the REAL
+// internal serializer/path logic so fixtures can never drift from the
+// production format. Not called from any production path.
+
+VOID _app_packs_selftest_getstatepath (
+	_Out_ PR_STRING_PTR out_path
+)
+{
+	*out_path = NULL;
+
+	_app_packs_getpath (COMPOSITE_SIDECAR_PACKSTATE, out_path);
+}
+
+BOOLEAN _app_packs_selftest_writestate (
+	_In_ LPCWSTR pack_id,
+	_In_ LPCWSTR version,
+	_In_ ULONG filter_count
+)
+{
+	PR_LIST list;
+	PACK_STATE_ENTRY *ptr_entry;
+	BOOLEAN is_success;
+
+	list = _r_obj_createlist (0x04, _app_packs_stateentrycleanup);
+
+	ptr_entry = (PACK_STATE_ENTRY *)_r_mem_allocate (sizeof (PACK_STATE_ENTRY));
+	RtlZeroMemory (ptr_entry, sizeof (PACK_STATE_ENTRY));
+	_r_str_copy (ptr_entry->pack_id, RTL_NUMBER_OF (ptr_entry->pack_id), pack_id);
+	_r_str_copy (ptr_entry->version, RTL_NUMBER_OF (ptr_entry->version), version);
+	ptr_entry->guids = _r_obj_createarray (sizeof (GUID), 0x04, NULL);
+
+	for (ULONG i = 0; i < filter_count; i++)
+	{
+		GUID guid = {i + 1, 0x2a2b, 0x3c3d, {0x4e, 0x4f, 0x50, 0x51, 0x52, 0x53, 0x54, 0x55}};
+
+		_r_obj_addarrayitem (ptr_entry->guids, &guid, NULL);
+	}
+
+	_r_obj_addlistitem (list, ptr_entry, NULL); // list owns the entry
+
+	is_success = NT_SUCCESS (_app_packs_statewrite (list)); // the REAL serializer
+
+	_r_obj_dereference (list);
+
+	return is_success;
 }
 
 NTSTATUS _app_packs_import (

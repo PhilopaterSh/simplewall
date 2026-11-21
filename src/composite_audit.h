@@ -12,3 +12,4 @@ NTSTATUS _app_audit_enable (VOID);
 NTSTATUS _app_audit_revert (VOID);
 VOID _app_audit_startupcheck (VOID);
 BOOLEAN _app_audit_issubcategoryenabled (VOID);
+NTSTATUS _app_audit_probe (VOID); // DEC-11 query API: read-only pre-flight probe (no mutation)

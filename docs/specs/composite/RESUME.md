@@ -1,7 +1,70 @@
-# RESUME — composite Phase 1 state snapshot
+# RESUME — canonical session-start pointer
+
+> **REFRESHED 2026-11-21** (the chain is GREEN on the verifier lane).
+> Read this FIRST in any new session; refresh at each milestone.
+
+## CURRENT STATE (feat/gui-g1, PR #24 open — MERGE-READY)
+
+- **THE VERIFICATION CHAIN IS GREEN** (run 44860140693, 2026-11-21,
+  fork head 8150f18e): chain gates + build + composite selftest
+  (TOTAL: 0 failures, exit code = the failure count) + gui-testdrive
+  (8/8 page screenshots incl. the light theme) ALL SUCCESS.
+- The judge = the verifier lane on the owner's OTHER repo
+  (Ph.Sh-Subdomain sw-verifier.yml, dispatch with an explicit fork
+  SHA), because the fork's own Actions dispatch is repo-blocked (422
+  desync; every API lever exhausted — docs/specs/gui/runtime-judges.md).
+  Twelve runs took the chain from crash → 23 real failures → 0.
+- SIX root-cause classes found and fixed en route (Findings 5/8/10 in
+  testing-record.md): (1) the borrowed-pointer UAF in packs_getpath
+  (the freeze — Finding 8 CLOSED), (2) the borrowed-finalstringbuilder
+  dereference ×5 (the exit fastfail — Finding 5 CLOSED; three of the
+  five were LATENT CORRUPTION in the RELEASED v3.9.4), (3) byte/char
+  confusion ×5 sidecar writers, (4) HeapReAlloc-NULL ×4 snapshot grows
+  + addhashtableitem's drop-update, (5) the filter-line writer/parser
+  format mismatch, (6) NTFS mtime coarseness → (mtime, SIZE) keys.
+- THE NEXT SIGNED RELEASE MUST CARRY THESE FIXES — the released
+  v3.9.4's sidecar writes corrupt the heap (latent).
+- G-1/G-2/G-3 implemented + screenshot-proven on the runner desktop
+  (RTL rail, chips, search, all 6 pages + light theme); G-4 partial
+  (IsShellRtl config-driven; upstream dialog phase-out DEFERRED —
+  destructive, now unblocked by the green runtime evidence); G-5
+  runtime-verified.
+- Instruments standing: -gui-selftest (exit code = failure count),
+  gui-testdrive.ps1 (EnumWindows window find — FindWindowW
+  deterministically fails on runners), the verifier lane
+  (sw-verifier.yml + sw_ref SHA input), dump-analyze.py, the cdb
+  post-mortem step, runtime-judges.md (sourced judge decisions).
+
+## NEXT STEPS (in order)
+
+1. OWNER: merge PR #24 (green on the lane; the fork's own Actions
+   stays blocked until the one-click fix — the fork-activation banner
+   or the personal selected-repositories policy).
+2. OWNER: run the fresh build locally (SAC click-through) — the M1/M2
+   checklist (testing-record.md + docs/specs/gui/handoff.md AC-G-1..6)
+   — the interactive shell acceptance.
+3. G-4 remainder: upstream dialog phase-out (the runtime evidence now
+   exists; still destructive — do it on a fresh branch).
+4. G-5 final: DONE - v3.9.5-hardened.1 released (see above).
+
+## STANDING RULES (paid for repeatedly)
+
+- chr(92) discipline: python heredocs + Windows paths = escape hell
+  (octal  -> 0x08,  -> 0x08, d -> 'd') - byte-repair +
+  YAML-validate after ANY path-bearing script. THREE incidents logged.
+- CWD drift: ALWAYS cd to the repo root first + pwd; a cwd-scoped
+  rm/add swept docs/ once (recovered from the parent commit, third
+  row-29-class event). USE ABSOLUTE PATHS IN TOOLS.
+- _r_sys_getopt matches by PREFIX; ordering of verb checks matters.
+- SAC verdicts are per-hash cloud calls: EVERY rebuild re-rolls the
+  verdict; sign after every rebuild AND expect blocks anyway.
+- APP_NO_GUEST lives in the VCXPROJ defines, not rconfig.h.
+- Routine path accessors (_r_app_getprofiledirectory/_r_app_getdirectory/
+  _r_app_getlogpath) return BORROWED pointers - NEVER dereference the
+  result (Finding 8's root cause; see testing-record.md).
 
 > Canonical resume pointer for this fork's composite work. Update at every
-> milestone. Last updated: 2026-11-07 (after the round-2 adversarial review).
+> milestone. Last updated: 2026-11-20 (Finding 8 root cause found+fixed).
 > Purpose: the work must be resumable from a brand-new session with zero
 > dependence on any chat session surviving in a UI sidebar.
 
