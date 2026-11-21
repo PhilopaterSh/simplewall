@@ -1734,6 +1734,7 @@ static PR_LIST _app_packs_stateparse (
 		else if (_app_packs_lineis (line, line_length, L"filter="))
 		{
 			GUID guid;
+			LPCWSTR guid_sep;
 
 			if (!ptr_entry)
 			{
@@ -1741,7 +1742,13 @@ static PR_LIST _app_packs_stateparse (
 				break;
 			}
 
-			if (!_app_packs_toguid (line + 7, &guid))
+			// WRITER/PARSER FORMAT (2026-11-20 verifier: "refused at line 3"):
+			// the writer emits "filter=<pack_id>|<guid>" - skip the pack_id
+			// separator before parsing the GUID (toguid on line+7 fed scanf
+			// the pack id, which cannot parse as hex)
+			guid_sep = wcschr (line + 7, L'|');
+
+			if (!guid_sep || !_app_packs_toguid (guid_sep + 1, &guid))
 			{
 				*out_status = STATUS_INVALID_PARAMETER;
 				break;
