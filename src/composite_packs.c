@@ -1592,7 +1592,7 @@ static NTSTATUS _app_packs_stateverify (
 	{
 		// distinct statuses = the CI post-mortem reads the failure class
 		// straight from the log (2026-11-20 verifier round-trip hunt)
-		_app_packs_logpack (LOG_LEVEL_ERROR, L"stateverify: magic mismatch", (LONG)STATUS_INVALID_PARAMETER);
+		_app_packs_logpack (LOG_LEVEL_INFO, L"stateverify: magic mismatch", (LONG)STATUS_INVALID_PARAMETER);
 		return STATUS_INVALID_PARAMETER;
 	}
 
@@ -1653,6 +1653,7 @@ static PR_LIST _app_packs_stateparse (
 	LPCWSTR line;
 	LPCWSTR next;
 	SIZE_T line_length;
+	ULONG line_no = 0;
 
 	*out_status = STATUS_SUCCESS;
 
@@ -1664,6 +1665,8 @@ static PR_LIST _app_packs_stateparse (
 	while (line && *line)
 	{
 		_app_packs_nextline (line, &line_length, &next);
+
+		line_no++;
 
 		if (!line_length)
 			break;
@@ -1763,6 +1766,16 @@ static PR_LIST _app_packs_stateparse (
 
 	if (!NT_SUCCESS (*out_status))
 	{
+		// DIAGNOSTIC (2026-11-20): the parse was the silent-refuser class -
+		// name the line + the reason (the debug log drops ERROR rows)
+		{
+			WCHAR diag[96];
+
+			_r_str_printf (diag, RTL_NUMBER_OF (diag), L"stateparse: refused at line %lu", line_no);
+
+			_app_packs_logpack (LOG_LEVEL_INFO, diag, (LONG)(*out_status));
+		}
+
 		_r_obj_dereference (list); // cleanup callback releases entries + guids
 
 		return NULL;
@@ -2281,7 +2294,7 @@ static VOID _app_packs_queryrebuild (_In_ LONG64 mtime)
 			if (NT_SUCCESS (status))
 				list = _app_packs_stateparse (contents, &status);
 			else
-				_app_packs_logpack (LOG_LEVEL_ERROR, L"rebuild: verify refused the store", (LONG)status); // the class IS the diagnosis
+				_app_packs_logpack (LOG_LEVEL_INFO, L"rebuild: verify refused the store", (LONG)status); // the class IS the diagnosis
 		}
 	}
 
