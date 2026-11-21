@@ -210,13 +210,28 @@ static VOID _app_selftest_packscases (VOID)
 			if (hfile != INVALID_HANDLE_VALUE)
 			{
 				WCHAR wbuf[101];
+				WCHAR clean[101];
 				DWORD read = 0;
 
 				if (ReadFile (hfile, wbuf, sizeof (wbuf) - sizeof (WCHAR), &read, NULL) && read >= sizeof (WCHAR))
 				{
-					wbuf[read / sizeof (WCHAR)] = UNICODE_NULL;
+					ULONG ci;
+					ULONG wlen = read / sizeof (WCHAR);
 
-					_snprintf_s (diag, RTL_NUMBER_OF (diag), _TRUNCATE, "DIAG: store %lu bytes, head: %ls", (ULONG)read, wbuf);
+					wbuf[wlen] = UNICODE_NULL;
+
+					// sanitize: CR/LF become </> so ONE CI line carries the
+					// whole prefix (the raw %ls broke the log line earlier)
+					for (ci = 0; ci < wlen; ci++)
+					{
+						WCHAR c = wbuf[ci];
+
+						clean[ci] = (c == L'\r') ? L'<' : (c == L'\n') ? L'>' : (c >= 0x20 && c < 0x7F) ? c : L'?';
+					}
+
+					clean[wlen] = UNICODE_NULL;
+
+					_snprintf_s (diag, RTL_NUMBER_OF (diag), _TRUNCATE, "DIAG: store %lu bytes, head: %ls", (ULONG)read, clean);
 					_app_selftest_log (diag);
 				}
 
@@ -238,9 +253,12 @@ static VOID _app_selftest_packscases (VOID)
 	_app_selftest_check (is_enabled, "packs: sidecar entry is enabled");
 	_app_selftest_check (_app_packs_queryfiltercount (0) == 3, "packs: deployed-filter count matches");
 
-	// 4. second pack (mtime moves -> rebuild)
+	// 4. second pack: the production serializer REWRITES the whole store
+	// from the passed list (the store MIRRORS the list - overwrite, not
+	// merge; the old expectation of 2 entries was mis-designed)
 	_app_selftest_check (_app_packs_selftest_writestate (L"vendor-blockers", L"0.9.1", 1), "packs: second fixture written");
-	_app_selftest_check (_app_packs_querycount () == 2, "packs: two entries enumerated");
+	_app_selftest_check (_app_packs_querycount () == 1, "packs: rewrite mirrors the passed list (1 entry)");
+	_app_selftest_check (_app_packs_query (0, pack_id, RTL_NUMBER_OF (pack_id), pack_version, RTL_NUMBER_OF (pack_version), &is_enabled) && wcscmp (pack_id, L"vendor-blockers") == 0, "packs: rewrite row is the new pack");
 
 	// 5. corrupt store (tamper posture) -> fail-closed EMPTY, not stale rows
 	_app_selftest_overwritesidecar (L"COMPOSITE_PACKSTATE_V1\r\npack=tampered|9.9.9|deadbeef\r\nstate_hash=00000000\r\n");
@@ -248,6 +266,14 @@ static VOID _app_selftest_packscases (VOID)
 
 	// 6. recovery: a valid store after corruption is enumerated again
 	_app_selftest_check (_app_packs_selftest_writestate (L"telemetry-refresh", L"1.2.3", 3), "packs: recovery fixture written");
+
+	// DIAGNOSTIC for the recovery check (the run-10 mystery)
+	{
+		CHAR recdiag[160];
+		_snprintf_s (recdiag, RTL_NUMBER_OF (recdiag), _TRUNCATE, "DIAG: recovery querycount=%lu", _app_packs_querycount ());
+		_app_selftest_log (recdiag);
+	}
+
 	_app_selftest_check (_app_packs_querycount () == 1, "packs: recovery after corruption");
 
 	// 7. torn-file class (stat-ok + open-fail) is exercised by review;
