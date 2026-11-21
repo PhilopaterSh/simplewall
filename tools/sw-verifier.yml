@@ -80,6 +80,21 @@ jobs:
 
       # composite selftest: the startup verdict (Finding 8's empirical
       # confirmation - the UAF fix in _app_packs_getpath is under test here)
+      # release gate: the FULL preflight profile on the SIGNED released exe
+      # (no SAC on the runner; the CI-profile run above covers the unsigned
+      # build tree)
+      - name: Release gate (full preflight on the SIGNED release asset)
+        shell: pwsh
+        run: |
+          $feed = Invoke-WebRequest 'https://raw.githubusercontent.com/PhilopaterSh/simplewall/master/VERSION' -UseBasicParsing
+          $line = ($feed.Content -split "`n" | Where-Object { $_ -like 'simplewall=*' }) | Select-Object -First 1
+          $url = ($line -split '\|')[1]
+          Write-Host "release asset: $url"
+          Invoke-WebRequest $url -OutFile release-signed.exe -UseBasicParsing
+          bin/64/preflight.exe release-signed.exe | Tee-Object -FilePath release-preflight.txt
+          "gate_exit=$LASTEXITCODE" | Out-File -Encoding utf8 release-preflight.txt -Append
+          if ($LASTEXITCODE -ne 0) { Write-Error 'full preflight refused the signed release asset'; exit 1 }
+
       - name: Composite selftest (query APIs, -gui-selftest)
         shell: pwsh
         run: |
