@@ -45,8 +45,7 @@
    — the interactive shell acceptance.
 3. G-4 remainder: upstream dialog phase-out (the runtime evidence now
    exists; still destructive — do it on a fresh branch).
-4. G-5 final: the next signed release MUST carry the Findings-5/10
-   fixes (three latent-corruption sites in the released v3.9.4).
+4. G-5 final: DONE - v3.9.5-hardened.1 released (see above).
 
 ## STANDING RULES (paid for repeatedly)
 

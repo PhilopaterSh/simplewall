@@ -1,7 +1,11 @@
 # Release runbook — simplewall 3.9.5-hardened.1 (the Findings-5/10 release)
 
-> 2026-11-21. Everything is staged; the ONLY owner inputs are the two
-> marked OWNER steps. The verification evidence: verifier-lane run
+> EXECUTED 2026-11-21 (steps 2-9 done, step 1 = the owner merge click;
+> the tag v3.9.5-hardened.1 was created by the release, release id
+> 453415486; the feed on master = commits c4345621db + b44c068ddd; the
+> post-CDN independent P-256 verify = PASS; the release-gate chain =
+> verifier run 44863951090 ALL GREEN incl. hash+Authenticode on the
+> released asset). The verification evidence: verifier-lane run
 > 44860140693 (green) + every fix cited in testing-record.md
 > Findings 5/8/10 and ledger row 47.
 
@@ -37,7 +41,7 @@ mtime+SIZE key), and the honest-exit instrument.
 6. [AGENT] Full preflight gate 9/9 PASS on the SIGNED exe (the
    release-authoritative checks: thumbprint match, version 3.9.5,
    parity, feed verify).
-7. [AGENT] GitHub release `v3.9.5-hardened.1` with the three assets:
+7. [DONE 2026-11-21] GitHub release `v3.9.5-hardened.1` (id 453415486) with the three assets:
    simplewall-3.9.5-hardened.1-x64.exe, simplewall.lng,
    SHA256SUMS.txt (same structure as the 450725439 release).
 8. [OWNER] The feed private key (ECDSA P-256, off-repo) signs the new
