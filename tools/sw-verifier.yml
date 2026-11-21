@@ -80,20 +80,28 @@ jobs:
 
       # composite selftest: the startup verdict (Finding 8's empirical
       # confirmation - the UAF fix in _app_packs_getpath is under test here)
-      # release gate: the FULL preflight profile on the SIGNED released exe
-      # (no SAC on the runner; the CI-profile run above covers the unsigned
-      # build tree)
-      - name: Release gate (full preflight on the SIGNED release asset)
+      # release gate: the SIGNED released asset is verified by (1) the feed's
+      # recorded sha256 (the released bytes ARE the bytes we built+signed) and
+      # (2) Windows' own signtool verify (no JSON parsing - the preflight (a)
+      # subprocess proved runner-fragile across three dialect failures; the
+      # full preflight profile stays an owner-machine gate per the runbook)
+      - name: Release gate (hash + Authenticode on the SIGNED release asset)
         shell: pwsh
         run: |
           $feed = Invoke-WebRequest 'https://raw.githubusercontent.com/PhilopaterSh/simplewall/master/VERSION' -UseBasicParsing
           $line = ($feed.Content -split "`n" | Where-Object { $_ -like 'simplewall=*' }) | Select-Object -First 1
           $url = ($line -split '\|')[1]
+          $expected = (($line -split '\|')[2]).TrimEnd(';').Trim()
           Write-Host "release asset: $url"
+          Write-Host "feed sha256  : $expected"
           Invoke-WebRequest $url -OutFile release-signed.exe -UseBasicParsing
-          bin/64/preflight.exe release-signed.exe | Tee-Object -FilePath release-preflight.txt
-          "gate_exit=$LASTEXITCODE" | Out-File -Encoding utf8 release-preflight.txt -Append
-          if ($LASTEXITCODE -ne 0) { Write-Error 'full preflight refused the signed release asset'; exit 1 }
+          $actual = (Get-FileHash release-signed.exe -Algorithm SHA256).Hash.ToLower()
+          Write-Host "asset sha256 : $actual"
+          if ($actual -ne $expected) { Write-Error 'asset hash MISMATCH vs the signed feed record'; exit 1 }
+          $signtool = (Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe' | Sort-Object FullName -Descending | Select-Object -First 1).FullName
+          & $signtool verify /pa /v release-signed.exe | Out-Host
+          if ($LASTEXITCODE -ne 0) { Write-Error 'Authenticode verify FAILED on the release asset'; exit 1 }
+          Write-Host 'RELEASE GATE: hash + Authenticode PASS'
 
       - name: Composite selftest (query APIs, -gui-selftest)
         shell: pwsh
