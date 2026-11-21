@@ -2266,8 +2266,17 @@ static PACKS_QUERY_ROW *packs_query_rows = NULL;
 static ULONG packs_query_cap = 0;
 static ULONG packs_query_rows_count = 0;
 static LONG64 packs_query_mtime = -2; // -2 = never built
+// NTFS LastWriteTime COARSENESS (2026-11-20, the verifier's tamper-check
+// finding): two writes inside one FS timer tick share the SAME mtime even
+// though the content changed - mtime alone missed the tamper overwrite and
+// the snapshot kept serving the pre-tamper rows. The FILE SIZE completes
+// the invalidation key (both come from the same handle-free stat).
+static LONG64 packs_query_size = -2;
 
-static VOID _app_packs_queryrebuild (_In_ LONG64 mtime)
+static VOID _app_packs_queryrebuild (
+	_In_ LONG64 mtime,
+	_In_ LONG64 size
+)
 {
 	PR_STRING path = NULL;
 	PR_STRING contents = NULL;
@@ -2276,11 +2285,12 @@ static VOID _app_packs_queryrebuild (_In_ LONG64 mtime)
 	NTSTATUS status;
 	ULONG count = 0;
 	ULONG_PTR i;
+	LONG commit_class;
 
 	_r_queuedlock_acquireexclusive (&lock_packs_query);
 
-	// one reader won the race: re-check under the lock
-	if (packs_query_mtime == mtime)
+	// one reader won the race: re-check under the lock (BOTH key halves)
+	if (packs_query_mtime == mtime && packs_query_size == size)
 	{
 		_r_queuedlock_releaseexclusive (&lock_packs_query);
 		return;
@@ -2336,8 +2346,12 @@ static VOID _app_packs_queryrebuild (_In_ LONG64 mtime)
 
 		}
 
-		_r_obj_dereference (list);
+			_r_obj_dereference (list);
 	}
+
+	// the commit class is computed BEFORE the list is released (2026-11-20:
+	// the first draft read the freed list here - its own diagnostic UAF)
+	commit_class = (list ? (LONG)_r_obj_getlistsize (list) : ((contents != NULL && !list) ? -1 : -2));
 
 	if (contents)
 		_r_obj_dereference (contents);
@@ -2355,15 +2369,17 @@ static VOID _app_packs_queryrebuild (_In_ LONG64 mtime)
 	{
 		BOOLEAN is_corrupt = (contents != NULL && !list);
 
-		// DIAGNOSTIC (2026-11-20): the commit decision IS the verdict path
-		_r_log (LOG_LEVEL_INFO, NULL, L"packs_rebuild", L"read/verify/parse done", (LONG)(list ? _r_obj_getlistsize (list) : (is_corrupt ? -1 : -2)));
+		// DIAGNOSTIC: the commit decision IS the verdict path (rows / -1
+		// corrupt / -2 missing)
+		_r_log (LOG_LEVEL_INFO, NULL, L"packs_rebuild", L"read/verify/parse done", commit_class);
 
 		if (list || is_corrupt || mtime == -1)
 		{
 			packs_query_rows_count = (list ? count : 0);
 			packs_query_mtime = mtime;
+			packs_query_size = size;
 		}
-		// else: torn — keep the previous snapshot; the mtime stays
+		// else: torn — keep the previous snapshot; the key stays
 		// uncommitted so the next call retries
 	}
 
@@ -2376,31 +2392,36 @@ static VOID _app_packs_queryrefresh (VOID)
 	PR_STRING path = NULL;
 	LARGE_INTEGER li;
 	LONG64 mtime;
+	LONG64 size;
 
 	_app_packs_getpath (COMPOSITE_SIDECAR_PACKSTATE, &path);
 
 	// stat WITHOUT opening (r3 finding 6): no sharing-violation on our
-	// side, no handle, no file read when the mtime is unchanged
+	// side, no handle, no file read when the key is unchanged
 	if (!path || !GetFileAttributesExW (path->buffer, GetFileExInfoStandard, &attributes))
 	{
-		// DIAGNOSTIC (2026-11-20): distinguish stat-failure from absence
+		// DIAGNOSTIC: distinguish stat-failure from absence
 		if (path && GetLastError () != ERROR_FILE_NOT_FOUND && GetLastError () != ERROR_PATH_NOT_FOUND)
-			_r_log (LOG_LEVEL_ERROR, NULL, L"packs_queryrefresh", L"stat FAILED on a path that may exist", (LONG)HRESULT_FROM_WIN32 (GetLastError ()));
+			_r_log (LOG_LEVEL_INFO, NULL, L"packs_queryrefresh", L"stat FAILED on a path that may exist", (LONG)HRESULT_FROM_WIN32 (GetLastError ()));
 
 		mtime = -1; // missing sidecar = legitimate empty state (revert)
+		size = -1;
 	}
 	else
 	{
 		li.LowPart = attributes.ftLastWriteTime.dwLowDateTime;
 		li.HighPart = attributes.ftLastWriteTime.dwHighDateTime;
 		mtime = li.QuadPart;
+		size = ((LONG64)attributes.nFileSizeHigh << 32) | attributes.nFileSizeLow;
 	}
 
 	if (path)
 		_r_obj_dereference (path);
 
-	if (mtime != packs_query_mtime)
-		_app_packs_queryrebuild (mtime);
+	// BOTH halves of the key (2026-11-20: mtime alone missed same-tick
+	// rewrites - the tamper check served pre-tamper rows)
+	if (mtime != packs_query_mtime || size != packs_query_size)
+		_app_packs_queryrebuild (mtime, size);
 }
 
 // DEC-11 query API (GUI Packs page): number of packs recorded in the
