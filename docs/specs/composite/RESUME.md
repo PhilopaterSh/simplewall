@@ -1,69 +1,52 @@
 # RESUME — canonical session-start pointer
 
-> **REFRESHED 2026-11-20** (GUI chain G-1+G-2+G-3/1 era). Read this FIRST
-> in any new session; refresh at each milestone.
+> **REFRESHED 2026-11-21** (the chain is GREEN on the verifier lane).
+> Read this FIRST in any new session; refresh at each milestone.
 
-## CURRENT STATE (feat/gui-g1, PR #24 open unmerged)
+## CURRENT STATE (feat/gui-g1, PR #24 open — MERGE-READY)
 
-- GUI chain G-1+G-2+G-3/1 IMPLEMENTED (r3/r4-integrated, 20+ CI
-  iterations): shell (theme tri-state, buffered paint, DPI-aware,
-  virtualized Apps + debounced search + full-row signature idle
-  discipline), Rules page (adaptive countdowns + 4-state publisher
-  anchors), Packs page (mtime-checked sidecar snapshot), Log page
-  (held rows with ALLOW/BLOCK decide actions - the FR-05 loop closes
-  in the UI), elevation fix (APP_NO_GUEST lives in the VCXPROJ defines
-  - exempts -gui/-gui-selftest), crash dialogs show REAL addresses
-  (ntdll %p-template fix) + symbolized crash-report.txt via in-process
-  dbghelp.
-- Instruments standing: -gui-selftest (in-binary query-API
-  verification; real-serializer fixtures; real threadpool expiry),
-  tools/gui-testdrive.ps1 (drives all 6 pages + screenshots), crash
-  forensics pipeline (LocalDumps + cdb-on-hang step + app SEH dumps).
-- FINDING 8 (ROOT CAUSE FOUND 2026-11-20 — testing-record.md): the
-  freeze was a REFCOUNT VIOLATION in the fork's own code, not a vendor
-  or concurrency issue: `_app_packs_getpath` dereferenced the result of
-  `_r_app_getprofiledirectory ()` — the routine path accessors return
-  BORROWED pointers (the static cache owns the only reference; upstream
-  callers never dereference: profile.c, messages.c, rapp.c ->buffer
-  inline). Every packs call freed the profile string under the rapp.c
-  statics; the freed tiny block was reused by the config miss-path's
-  literal "false" boolean (the breadcrumb: cached_path = "false"),
-  fs_exists("false")=FALSE, createdirectory("false") froze in
-  dospathnametontpathname. Explains the moving hang point, the literal
-  "false" content, the portable-posture null result, and packscases as
-  chain head. Full composite surface audited: exactly ONE violation;
-  fix = the invalid dereference removed (convention documented at the
-  function); Finding 5's pre-flush fastfails = same UAF class via the
-  fail-fast heap checks. Build x64 0/0. CI = the empirical confirmation
-  (arbiter rule) — the cdb instrument stays as the safety net.
-- CI BLOCKED EXTERNALLY (2026-11-20): "Actions has been disabled for
-  this repository" (422) - OWNER ACTION: Settings -> Actions -> allow;
-  check the spending limit if private. The API layer reports
-  enabled=true but dispatch still 422 = account/billing-layer block.
-  The first re-enabled run verifies the Finding-8 fix green.
-- G-3 design-complete (held-line landed at 6bc9d110); G-4 partial
-  (IsShellRtl config-driven at 4a9d2f0f; upstream dialog phase-out
-  DEFERRED until runtime verification — destructive).
-- Verification debt (runtime): SAC blocks fresh builds locally per-hash
-  (cloud verdicts; the v2 cert does NOT substitute; no developer
-  exception exists). Windows Sandbox is NOT a judge (it inherits the
-  host's SAC policy - research-sourced). The verified judges are in
-  docs/specs/gui/runtime-judges.md: (1) Hyper-V full VM without SAC =
-  the recommended local judge (in-VM runner tools/local-judge-vm.ps1
-  mirrors the CI selftest step), (2) CI via the owner's Actions
-  re-enable, (3) the owner's host click-through = the decisive SHELL
-  test.
+- **THE VERIFICATION CHAIN IS GREEN** (run 44860140693, 2026-11-21,
+  fork head 8150f18e): chain gates + build + composite selftest
+  (TOTAL: 0 failures, exit code = the failure count) + gui-testdrive
+  (8/8 page screenshots incl. the light theme) ALL SUCCESS.
+- The judge = the verifier lane on the owner's OTHER repo
+  (Ph.Sh-Subdomain sw-verifier.yml, dispatch with an explicit fork
+  SHA), because the fork's own Actions dispatch is repo-blocked (422
+  desync; every API lever exhausted — docs/specs/gui/runtime-judges.md).
+  Twelve runs took the chain from crash → 23 real failures → 0.
+- SIX root-cause classes found and fixed en route (Findings 5/8/10 in
+  testing-record.md): (1) the borrowed-pointer UAF in packs_getpath
+  (the freeze — Finding 8 CLOSED), (2) the borrowed-finalstringbuilder
+  dereference ×5 (the exit fastfail — Finding 5 CLOSED; three of the
+  five were LATENT CORRUPTION in the RELEASED v3.9.4), (3) byte/char
+  confusion ×5 sidecar writers, (4) HeapReAlloc-NULL ×4 snapshot grows
+  + addhashtableitem's drop-update, (5) the filter-line writer/parser
+  format mismatch, (6) NTFS mtime coarseness → (mtime, SIZE) keys.
+- THE NEXT SIGNED RELEASE MUST CARRY THESE FIXES — the released
+  v3.9.4's sidecar writes corrupt the heap (latent).
+- G-1/G-2/G-3 implemented + screenshot-proven on the runner desktop
+  (RTL rail, chips, search, all 6 pages + light theme); G-4 partial
+  (IsShellRtl config-driven; upstream dialog phase-out DEFERRED —
+  destructive, now unblocked by the green runtime evidence); G-5
+  runtime-verified.
+- Instruments standing: -gui-selftest (exit code = failure count),
+  gui-testdrive.ps1 (EnumWindows window find — FindWindowW
+  deterministically fails on runners), the verifier lane
+  (sw-verifier.yml + sw_ref SHA input), dump-analyze.py, the cdb
+  post-mortem step, runtime-judges.md (sourced judge decisions).
 
 ## NEXT STEPS (in order)
 
-1. OWNER: re-enable Actions -> next run verifies the Finding-8 fix
-   green (cdb stacks if anything still hangs) -> merge PR #24.
-2. OWNER: run the signed bin/64 simplewall.exe -gui manually (SAC
-   click-through) -> the M1/M2 checklist (testing-record.md +
-   docs/specs/gui/handoff.md AC-G-1..6).
-3. G-4 remainder: upstream dialog phase-out (AFTER runtime
-   verification - destructive) + residual string sweep.
-4. G-5: full verification + the next signed release.
+1. OWNER: merge PR #24 (green on the lane; the fork's own Actions
+   stays blocked until the one-click fix — the fork-activation banner
+   or the personal selected-repositories policy).
+2. OWNER: run the fresh build locally (SAC click-through) — the M1/M2
+   checklist (testing-record.md + docs/specs/gui/handoff.md AC-G-1..6)
+   — the interactive shell acceptance.
+3. G-4 remainder: upstream dialog phase-out (the runtime evidence now
+   exists; still destructive — do it on a fresh branch).
+4. G-5 final: the next signed release MUST carry the Findings-5/10
+   fixes (three latent-corruption sites in the released v3.9.4).
 
 ## STANDING RULES (paid for repeatedly)
 

@@ -105,25 +105,35 @@
   (each case group flushes the result file) is what made the bisect
   ("enter" on disk, nothing after) decisive.
 
-## Finding 5 — the clean-exit path fastfails (open, backlog)
+## Finding 5 — the clean-exit path fastfails (CLOSED 2026-11-21 — two distinct roots, both fixed, CI-green)
 
 - Symptom: after the selftest's final write, the process still died
-  with 0xC0000409 even though `TerminateProcess(0)` had been reached —
-  no: the death preceded it; with the Finding-2 fix the exit path is
-  expected to be clean, BUT an earlier observation stands: killing via
-  the CRT teardown with the app's live workqueue threads produced a
-  fastfail in a background thread.
-- Status: OPEN — a real clean-exit/keep-or-release question (the
-  uninstall story). Tracked in the owner-decision tracker backlog;
-  the selftest uses TerminateProcess(0) after its final flush so the
-  test verdict is faithful while the product-level question stays open.
-- Update (2026-11-20): Finding 8's root cause (the borrowed-pointer
-  dereference UAF in packs_getpath) is the same corruption class the
-  fail-fast heap checks catch — the first selftest round's 0xC0000409
-  before any flush is now explained as heap corruption, not teardown
-  ordering. Re-verdict at the next CI run: if the exit path comes back
-  clean with the UAF fixed, this finding CLOSES as a duplicate root.
-- Sources: ntdll fastfail class (winnt.h); CI exit-code evidence.
+  with 0xC0000409 even though the exit was expected to be clean.
+- RESOLUTION — TWO roots, both found by the verifier lane's post-mortem
+  cdb and both fixed:
+  1. THE BORROWED-STRING DEREFERENCE (commit 6af56bb3): the cdb
+     !analyze on the run-2 WER dump symbolized the full chain —
+     `_app_packs_statewrite` → (inline) `_r_obj_dereference_ex+0x74` →
+     RtlRaiseStatus (the routine's reference-underflow guard) →
+     unhandled → the crash filter → `_r_app_getcrashdirectory` →
+     RtlAllocateHeap → RtlRbRemoveNode → the heap fail-fast (0x23 =
+     FAST_FAIL_UNEXPECTED_HEAP_EXCEPTION). Root:
+     `_r_obj_finalstringbuilder` returns `sb->string` BORROWED (routine.h
+     FORCEINLINE — the builder owns the only reference; an append may
+     also grow and free the old object). Five composite sites
+     dereferenced the borrowed view (packs statewrite + watermark,
+     ledger, resolver, lockdown) — the released v3.9.4 carried three of
+     them as latent corruption on every sidecar write. Fixed: no manual
+     dereference on borrowed builder views; deletestringbuilder is the
+     only release; re-fetch after appends.
+  2. THE HONEST-EXIT FIX (commit 82e6b3e4): TerminateProcess(0) was
+     unconditional — the exit code could not report assertion
+     failures. The exit code IS the failure count now.
+- Status: CLOSED — run 12 (44860140693): selftest exit 0, TOTAL: 0,
+  the step green, the product-level keep-or-release/uninstall question
+  remains tracked separately (it is a design question, not a crash).
+- Sources: the run-2 cdb stack text (run 44810479327); routine.h
+  finalstringbuilder FORCEINLINE; runs 3-12 exit codes.
 
 ## Finding 6 — _r_sys_getopt matches by PREFIX
 
@@ -166,7 +176,7 @@
    theme toggle — the PNGs are read and judged in the session report.
 
 
-## Finding 8 — the fresh-profile startup freeze on Server 2025 runners (ROOT CAUSE FOUND 2026-11-20)
+## Finding 8 — the fresh-profile startup freeze on Server 2025 runners (CLOSED 2026-11-21 — CI-green after the fix)
 
 - Symptom: after Finding-2's fix, the composite startup completes
   (breadcrumbs prove init:enter -> ... -> init:done) but the process then
@@ -239,9 +249,61 @@
   gate (default OFF - O-8).
 - Impact honesty: the freeze affects the CI verification instruments
   (selftest + testdrive) on fresh runner profiles - NOT the released
-  v3.9.4 on the owner's machine. The CI chain stays honestly RED on the
-  selftest step until the next CI run (owner-gated: Actions dispatch 422,
-  re-enabled at the API layer but still blocked at the account layer).
+  v3.9.4 on the owner's machine.
+- CLOSED (2026-11-21, run 12 = 44860140693): with the UAF fix in, the
+  selftest on the verifier lane (Ph.Sh-Subdomain sw-verifier.yml, the
+  Actions-independent judge) ran to COMPLETION in seconds — no freeze,
+  TOTAL: 0 failures, exit 0, the whole job green. The empirical
+  confirmation the arbiter rule demanded.
+
+## Finding 10 — the packstate round-trip was broken four ways (FOUND + FIXED 2026-11-21, all CI-verified)
+
+- The runs 1/2 crashes (Findings 8/5) had always killed the selftest
+  INSIDE packscases — the very first fully-executed selftest (run 3)
+  reported 23 real failures that no prior run had ever seen. The
+  progression 23→10→9→8→2→1→0 over runs 3-12, each step pinned by a
+  live diagnostic:
+  1. BYTE/CHAR CONFUSION in every composite sidecar writer:
+     `_r_obj_appendstringbuilder_ex` takes BYTE length; the magic
+     headers were written as half their UTF-16 bytes (packs state,
+     packs watermark, ledger, resolver, lockdown), the ledger
+     separator was ONE byte, the ledger rule-line copy used raw
+     wcslen — the packstate store was odd-sized on disk and readwide
+     rejected it before verify even ran (commit 82e6b3e4).
+  2. PR_STRING.length IS ALREADY BYTES: the WriteFile calls wrote 2x
+     the buffer (trailing junk) and the statewrite hash hashed 2x the
+     buffer, so verify never matched (fail-closed-empty on every
+     read-back) (commit 82e6b3e4).
+  3. HeapReAlloc cannot grow a NULL base: every snapshot grow (packs
+     query rows, state query rows, state held rows, and the applyall
+     hash snapshot in production) started at cap 0 with a NULL pointer
+     — the first grow always failed and every snapshot stayed empty;
+     publisher passed only because it does not use the pattern
+     (commit 82e6b3e4). Same class: `_r_obj_addhashtableitem` silently
+     DROPS the write for an existing key — the second holdpending left
+     the held count at 1 (commit 116d1492; fixed by writing through the
+     borrowed value pointer under the exclusive lock).
+  4. WRITER/PARSER FORMAT MISMATCH: the writer emits
+     `filter=<pack_id>|<guid>` but stateparse fed toguid `line+7` (the
+     pack id — scanf cannot parse 't' as hex; the stateparse diagnostic
+     named "refused at line 3" = the first filter line) (commit
+     f74b263b).
+  5. NTFS LastWriteTime COARSENESS: two rewrites inside one FS timer
+     tick share ONE mtime — the mtime-only snapshot key served PRE-
+     TAMPER rows after the overwrite (the tamper check failed while
+     every byte was correct). The invalidation key is (mtime, SIZE)
+     now, both from the same handle-free stat (commit 8150f18e). This
+     is ledger row 44's "mtime snapshot cautions" class WITH its
+     reproduction.
+- Also fixed: two test-expectation defects (the serializer REWRITES the
+  store from the passed list — overwrite, not merge), the decide check
+  became posture-honest (engine-on = created; engine-off = ATOMIC
+  refusal), and the selftest's own diagnostic UAF (the rebuild class
+  computed from the freed list).
+- Methodology note: the debug log DROPS ERROR-level rows (run-8
+  artifact proof) — every diagnostic from here on logs at INFO.
+- Sources: runs 44810479327..44860140693 + their artifacts (WER dumps,
+  debug logs, the 558-byte store stat line) + tools/dump-analyze.py.
 
 ## Finding 9 — the smoke gate's blind spot
 

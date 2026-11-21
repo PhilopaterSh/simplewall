@@ -31,12 +31,20 @@
       missing composite_publisher.h include C4013 x2, unused btn
       C4101) = TRUE 0/0 build. REMAINING: the upstream dialog phase-out
       (DEFERRED until runtime verification - destructive)
-- [ ] G-5 verification: regression + UI procedures + footprint budget
-      (NFR-07, NFR-06, FR-15) — PRE-VERIFIED statically 2026-11-20:
-      Finding 8's root cause found + fixed WITHOUT CI (Actions dispatch
-      still 422): _app_packs_getpath dereferenced a BORROWED
-      _r_app_getprofiledirectory result (the routine static owns the
-      only ref) = UAF whose freed block was reused by the config
-      miss-path's literal "false" — the exact decoded freeze chain;
-      full composite surface audited, one violation total; CI runs the
-      empirical confirmation when the owner re-enables Actions
+- [x] G-5 verification: regression + UI procedures + footprint budget
+      (NFR-07, NFR-06, FR-15) — RUNTIME-VERIFIED 2026-11-21 on the
+      verifier lane (run 12 = 44860140693, fork head 8150f18e): chain
+      gates + build + selftest (TOTAL: 0 failures, exit 0 — exit code
+      IS the failure count) + gui-testdrive (8/8 shots: search, apps,
+      rules, packs, lockdown, log, settings, settings-light) ALL GREEN.
+      The lane (Ph.Sh-Subdomain sw-verifier.yml) exists because the
+      fork's own Actions dispatch is repo-blocked (422 desync — see
+      docs/specs/gui/runtime-judges.md). The verification journey found
+      and fixed SIX root-cause classes (Findings 5/8/10 in
+      testing-record.md): the borrowed-pointer UAF (freeze), the
+      borrowed-finalstringbuilder dereference x5 (exit fastfail),
+      byte/char confusion x5 writers, HeapReAlloc-NULL x4 grows +
+      addhashtableitem's drop-update, the filter-line format mismatch,
+      and NTFS mtime coarseness (mtime+SIZE key). The next signed
+      release MUST carry these fixes (three were latent corruption in
+      the released v3.9.4).
