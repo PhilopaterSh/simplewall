@@ -98,6 +98,9 @@ jobs:
           $actual = (Get-FileHash release-signed.exe -Algorithm SHA256).Hash.ToLower()
           Write-Host "asset sha256 : $actual"
           if ($actual -ne $expected) { Write-Error 'asset hash MISMATCH vs the signed feed record'; exit 1 }
+          # the v2 release cert is a SELF-SIGNED root: install the public
+          # half into the runner's Root store (the documented trust anchor)
+          Import-Certificate -FilePath tools\fork-signing-v2.cer -CertStoreLocation Cert:\LocalMachine\Root | Out-Host
           $signtool = (Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe' | Sort-Object FullName -Descending | Select-Object -First 1).FullName
           & $signtool verify /pa /v release-signed.exe | Out-Host
           if ($LASTEXITCODE -ne 0) { Write-Error 'Authenticode verify FAILED on the release asset'; exit 1 }
