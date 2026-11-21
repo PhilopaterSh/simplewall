@@ -67,6 +67,17 @@ jobs:
           Write-Host "exe OK: $((Get-Item $exe).Length) bytes, SHA256=$h"
           "sha256=$h" | Out-File -Encoding utf8 exe-hash.txt
 
+      # tooling round (FR-05): the REQUIRED preflight gate (CI profile —
+      # the runner builds are unsigned; the release-authoritative checks
+      # run on the signed exe at the release step)
+      - name: Build tool suite (Release x64)
+        shell: cmd
+        run: msbuild tools\preflight.vcxproj -p:Configuration=Release -p:Platform=x64 -p:PlatformToolset=v143 -p:WindowsTargetPlatformVersion=10.0 -p:TreatWarningAsError=false -m -nologo -v:m
+
+      - name: Release preflight (CI profile, C tool)
+        shell: pwsh
+        run: bin/64/preflight.exe bin/64/simplewall.exe --ci --json | Tee-Object -FilePath preflight.json
+
       # composite selftest: the startup verdict (Finding 8's empirical
       # confirmation - the UAF fix in _app_packs_getpath is under test here)
       - name: Composite selftest (query APIs, -gui-selftest)
